@@ -49,17 +49,22 @@ all paths to `index.html` so client-side routes like `/reset-password`
 ## Database
 
 `supabase/migrations/` holds the migrations recorded on CRM+. Most of the
-schema predates migration tracking, so a **baseline** of the current schema
-still needs to be pulled once (it needs the database password, from the
-Supabase dashboard under Project Settings > Database):
+schema predates migration tracking, so `supabase/schema/public.sql` is a
+full snapshot of the `public` schema (tables, functions, triggers, RLS
+policies, grants; no data). It already includes every migration's effect,
+which is why it lives outside `migrations/`. Restore it with `psql`, not
+the SQL editor (pg_dump 18 adds a `\restrict` line only psql understands).
 
-```bash
-npx supabase init                      # creates supabase/config.toml
-npx supabase link --project-ref uadvdqwoumwbsfbrdvse
-npx supabase db pull                   # writes <timestamp>_remote_schema.sql
+To refresh the snapshot (needs the database password, from Database >
+Settings in the Supabase dashboard; pg_dump ships with PostgreSQL):
+
+```powershell
+pg_dump "postgresql://postgres.uadvdqwoumwbsfbrdvse@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres" `
+  --schema-only --schema=public --no-owner -f supabase\schema\public.sql
 ```
 
-After that, every schema change goes in a new migration file committed here.
+Every schema change goes in a new migration file committed here; refresh
+the snapshot afterwards.
 
 Edge Functions live in `supabase/functions/` and are deployed with
 `npx supabase functions deploy admin-users`.
