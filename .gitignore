@@ -1,0 +1,24 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local environment -- never commit keys
+.env
+.env.*
+!.env.example
+
+# Vercel / Supabase local state
+.vercel/
+supabase/.temp/
+supabase/.branches/
+
+# Salesforce CLI metadata (not part of this app)
+.sf/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
