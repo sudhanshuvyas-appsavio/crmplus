@@ -65,8 +65,8 @@ export default function SalesConfirmations() {
     const [r, s, b, c, k, t, ex, tr, jp, o] = await Promise.all([
       supabase.from('sales_confirmations').select('*').order('confirmed_at', { ascending: false }),
       supabase.from('supplier_master').select('id,name,mobile,email,company_id,is_active').order('name'),
-      supabase.from('buyer_master').select('id,name,mobile,email,company_id,is_active').order('name'),
-      supabase.from('companies').select('id,name,is_active').order('name'),
+      supabase.from('buyer_master').select('id,name,mobile,email,company_id,is_active,address,office_phone,gst').order('name'),
+      supabase.from('companies').select('id,name,is_active,phone_1,mobile').order('name'),
       supabase.from('count_master').select('*').order('count_no').order('display_name'),
       supabase.from('payment_terms').select('*').order('name'),
       supabase.rpc('sc_execution_statuses'),

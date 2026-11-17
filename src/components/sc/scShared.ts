@@ -29,8 +29,11 @@ export interface ScNotification {
   batch_id: string | null
 }
 
-export type Party = { id: string; name: string; mobile: string | null; email: string | null; company_id: string | null; is_active: boolean }
-export type Company = { id: string; name: string; is_active: boolean }
+export type Party = {
+  id: string; name: string; mobile: string | null; email: string | null; company_id: string | null; is_active: boolean
+  address?: string | null; office_phone?: string | null; gst?: string | null
+}
+export type Company = { id: string; name: string; is_active: boolean; phone_1?: string | null; mobile?: string | null }
 
 
 export const num = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toLocaleString('en-IN', { maximumFractionDigits: 3 }))

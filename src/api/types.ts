@@ -380,7 +380,8 @@ export const LEAD_ROLES: { value: 'buyer' | 'supplier' | 'both'; label: string }
   { value: 'supplier', label: 'Supplier' },
   { value: 'both', label: 'Both' },
 ]
-export const LEAD_UOMS = ['KG', 'TONS', 'METERS', 'BAGS'] as const
+export const LEAD_UOMS = ['KG', 'BAGS', 'HANKS', 'BALES', 'CARTON', 'CHIPPA', 'METERS', 'TONS'] as const
+export const LEAD_SOURCES = ['Referral', 'Repeat buyer', 'Phone call', 'WhatsApp', 'Email', 'Visit', 'Trade fair', 'Website', 'Other'] as const
 export const LEAD_STATUSES: { value: LeadStatus; label: string }[] = [
   { value: 'new', label: 'New' },
   { value: 'contacted', label: 'Contacted' },
@@ -422,6 +423,13 @@ export interface Lead {
   created_by: string | null
   created_at: string
   updated_at: string
+  // migration 20261117190000
+  lead_type: 'existing' | 'new'
+  lead_source: string | null
+  follow_up_at: string | null
+  timeline_from: string | null
+  timeline_to: string | null
+  mobile_cc: string
 }
 
 /* ---- Station, payment terms, documents, contacts, activity, deals -------- */
@@ -497,7 +505,7 @@ export interface Deal {
   status: string
   lead_id: string | null
   owner_id: string | null
-  buyer_id: string
+  buyer_id: string | null
   supplier_id: string | null
   company_id: string | null
   buyer_gst: string | null

@@ -12,6 +12,7 @@ import {
 } from '../../lib/deals'
 import { CancelControl, NotificationLog } from './NotificationLog'
 import { SendPanel } from './SendPanel'
+import { ScDocuments } from './ScDocuments'
 import type { Company, Names, Party, ScRow } from './scShared'
 
 type Form = {
@@ -228,6 +229,8 @@ export function ConfirmationDrawer({
   }
 
   const transporter = transporters.find((t) => t.id === f.transporter_id)
+  const buyerRow = buyers.find((x) => x.id === f.buyer_id)
+  const buyerUnit = companies.find((c) => c.id === (f.buyer_company_id || buyerRow?.company_id))
   const names: Names = {
     supplier: suppliers.find((x) => x.id === f.supplier_id)?.name ?? '',
     buyer: buyers.find((x) => x.id === f.buyer_id)?.name ?? '',
@@ -276,6 +279,8 @@ export function ConfirmationDrawer({
         </div>
       )}
 
+      {!sc && canManage && <LinkToDeal onLinked={(id, no) => onDone(`${no} created from the deal.`, id)} />}
+
       <fieldset disabled={!canManage || locked || cancelled} className="plain-fieldset">
         <h3 className="section-title">Parties</h3>
         <div className="form-grid">
@@ -304,6 +309,18 @@ export function ConfirmationDrawer({
             </select>
           </Field>
         </div>
+
+        {buyerRow && (
+          <div className="lookup" style={{ marginBottom: 14 }}>
+            <h4>Buyer: {buyerRow.name}</h4>
+            <dl className="kv">
+              <dt>Office address</dt><dd>{buyerRow.address || '—'}</dd>
+              <dt>Office phone</dt><dd>{buyerRow.office_phone ? `+91 ${buyerRow.office_phone}` : '—'}</dd>
+              <dt>GST</dt><dd className="mono">{buyerRow.gst || '—'}</dd>
+              <dt>Business unit phone</dt><dd>{buyerUnit?.phone_1 || buyerUnit?.mobile ? `+91 ${buyerUnit?.phone_1 || buyerUnit?.mobile}` : '—'}</dd>
+            </dl>
+          </div>
+        )}
 
         <h3 className="section-title">Goods, rate and terms</h3>
         <div className="form-grid">
@@ -450,8 +467,49 @@ export function ConfirmationDrawer({
       {complete && !dirty && canManage && sc && !cancelled && (
         <SendPanel sc={sc} names={names} supplier={suppliers.find((x) => x.id === sc.supplier_id) ?? null} buyer={buyers.find((x) => x.id === sc.buyer_id) ?? null} onSent={(text) => onDone(text, sc.id)} />
       )}
+      {sc && <ScDocuments scId={sc.id} canEdit={canManage && !cancelled} />}
       {sc && <NotificationLog sc={sc} canManage={canManage} />}
     </Drawer>
+  )
+}
+
+/** Manual confirmation with "Link to Deal": picking an Approved deal that has
+ *  no confirmation yet creates it from the deal (same as approving would). */
+function LinkToDeal({ onLinked }: { onLinked: (scId: string, scNo: string) => void | Promise<void> }) {
+  const [deals, setDeals] = useState<{ id: string; deal_no: string }[] | null>(null)
+  const [pick, setPick] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => {
+    void supabase.from('crm_deals').select('id,deal_no').eq('status', 'approved').is('sales_confirmation_id', null).order('deal_no')
+      .then(({ data }) => setDeals((data ?? []) as { id: string; deal_no: string }[]))
+  }, [])
+  if (!deals || deals.length === 0) return null
+  async function link() {
+    setBusy(true)
+    setErr(null)
+    const { data, error } = await supabase.rpc('confirm_deal', { p_deal: pick })
+    if (error) {
+      setBusy(false)
+      return setErr(errMessage(error, 'Could not create it from the deal'))
+    }
+    const { data: row } = await supabase.from('sales_confirmations').select('sc_no').eq('id', data as string).maybeSingle()
+    setBusy(false)
+    await onLinked(data as string, (row as { sc_no: string } | null)?.sc_no ?? 'Sales Confirmation')
+  }
+  return (
+    <div className="notice">
+      <Field id="sc-link" label="Link to Deal (optional)" hint="Fills everything from an Approved deal that has no confirmation yet.">
+        <div className="phone-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
+          <select id="sc-link" value={pick} onChange={(e) => setPick(e.target.value)}>
+            <option value="">Not linked: fill in by hand below</option>
+            {deals.map((d) => (<option key={d.id} value={d.id}>{d.deal_no}</option>))}
+          </select>
+          <button className="btn primary" type="button" disabled={!pick || busy} onClick={() => void link()}>{busy ? 'Creating…' : 'Create from deal'}</button>
+        </div>
+      </Field>
+      {err && <p className="field-warn">{err}</p>}
+    </div>
   )
 }
 

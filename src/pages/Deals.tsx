@@ -27,7 +27,11 @@ import {
   COMM_BASES, DEAL_STATUSES, UOMS, commTerms, commission, dealStatus, inr, needsUnitWeight, totalWeight, uomLabel,
 } from '../lib/deals'
 
-type Party = { id: string; name: string; gst: string | null; is_active: boolean; commission_basis: string | null; commission_value: number | null }
+type Party = {
+  id: string; name: string; gst: string | null; is_active: boolean; commission_basis: string | null; commission_value: number | null
+  pan: string | null; contact_person: string | null; mobile: string | null; address: string | null; mill_address: string | null; company_id: string | null
+}
+const PARTY_COLS = 'id,name,gst,is_active,commission_basis,commission_value,pan,contact_person,mobile,address,mill_address,company_id'
 type Company = { id: string; name: string; is_home: boolean; is_active: boolean }
 type Person = { id: string; name: string }
 
@@ -50,7 +54,7 @@ function nextStatuses(d: Deal, canApprove: boolean, isAdmin: boolean): string[] 
 
 const STATUS_MESSAGE: Record<string, string> = {
   manager_approval: 'sent for Manager Approval',
-  approved: 'approved',
+  approved: 'approved; its Sales Confirmation was created',
   reconsider: 'sent back to Reconsider',
   closed_lost: 'closed as lost',
   new_deal: 'moved back to New Deal',
@@ -81,8 +85,8 @@ export default function Deals() {
   const load = useCallback(async () => {
     const [d, b, s, c, t, co, p] = await Promise.all([
       supabase.from('crm_deals').select('*').order('created_at', { ascending: false }),
-      supabase.from('buyer_master').select('id,name,gst,is_active,commission_basis,commission_value').order('name'),
-      supabase.from('supplier_master').select('id,name,gst,is_active,commission_basis,commission_value').order('name'),
+      supabase.from('buyer_master').select(PARTY_COLS).order('name'),
+      supabase.from('supplier_master').select(PARTY_COLS).order('name'),
       supabase.from('count_master').select('*').order('count_no').order('display_name'),
       supabase.from('payment_terms').select('*').order('name'),
       supabase.from('companies').select('id,name,is_home,is_active').order('name'),
@@ -128,7 +132,7 @@ export default function Deals() {
         (!ownerFilter || x.owner_id === ownerFilter) &&
         (!q ||
           x.deal_no.toLowerCase().includes(q) ||
-          (buyerName.get(x.buyer_id) ?? '').toLowerCase().includes(q) ||
+          ((x.buyer_id ? buyerName.get(x.buyer_id) ?? '' : '')).toLowerCase().includes(q) ||
           (x.supplier_id ? supplierName.get(x.supplier_id) ?? '' : '').toLowerCase().includes(q) ||
           (countName.get(x.count_id) ?? '').toLowerCase().includes(q)),
     )
@@ -164,7 +168,7 @@ export default function Deals() {
     const list = (selection.chosen.length > 0 ? shown.filter((x) => selection.isSelected(x.id)) : shown).map((x) => ({
       ...x,
       status: dealStatus(x.status).label,
-      buyer: buyerName.get(x.buyer_id) ?? '',
+      buyer: (x.buyer_id ? buyerName.get(x.buyer_id) ?? '' : ''),
       supplier: x.supplier_id ? supplierName.get(x.supplier_id) ?? '' : '',
       count: countName.get(x.count_id) ?? '',
       uom: uomLabel(x.uom),
@@ -194,7 +198,7 @@ export default function Deals() {
         return <StatusPicker current={cur} options={opts} onPick={(s) => void moveStatus(x, s)} />
       },
     },
-    { key: 'buyer', label: 'Buyer', render: (x) => <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> },
+    { key: 'buyer', label: 'Buyer', render: (x) => x.buyer_id ? <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> : <span className="muted">not picked</span> },
     { key: 'supplier', label: 'Supplier', render: (x) => (x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : <span className="muted">not set</span>) },
     { key: 'count', label: 'Count', render: (x) => <span className="small">{countName.get(x.count_id) ?? '—'}</span> },
     { key: 'qty', label: 'Quantity', align: 'right', render: (x) => <span className="mono">{inr(x.quantity)} {uomLabel(x.uom)}</span> },
@@ -270,7 +274,7 @@ export default function Deals() {
               <span className="mono small">{x.deal_no}</span>
               <Avatar name={x.owner_id ? personName.get(x.owner_id) : undefined} />
             </span>
-            <strong className="kcard-title">{buyerName.get(x.buyer_id) ?? '—'}</strong>
+            <strong className="kcard-title">{x.buyer_id ? buyerName.get(x.buyer_id) ?? '—' : 'Buyer not picked'}</strong>
             <span className="small muted">{x.supplier_id ? `from ${supplierName.get(x.supplier_id) ?? '—'}` : 'supplier not set'}</span>
             <span className="small">{countName.get(x.count_id) ?? ''}</span>
             <span className="kcard-foot mono small">
@@ -390,7 +394,13 @@ function DealPanel({
   const [problems, setProblems] = useState<string[] | null>(null)
   const [sc, setSc] = useState<{ id: string; sc_no: string | null } | null>(null)
   const [orderId, setOrderId] = useState<string | null>(null)
+  const [leadNo, setLeadNo] = useState<string | null>(null)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
+  useEffect(() => {
+    if (!deal?.lead_id) return
+    void supabase.from('leads').select('lead_no').eq('id', deal.lead_id).maybeSingle()
+      .then(({ data }) => setLeadNo((data as { lead_no: string } | null)?.lead_no ?? null))
+  }, [deal?.lead_id])
 
   const approved = deal?.status === 'approved'
   const locked = approved
@@ -435,7 +445,7 @@ function DealPanel({
   const supplier = suppliers.find((x) => x.id === f.supplier_id)
 
   const missing: string[] = []
-  if (!f.buyer_id) missing.push('Buyer')
+
   if (!f.count_id) missing.push('Count')
   if (qty === null || qty <= 0) missing.push('Quantity (above zero)')
   if (f.uom === 'BAGS' && (unitW === null || unitW <= 0)) missing.push('Bag weight')
@@ -447,7 +457,7 @@ function DealPanel({
     setBusy(true)
     setErr(null)
     const payload: Record<string, unknown> = {
-      buyer_id: f.buyer_id,
+      buyer_id: f.buyer_id || null,
       supplier_id: f.supplier_id || null,
       company_id: f.company_id || null,
       payment_term_id: f.payment_term_id || null,
@@ -566,7 +576,7 @@ function DealPanel({
       <fieldset disabled={!editable} className="plain-fieldset">
         <h3 className="section-title">Parties</h3>
         <div className="form-grid">
-          <Field id="d-buyer" label="Buyer" required>
+          <Field id="d-buyer" label="Buyer" hint="From Buyers & Suppliers. Needed before Manager Approval.">
             <select id="d-buyer" value={f.buyer_id} onChange={(e) => pickBuyer(e.target.value)}>
               <option value="">—</option>
               {buyers.filter((x) => x.is_active || x.id === f.buyer_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
@@ -592,10 +602,13 @@ function DealPanel({
           </Field>
         </div>
         {(buyer || supplier) && (
-          <dl className="kv">
-            {buyer && (<><dt>Buyer GST</dt><dd className="mono">{buyer.gst || '—'}</dd></>)}
-            {supplier && (<><dt>Supplier GST</dt><dd className="mono">{supplier.gst || '—'}</dd></>)}
-          </dl>
+          <div className="lookup-grid">
+            {buyer && <PartyLookup title="Buyer" p={buyer} unit={companies.find((c) => c.id === buyer.company_id)?.name} />}
+            {supplier && <PartyLookup title="Supplier" p={supplier} unit={companies.find((c) => c.id === supplier.company_id)?.name} />}
+          </div>
+        )}
+        {deal?.lead_id && (
+          <p className="small muted">From lead <Link className="mono" to="/leads">{leadNo ?? '…'}</Link>.</p>
         )}
 
         <h3 className="section-title">Product</h3>
@@ -693,7 +706,7 @@ function DealPanel({
         )}
         {deal?.status === 'manager_approval' && canApprove && (
           <>
-            <button className="btn primary" type="button" disabled={busy || dirty} onClick={() => void move('approved')}>Approve</button>
+            <button className="btn primary" type="button" disabled={busy || dirty} onClick={() => void move('approved')} title="Approving creates the Sales Confirmation">Approve</button>
             <button className="btn" type="button" disabled={busy || dirty} onClick={() => void move('reconsider')}>Send back to Reconsider</button>
           </>
         )}
@@ -763,6 +776,24 @@ function DealPanel({
       )}
       {deal && <p className="muted small">Last updated {formatDateTime(deal.updated_at)}.</p>}
     </Drawer>
+  )
+}
+
+/** Read-only details from the party master (monday's mirror columns on the Deals board). */
+function PartyLookup({ title, p, unit }: { title: string; p: Party; unit?: string }) {
+  return (
+    <div className="lookup">
+      <h4>{title}: {p.name}</h4>
+      <dl className="kv">
+        <dt>GST</dt><dd className="mono">{p.gst || '—'}</dd>
+        <dt>PAN</dt><dd className="mono">{p.pan || '—'}</dd>
+        <dt>Contact person 1</dt><dd>{p.contact_person || '—'}{p.mobile ? ` · +91 ${p.mobile}` : ''}</dd>
+        <dt>Office address</dt><dd>{p.address || '—'}</dd>
+        <dt>Mill / delivery address</dt><dd>{p.mill_address || '—'}</dd>
+        <dt>Business unit</dt><dd>{unit || '—'}</dd>
+        <dt>Commission</dt><dd>{commTerms(p.commission_basis, p.commission_value)}</dd>
+      </dl>
+    </div>
   )
 }
 
