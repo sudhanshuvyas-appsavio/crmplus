@@ -10,11 +10,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Station, Transporter } from '../api/types'
+import { VEHICLE_TYPES } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
+import { LinkPicker, useLocationOptions } from '../components/LinkPicker'
+import { loadLinkIds, syncLinks } from '../lib/links'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
+import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -32,6 +36,7 @@ const CSV_COLUMNS = [
   'transporter_code', 'name', 'short_name', 'transporter_type', 'station', 'contact_person', 'mobile',
   'contact_person_2', 'mobile_2', 'office_phone', 'res_phone', 'office_address', 'delivery_address',
   'gst', 'state_code', 'state', 'pan', 'bank_account', 'company', 'info', 'remarks', 'is_active',
+  'email', 'vehicle_type', 'vehicle_no_1', 'vehicle_no_2', 'vehicle_no_3', 'bank_account_2',
 ] as const
 
 type Form = {
@@ -56,12 +61,19 @@ type Form = {
   info: string
   remarks: string
   is_active: boolean
+  email: string
+  vehicle_type: string
+  vehicle_no_1: string
+  vehicle_no_2: string
+  vehicle_no_3: string
+  bank_account_2: string
 }
 
 const blank: Form = {
   transporter_type: 'third_party', name: '', short_name: '', station_id: '', office_address: '', delivery_address: '',
   contact_person: '', mobile: '', contact_person_2: '', mobile_2: '', office_phone: '', res_phone: '',
   gst: '', state_code: '', state: '', pan: '', bank_account: '', company_id: '', info: '', remarks: '', is_active: true,
+  email: '', vehicle_type: '', vehicle_no_1: '', vehicle_no_2: '', vehicle_no_3: '', bank_account_2: '',
 }
 
 const fromRow = (r: Transporter): Form => ({
@@ -70,6 +82,8 @@ const fromRow = (r: Transporter): Form => ({
   mobile: r.mobile ?? '', contact_person_2: r.contact_person_2 ?? '', mobile_2: r.mobile_2 ?? '', office_phone: r.office_phone ?? '',
   res_phone: r.res_phone ?? '', gst: r.gst ?? '', state_code: r.state_code ?? '', state: r.state ?? '', pan: r.pan ?? '',
   bank_account: r.bank_account ?? '', company_id: r.company_id ?? '', info: r.info ?? '', remarks: r.remarks ?? '', is_active: r.is_active,
+  email: r.email ?? '', vehicle_type: r.vehicle_type ?? '', vehicle_no_1: r.vehicle_no_1 ?? '', vehicle_no_2: r.vehicle_no_2 ?? '',
+  vehicle_no_3: r.vehicle_no_3 ?? '', bank_account_2: r.bank_account_2 ?? '',
 })
 
 function problems(f: Form): string[] {
@@ -78,6 +92,7 @@ function problems(f: Form): string[] {
   if (f.mobile && !isMobile(f.mobile)) out.push('Mobile (10 digits)')
   if (f.mobile_2 && !isMobile(f.mobile_2)) out.push('Second mobile (10 digits)')
   if (f.gst && !isGst(f.gst)) out.push('GST (15 characters, valid format)')
+  if (f.email.trim() && !f.email.includes('@')) out.push('Email (must contain @)')
   if (f.pan && f.pan.trim().length !== 10) out.push('PAN (10 characters)')
   if (f.gst && f.state_code && f.gst.slice(0, 2) !== f.state_code) out.push('State code (must match the first two digits of the GST)')
   return out
@@ -92,6 +107,8 @@ const payload = (f: Form) => {
     res_phone: t(f.res_phone), gst: t(f.gst.toUpperCase()), state_code: t(f.state_code), state: t(f.state),
     pan: t(f.pan.toUpperCase()), bank_account: t(f.bank_account), company_id: f.company_id || null,
     info: t(f.info), remarks: t(f.remarks), is_active: f.is_active,
+    email: t(f.email), vehicle_type: f.vehicle_type || null, vehicle_no_1: t(f.vehicle_no_1.toUpperCase()),
+    vehicle_no_2: t(f.vehicle_no_2.toUpperCase()), vehicle_no_3: t(f.vehicle_no_3.toUpperCase()), bank_account_2: t(f.bank_account_2),
   }
 }
 
@@ -105,6 +122,7 @@ export default function Transporters() {
   const [editing, setEditing] = useState<Transporter | 'new' | null>(null)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -132,11 +150,19 @@ export default function Transporters() {
     return (rows ?? []).filter(
       (x) =>
         (!typeFilter || x.transporter_type === typeFilter) &&
+        (!statusFilter || (statusFilter === 'active') === x.is_active) &&
         (!q ||
-          [x.name, x.short_name, x.transporter_code, x.contact_person, x.mobile, x.gst, x.pan, x.station_id ? stationName.get(x.station_id) : '']
+          [x.name, x.short_name, x.transporter_code, x.contact_person, x.mobile, x.gst, x.pan, x.email, x.vehicle_type, x.vehicle_no_1, x.vehicle_no_2, x.vehicle_no_3, x.station_id ? stationName.get(x.station_id) : '']
             .some((v) => (v ?? '').toLowerCase().includes(q))),
     )
-  }, [rows, search, typeFilter, stationName])
+  }, [rows, search, typeFilter, statusFilter, stationName])
+
+  const paging = usePaging(shown, [search, typeFilter, statusFilter].join('|'))
+
+  const filterDefs: FilterDef[] = [
+    { name: 'type', label: 'Type', allLabel: 'All types', options: TYPES },
+    { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
+  ]
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
 
@@ -186,6 +212,9 @@ export default function Transporters() {
           gst, state_code: r.get('state_code') || gst.slice(0, 2), state: r.get('state') || GST_STATES[gst.slice(0, 2)] || '',
           pan: r.get('pan').toUpperCase(), bank_account: r.get('bank_account'), company_id: company?.id ?? '',
           info: r.get('info'), remarks: r.get('remarks'), is_active: parseBool(r.get('is_active'), true),
+          email: r.get('email'), vehicle_type: pickOne('Vehicle type', r.get('vehicle_type'), VEHICLE_TYPES.map((v) => v.value)),
+          vehicle_no_1: r.get('vehicle_no_1'), vehicle_no_2: r.get('vehicle_no_2'), vehicle_no_3: r.get('vehicle_no_3'),
+          bank_account_2: r.get('bank_account_2'),
         }
         const missing = problems(f)
         if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
@@ -207,17 +236,28 @@ export default function Transporters() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <h1>Transportation</h1>
-          <p className="page-sub">Transporters, whether our own resource or a third party.</p>
-        </div>
+      <GridToolbar
+        title="Transport Company"
+        total={rows.length}
+        singular="transporter"
+        plural="transporters"
+        query={search}
+        onQuery={setSearch}
+        searchPlaceholder="Search name, code, contact, mobile, email, vehicle, GST, PAN or station"
+        filters={filterDefs}
+        values={{ type: typeFilter, status: statusFilter }}
+        onFilter={(name, value) => (name === 'type' ? setTypeFilter(value) : setStatusFilter(value))}
+        onClear={() => {
+          setTypeFilter('')
+          setStatusFilter('')
+        }}
+      >
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing('new')}>
             New transporter
           </button>
         )}
-      </header>
+      </GridToolbar>
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -242,44 +282,37 @@ export default function Transporters() {
       />
       <ImportIssues results={importResults} />
 
-      <div className="form-grid" style={{ maxWidth: 560 }}>
-        <div className="field">
-          <input aria-label="Search transporters" placeholder="Search name, code, contact, mobile, GST, PAN or station" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <div className="field">
-          <select aria-label="Filter by type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="">All types</option>
-            {TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
-          </select>
-        </div>
-      </div>
-
-      {shown.length === 0 ? (
-        <div className="card pad empty">{rows.length === 0 ? 'No transporters yet.' : 'No transporter matches.'}</div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {canManage && (
+                <th style={{ width: 32 }}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all transporters" />
+                </th>
+              )}
+              <th>Code</th>
+              <th className="left">Transporter</th>
+              <th>Type</th>
+              <th>Vehicle</th>
+              <th>Station</th>
+              <th>Contact</th>
+              <th>Mobile</th>
+              <th>GST</th>
+              <th>Company</th>
+              <th>Status</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.length === 0 ? (
               <tr>
-                {canManage && (
-                  <th style={{ width: 32 }}>
-                    <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all transporters" />
-                  </th>
-                )}
-                <th>Code</th>
-                <th>Transporter</th>
-                <th>Type</th>
-                <th>Station</th>
-                <th>Contact</th>
-                <th>Mobile</th>
-                <th>GST</th>
-                <th>Company</th>
-                <th>Status</th>
-                <th>Updated</th>
+                <td className="empty" colSpan={canManage ? 12 : 11}>
+                  {rows.length === 0 ? 'No transporters yet.' : 'No transporter matches.'}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {shown.map((x) => (
+            ) : (
+              paging.visible.map((x) => (
                 <tr key={x.id} className="clickable" onClick={() => setEditing(x)}>
                   {canManage && (
                     <td onClick={(e) => e.stopPropagation()}>
@@ -287,13 +320,14 @@ export default function Transporters() {
                     </td>
                   )}
                   <td className="mono small">{x.transporter_code}</td>
-                  <td>
+                  <td className="left">
                     <strong>{x.name}</strong>
                     {x.short_name && <span className="muted small"> · {x.short_name}</span>}
                   </td>
                   <td>
                     <span className="chip">{x.transporter_type === 'internal' ? 'Internal' : 'Third party'}</span>
                   </td>
+                  <td className="small">{x.vehicle_type ? <span className="chip">{VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type}</span> : '—'}</td>
                   <td className="small">{x.station_id ? stationName.get(x.station_id) ?? '—' : '—'}</td>
                   <td className="small">{x.contact_person ?? '—'}</td>
                   <td className="mono small">{x.mobile ?? '—'}</td>
@@ -302,11 +336,11 @@ export default function Transporters() {
                   <td>{x.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
                   <td className="mono small">{formatDateTime(x.updated_at)}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {editing && (
         <TransporterDrawer
@@ -323,6 +357,8 @@ export default function Transporters() {
           }}
         />
       )}
+
+      <GridPager {...paging.pager} singular="transporter" plural="transporters" />
     </>
   )
 }
@@ -341,8 +377,20 @@ function TransporterDrawer({
   const [tab, setTab] = useState<'account' | 'info' | 'remarks'>('account')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const locationOptions = useLocationOptions()
+  const [locationIds, setLocationIds] = useState<string[]>([])
+  const [linksLoaded, setLinksLoaded] = useState(!row)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
   const missing = problems(f)
+
+  useEffect(() => {
+    if (!row) return
+    let live = true
+    loadLinkIds('location', 'transporter', row.id)
+      .then((ids) => { if (live) { setLocationIds(ids); setLinksLoaded(true) } })
+      .catch(() => { if (live) setErr("Could not load this record's locations.") })
+    return () => { live = false }
+  }, [row])
 
   /** Typing a GSTIN fills the state code, state and PAN that it carries. */
   function setGst(value: string) {
@@ -366,10 +414,25 @@ function TransporterDrawer({
     const { data, error } = row
       ? await supabase.from('transporters').update(payload(f)).eq('id', row.id).select('id')
       : await supabase.from('transporters').insert(payload(f)).select('id')
+    if (error) {
+      setBusy(false)
+      return setErr(errMessage(error, 'Could not save this transporter'))
+    }
+    if (!data || data.length === 0) {
+      setBusy(false)
+      return setErr('Your account cannot change this transporter.')
+    }
+    const saved = row ? `${f.name.trim()} updated.` : `${f.name.trim()} added.`
+    let linkFailed = false
+    if (row ? linksLoaded : locationIds.length > 0) {
+      try {
+        await syncLinks('location', 'transporter', data[0]!.id as string, locationIds)
+      } catch {
+        linkFailed = true
+      }
+    }
     setBusy(false)
-    if (error) return setErr(errMessage(error, 'Could not save this transporter'))
-    if (!data || data.length === 0) return setErr('Your account cannot change this transporter.')
-    await onDone(row ? `${f.name.trim()} updated.` : `${f.name.trim()} added.`)
+    await onDone(linkFailed ? `${saved} The record saved, but its locations could not be saved; open it again to retry.` : saved)
   }
 
   async function remove() {
@@ -404,6 +467,24 @@ function TransporterDrawer({
               {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
             </select>
           </Field>
+          <Field id="t-vtype" label="Vehicle type">
+            <select id="t-vtype" value={f.vehicle_type} onChange={(e) => set('vehicle_type', e.target.value)}>
+              <option value="">—</option>
+              {VEHICLE_TYPES.map((v) => (<option key={v.value} value={v.value}>{v.label}</option>))}
+            </select>
+          </Field>
+          <Field id="t-v1" label="Vehicle no. 1">
+            <input id="t-v1" className="mono" value={f.vehicle_no_1} onChange={(e) => set('vehicle_no_1', e.target.value.toUpperCase())} />
+          </Field>
+          <Field id="t-v2" label="Vehicle no. 2">
+            <input id="t-v2" className="mono" value={f.vehicle_no_2} onChange={(e) => set('vehicle_no_2', e.target.value.toUpperCase())} />
+          </Field>
+          <Field id="t-v3" label="Vehicle no. 3">
+            <input id="t-v3" className="mono" value={f.vehicle_no_3} onChange={(e) => set('vehicle_no_3', e.target.value.toUpperCase())} />
+          </Field>
+          <Field id="t-email" label="Email">
+            <input id="t-email" type="email" value={f.email} onChange={(e) => set('email', e.target.value)} />
+          </Field>
           <Field id="t-cp" label="Contact person">
             <input id="t-cp" value={f.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
           </Field>
@@ -423,6 +504,15 @@ function TransporterDrawer({
             <input id="t-rphone" className="mono" value={f.res_phone} onChange={(e) => set('res_phone', e.target.value)} />
           </Field>
         </div>
+        <LinkPicker
+          id="t-locations"
+          label="Locations"
+          hint="Optional: the stations this transporter serves."
+          options={locationOptions}
+          value={locationIds}
+          onChange={setLocationIds}
+          disabled={!canManage}
+        />
         <Field id="t-oaddr" label="Office address">
           <textarea id="t-oaddr" rows={3} value={f.office_address} onChange={(e) => set('office_address', e.target.value)} />
         </Field>
@@ -454,6 +544,9 @@ function TransporterDrawer({
             </Field>
             <Field id="t-bank" label="Bank A/c. No.">
               <textarea id="t-bank" rows={3} value={f.bank_account} onChange={(e) => set('bank_account', e.target.value)} />
+            </Field>
+            <Field id="t-bank2" label="Bank A/c. No. 2">
+              <textarea id="t-bank2" rows={3} value={f.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
             </Field>
           </div>
         )}

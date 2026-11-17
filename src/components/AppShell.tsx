@@ -81,11 +81,8 @@ const NAV: NavSection[] = [
     id: 'mdm',
     heading: 'Master data',
     items: [
-      { to: '/contacts', label: 'Buyers & Suppliers', icon: I.people, anyOf: ['buyer.manage', 'mill.manage', 'lead.manage', 'lead.qualify'] },
-      { to: '/counts', label: 'Counts', icon: I.grid, anyOf: ['article.manage', 'lead.manage', 'lead.qualify'] },
-      { to: '/payment-terms', label: 'Payment Terms', icon: I.card, anyOf: ['deal.read', 'lead.manage', 'settings.manage'] },
-      { to: '/transportation', label: 'Transport Company', icon: I.truck, anyOf: ['transport.read', 'transport.manage'] },
-      { to: '/job-process', label: 'Job process', icon: I.factory, anyOf: ['jobprocess.read', 'jobprocess.manage'] },
+      // one hub for every MDM register (parties, business units, counts, transport, locations, delivery addresses, payment terms)
+      { to: '/master-data', label: 'Master data', icon: 'M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2zM4 6v6c0 1.1 3.6 2 8 2s8-.9 8-2V6M4 12v6c0 1.1 3.6 2 8 2s8-.9 8-2v-6' },
       { to: '/mailing-list', label: 'Mailing list', icon: I.mail, anyOf: ['buyer.manage', 'mill.manage'] },
     ],
   },
@@ -114,7 +111,6 @@ const NAV: NavSection[] = [
     heading: 'Administration',
     startClosed: true,
     items: [
-      { to: '/companies', label: 'Companies', icon: I.factory },
       { to: '/staff-efficiency', label: 'Staff efficiency', icon: I.chart, permission: 'user.manage' },
       { to: '/users', label: 'Users & permissions', icon: I.users, permission: 'user.manage' },
       { to: '/audit', label: 'Audit log', icon: I.audit, permission: 'audit.view' },

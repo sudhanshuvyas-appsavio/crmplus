@@ -25,8 +25,11 @@ export function Drawer({
       <aside className="drawer" role="dialog" aria-label={title}>
         <header className="drawer-head">
           <h2>{title}</h2>
-          <button className="btn ghost sm" type="button" onClick={onClose}>
-            Close
+          <button className="btn ghost sm" type="button" onClick={onClose} aria-label="Close">
+            <span className="drawer-close-text">Close</span>
+            <svg className="drawer-close-x" aria-hidden="true" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+            </svg>
           </button>
         </header>
         <div className="drawer-body">{children}</div>

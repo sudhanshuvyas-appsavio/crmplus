@@ -3,11 +3,12 @@
  *  an advance percentage and a description. Reading needs deal/lead access;
  *  changing the list needs "Change system settings". */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { PaymentTerm } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
+import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
@@ -20,6 +21,7 @@ export default function PaymentTerms() {
   const canEdit = can('settings.manage')
   const [rows, setRows] = useState<PaymentTerm[] | null>(null)
   const [editing, setEditing] = useState<PaymentTerm | 'new' | null>(null)
+  const [search, setSearch] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
 
   const load = useCallback(async () => {
@@ -31,58 +33,15 @@ export default function PaymentTerms() {
     void load()
   }, [load])
 
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return (rows ?? []).filter((r) => !q || [r.name, r.description].some((v) => (v ?? '').toLowerCase().includes(q)))
+  }, [rows, search])
+  const paging = usePaging(shown, search)
+
   if (!rows) return <Loading label="Loading payment terms" />
   return (
     <>
-      <header className="page-head">
-        <div>
-          <h1>Payment terms</h1>
-          <p className="page-sub">Terms a deal can be agreed on, such as “30 days” or “50% advance, balance on delivery”.</p>
-        </div>
-        {canEdit && (
-          <button className="btn primary" type="button" onClick={() => setEditing('new')}>
-            Add a payment term
-          </button>
-        )}
-      </header>
-      {banner && (
-        <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
-          {banner.text}
-          <button className="btn ghost sm" type="button" onClick={() => setBanner(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {rows.length === 0 ? (
-        <div className="card pad empty">No payment terms yet.</div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th className="right">Credit days</th>
-                <th className="right">Advance %</th>
-                <th>Description</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className={canEdit ? 'clickable' : ''} onClick={() => canEdit && setEditing(r)}>
-                  <td>
-                    <strong>{r.name}</strong>
-                  </td>
-                  <td className="right mono">{r.days}</td>
-                  <td className="right mono">{r.advance_pct}</td>
-                  <td className="small">{r.description ?? '—'}</td>
-                  <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
       {editing && canEdit && (
         <TermDrawer
           key={editing === 'new' ? 'new' : editing.id}
@@ -95,6 +54,63 @@ export default function PaymentTerms() {
           }}
         />
       )}
+
+      <GridToolbar
+        title="Payment Terms"
+        total={rows.length}
+        singular="payment term"
+        plural="payment terms"
+        query={search}
+        onQuery={setSearch}
+      >
+        {canEdit && (
+          <button className="btn primary" type="button" onClick={() => setEditing('new')}>
+            New payment term
+          </button>
+        )}
+      </GridToolbar>
+      {banner && (
+        <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
+          {banner.text}
+          <button className="btn ghost sm" type="button" onClick={() => setBanner(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th className="left">Name</th>
+              <th>Credit days</th>
+              <th>Advance %</th>
+              <th>Description</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paging.visible.map((r) => (
+              <tr key={r.id} className={canEdit ? 'clickable' : ''} onClick={() => canEdit && setEditing(r)}>
+                <td className="left">
+                  <strong>{r.name}</strong>
+                </td>
+                <td className="mono">{r.days}</td>
+                <td className="mono">{r.advance_pct}</td>
+                <td className="small">{r.description ?? '—'}</td>
+                <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
+              </tr>
+            ))}
+            {shown.length === 0 && (
+              <tr>
+                <td className="empty" colSpan={5}>
+                  {rows.length === 0 ? 'No payment terms yet.' : 'No payment term matches that search.'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <GridPager {...paging.pager} singular="payment term" plural="payment terms" />
     </>
   )
 }
