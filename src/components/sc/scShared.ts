@@ -42,6 +42,8 @@ export type Names = {
   buyerCompany: string
   count: string
   term: string
+  transporter?: string
+  deliveryTo?: string
 }
 
 /** The confirmation text shared with a party. Same sheet for both, different opening line. */
@@ -62,9 +64,17 @@ export function messageFor(who: 'supplier' | 'buyer', sc: ScRow, n: Names): { su
   if (sc.bag_weight) lines.push(`Bag weight: ${num(sc.bag_weight)} kg`)
   lines.push(`Freight: ${sc.freight === 'included' ? 'Included' : 'Excluded'}`)
   if (sc.price_basis) lines.push(`Basis: ${sc.price_basis === 'net' ? 'Net' : 'Ex-mill'}`)
-  if (sc.rate !== null) lines.push(`Rate: ${num(sc.rate)} per ${sc.uom}`)
+  if (sc.rate !== null) lines.push(`Rate: ${num(sc.rate)} per kg`)
   if (n.term) lines.push(`Payment terms: ${n.term}`)
+  lines.push(`Type: ${sc.sale_type === 'export' ? 'Export' : 'Local'}`)
+  if (n.deliveryTo) lines.push(`Deliver to: ${n.deliveryTo}`)
   if (sc.delivery_schedule) lines.push(`Delivery schedule: ${sc.delivery_schedule}`)
+  if (n.transporter || sc.vehicle_no || sc.driver_phone) {
+    lines.push('', 'Delivery details')
+    if (n.transporter) lines.push(`Transport: ${n.transporter}`)
+    if (sc.vehicle_no) lines.push(`Vehicle no.: ${sc.vehicle_no}`)
+    if (sc.driver_phone) lines.push(`Driver phone: ${sc.driver_phone}`)
+  }
   if (sc.special_instructions) lines.push(`Special instructions: ${sc.special_instructions}`)
   if (sc.remarks) lines.push(`Remarks: ${sc.remarks}`)
   return { subject: `Sales confirmation ${sc.sc_no}`, body: lines.join('\n') }

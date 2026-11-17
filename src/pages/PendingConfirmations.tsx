@@ -1,6 +1,6 @@
 /** Pending confirmations report.
  *
- *  Every deal that has not reached Confirmed yet, so a sales manager can chase
+ *  Every open deal that has no Sales Confirmation yet, so a sales manager can chase
  *  it. Filters: buyer, supplier, date range (deal created), our company,
  *  count, and payment terms (Cash = 0 credit days, Credit = more than 0).
  *  Days pending = whole days since the deal was created. */
@@ -12,19 +12,13 @@ import type { CountRow, Deal, PaymentTerm } from '../api/types'
 import { Loading } from '../components/Loading'
 import { useProfileNames } from '../components/PartyExtras'
 import { downloadCSV, toCSV } from '../lib/csv'
+import { dealStatus, uomLabel } from '../lib/deals'
+import { StatusPill } from '../components/board/Board'
 import { errMessage } from '../lib/party'
 
 type Named = { id: string; name: string }
 
-const STAGE: Record<string, string> = {
-  draft: 'Draft',
-  rate_discussion: 'Rate Discussion',
-  supplier_confirmed: 'Supplier Confirmed',
-  buyer_confirmed: 'Buyer Confirmed',
-  approved: 'Approved',
-}
-
-const CSV_COLUMNS = ['deal_no', 'stage', 'buyer', 'supplier', 'count', 'quantity', 'uom', 'buyer_rate', 'supplier_rate', 'payment_terms', 'payment_type', 'sales_staff', 'created', 'days_pending'] as const
+const CSV_COLUMNS = ['deal_no', 'stage', 'buyer', 'supplier', 'count', 'quantity', 'uom', 'final_rate', 'deal_value', 'payment_terms', 'payment_type', 'sales_staff', 'created', 'days_pending'] as const
 
 const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toLocaleString('en-IN', { maximumFractionDigits: 2 }))
 const termType = (t: PaymentTerm | undefined) => (!t ? 'Not set' : t.days > 0 ? 'Credit' : 'Cash')
@@ -50,7 +44,7 @@ export default function PendingConfirmations() {
   useEffect(() => {
     void (async () => {
       const [d, b, s, c, k, t] = await Promise.all([
-        supabase.from('crm_deals').select('*').neq('status', 'confirmed').order('created_at'),
+        supabase.from('crm_deals').select('*').is('sales_confirmation_id', null).neq('status', 'closed_lost').order('created_at'),
         supabase.from('buyer_master').select('id,name').order('name'),
         supabase.from('supplier_master').select('id,name').order('name'),
         supabase.from('companies').select('id,name').order('name'),
@@ -93,8 +87,8 @@ export default function PendingConfirmations() {
     const list = rows.map(({ deal: x, days }) => {
       const t = termOf(x.payment_term_id)
       return {
-        deal_no: x.deal_no, stage: STAGE[x.status] ?? x.status, buyer: nm(buyers, x.buyer_id), supplier: nm(suppliers, x.supplier_id),
-        count: countName.get(x.count_id) ?? '', quantity: x.quantity, uom: x.uom, buyer_rate: x.buyer_rate ?? '', supplier_rate: x.supplier_rate ?? '',
+        deal_no: x.deal_no, stage: dealStatus(x.status).label, buyer: nm(buyers, x.buyer_id), supplier: nm(suppliers, x.supplier_id),
+        count: countName.get(x.count_id) ?? '', quantity: x.quantity, uom: uomLabel(x.uom), final_rate: x.final_rate ?? '', deal_value: x.deal_value ?? '',
         payment_terms: t?.name ?? '', payment_type: termType(t), sales_staff: (x.owner_id && names[x.owner_id]) || '',
         created: x.created_at.slice(0, 10), days_pending: days,
       }
@@ -139,7 +133,7 @@ export default function PendingConfirmations() {
             <thead>
               <tr>
                 <th>Deal no.</th><th>Stage</th><th>Buyer</th><th>Supplier</th><th>Count</th><th className="right">Quantity</th>
-                <th className="right">Buyer rate</th><th className="right">Supplier rate</th><th>Payment terms</th><th>Sales staff</th><th className="right">Days pending</th>
+                <th className="right">Final rate</th><th className="right">Value</th><th>Payment terms</th><th>Sales staff</th><th className="right">Days pending</th>
               </tr>
             </thead>
             <tbody>
@@ -148,13 +142,13 @@ export default function PendingConfirmations() {
                 return (
                   <tr key={x.id}>
                     <td className="mono"><Link to={`/deals?open=${x.id}`}>{x.deal_no}</Link></td>
-                    <td><span className="chip warn">{STAGE[x.status] ?? x.status}</span></td>
+                    <td><StatusPill label={dealStatus(x.status).label} tone={dealStatus(x.status).tone} /></td>
                     <td>{nm(buyers, x.buyer_id)}</td>
                     <td>{nm(suppliers, x.supplier_id)}</td>
                     <td className="small">{countName.get(x.count_id) ?? '—'}</td>
-                    <td className="right mono">{money(x.quantity)} {x.uom}</td>
-                    <td className="right mono">{money(x.buyer_rate)}</td>
-                    <td className="right mono">{money(x.supplier_rate)}</td>
+                    <td className="right mono">{money(x.quantity)} {uomLabel(x.uom)}</td>
+                    <td className="right mono">{money(x.final_rate)}</td>
+                    <td className="right mono">{money(x.deal_value)}</td>
                     <td className="small">{t ? `${t.name} · ${termType(t)}` : '—'}</td>
                     <td className="small">{(x.owner_id && names[x.owner_id]) || '—'}</td>
                     <td className="right mono"><strong>{days}</strong></td>

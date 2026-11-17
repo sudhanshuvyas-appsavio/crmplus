@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Loading } from '../components/Loading'
 import { errMessage } from '../lib/party'
+import { dealStatus } from '../lib/deals'
 
 interface Dash {
   as_of: string
@@ -20,7 +21,7 @@ interface Dash {
   revenue?: { this_month: number; last_month: number; invoices: number }
 }
 
-const STAGE: Record<string, string> = { draft: 'Draft', rate_discussion: 'Rate Discussion', supplier_confirmed: 'Supplier Confirmed', buyer_confirmed: 'Buyer Confirmed', approved: 'Approved' }
+const STAGE = (s: string) => dealStatus(s).label
 const num = (n: number) => Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
 function Tile({ title, value, sub, to, link, flag }: { title: string; value: string; sub: ReactNode; to: string; link: string; flag?: string }) {
@@ -74,7 +75,7 @@ export default function SalesDashboard() {
           sub={`${L.new} new, ${L.pending - L.new} contacted. ${L.no_follow_up_date} without a follow-up date.`} />}
         {C && <Tile title="Pending confirmations" value={String(C.pending)} to="/pending-confirmations" link="Open pending confirmations"
           flag={C.older_than_7_days > 0 ? `${C.older_than_7_days} older than 7 days` : undefined}
-          sub={Object.keys(C.by_stage).length === 0 ? 'Every deal is confirmed.' : Object.entries(C.by_stage).map(([k, v]) => `${STAGE[k] ?? k} ${v}`).join(' · ')} />}
+          sub={Object.keys(C.by_stage).length === 0 ? 'Every deal is confirmed.' : Object.entries(C.by_stage).map(([k, v]) => `${STAGE(k)} ${v}`).join(' · ')} />}
         {P && <Tile title="Pending dispatch" value={String(P.pending)} to="/pending-dispatches" link="Open pending dispatches"
           flag={P.overdue > 0 ? `${P.overdue} past dispatch date` : undefined}
           sub={`Orders with quantity still to send. Balance ${num(P.balance_qty)} in total.`} />}

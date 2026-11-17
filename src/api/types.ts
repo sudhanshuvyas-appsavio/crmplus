@@ -415,14 +415,27 @@ export interface Deal {
   sales_confirmation_id: string | null
   created_at: string
   updated_at: string
+  // monday-model fields (migration 20261117150000)
+  manager_id: string | null
+  final_rate: number | null
+  buyer_comm_basis: string | null
+  buyer_comm_value: number | null
+  supplier_comm_basis: string | null
+  supplier_comm_value: number | null
+  total_weight: number | null
+  deal_value: number | null
+  buyer_commission: number | null
+  supplier_commission: number | null
+  lost_reason: string | null
+  status_changed_at: string | null
 }
 
 export interface Order {
   id: string
   order_no: string
   order_date: string
-  status: 'draft' | 'confirmed' | 'open_for_execution' | 'closed'
-  deal_id: string
+  status: 'draft' | 'confirmed' | 'open_for_execution' | 'closed' | 'cancelled'
+  deal_id: string | null
   sales_confirmation_id: string
   buyer_id: string
   supplier_id: string
@@ -449,6 +462,33 @@ export interface Order {
   closed_at: string | null
   created_at: string
   updated_at: string
+  // monday-model fields (migration 20261117170000)
+  dispatch_status: 'draft' | 'in_progress' | 'partially_dispatched' | 'fully_dispatched' | 'cancelled' | 'returned'
+  dispatched_qty: number
+  invoice_no: string | null
+  invoice_date: string | null
+  sale_type: 'local' | 'export'
+  transport_type: string | null
+  transporter_id: string | null
+  vehicle_no: string | null
+  driver_phone: string | null
+  person_id: string | null
+  final_rate: number | null
+  buyer_comm_basis: string | null
+  buyer_comm_value: number | null
+  supplier_comm_basis: string | null
+  supplier_comm_value: number | null
+  total_weight: number | null
+  order_value: number | null
+  buyer_commission: number | null
+  supplier_commission: number | null
+  cgst_pct: number | null
+  insurance_pct: number | null
+  add_amount: number | null
+  deduct_amount: number | null
+  round_off: number | null
+  total_amount: number | null
+  cancelled_at: string | null
 }
 
 export interface CommissionInvoice {
@@ -517,6 +557,22 @@ export interface OrderDispatch {
   transporter_paid_on: string | null
   transporter_payment_ref: string | null
   created_at: string
+  // monday-model fields (migration 20261117170000)
+  invoice_date: string | null
+  dc_no: string | null
+  delivery_date: string | null
+  transport_type: string | null
+  person_id: string | null
+  total_weight: number | null
+  entry_value: number | null
+  buyer_commission: number | null
+  supplier_commission: number | null
+  cgst_pct: number | null
+  insurance_pct: number | null
+  add_amount: number | null
+  deduct_amount: number | null
+  round_off: number | null
+  total_amount: number | null
 }
 
 export interface OrderPayment {
@@ -612,7 +668,7 @@ export const PROFILE_TEMPLATES: ProfileTemplate[] = [
 
 /* ---- Sales confirmation (T-006) ---------------------------------------------- */
 
-export const SC_UOMS = ['KG', 'TONS', 'METERS', 'BAGS'] as const
+export const SC_UOMS = ['KG', 'BAGS', 'HANKS', 'BALES', 'CARTON', 'CHIPPA', 'METERS', 'TONS'] as const
 
 export interface SalesConfirmation {
   id: string
@@ -637,6 +693,21 @@ export interface SalesConfirmation {
   buyer_notified_at: string | null
   created_at: string
   updated_at: string
+  // monday-model fields (migration 20261117160000)
+  stage: 'draft' | 'send' | 'send_delivery'
+  sale_type: 'local' | 'export'
+  job_process_id: string | null
+  delivery_address: string | null
+  transporter_id: string | null
+  vehicle_no: string | null
+  driver_phone: string | null
+  buyer_comm_basis: string | null
+  buyer_comm_value: number | null
+  supplier_comm_basis: string | null
+  supplier_comm_value: number | null
+  total_weight: number | null
+  sc_value: number | null
+  stage_changed_at: string | null
 }
 
 /* ---- Transportation ---------------------------------------------------------- */

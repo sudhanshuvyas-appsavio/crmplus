@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { SC_UOMS } from '../../api/types'
-import type { CountRow, PaymentTerm } from '../../api/types'
+import type { CountRow, JobProcess, PaymentTerm, Transporter } from '../../api/types'
 import { Drawer, DeleteControl } from '../Drawer'
 import { Field } from '../PartyForms'
+import { StatusPicker } from '../board/Board'
 import { errMessage, numOrNull } from '../../lib/party'
 import { formatDateTime } from '../../lib/format'
+import {
+  COMM_BASES, SALE_TYPES, SC_STAGES, UOMS, commTerms, commission, dispatchStatus, inr, scGroup, scStage, totalWeight,
+} from '../../lib/deals'
 import { CancelControl, NotificationLog } from './NotificationLog'
 import { SendPanel } from './SendPanel'
 import type { Company, Names, Party, ScRow } from './scShared'
@@ -27,7 +31,19 @@ type Form = {
   price_basis: '' | 'ex_mill' | 'net'
   delivery_schedule: string
   special_instructions: string
+  sale_type: 'local' | 'export'
+  job_process_id: string
+  delivery_address: string
+  transporter_id: string
+  vehicle_no: string
+  driver_phone: string
+  buyer_comm_basis: string
+  buyer_comm_value: string
+  supplier_comm_basis: string
+  supplier_comm_value: string
 }
+
+const str = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n))
 
 function toForm(sc: ScRow | null): Form {
   return {
@@ -37,32 +53,48 @@ function toForm(sc: ScRow | null): Form {
     buyer_company_id: sc?.buyer_company_id ?? '',
     count_id: sc?.count_id ?? '',
     uom: sc?.uom ?? 'KG',
-    quantity: sc?.quantity != null ? String(sc.quantity) : '',
-    net_quantity: sc?.net_quantity != null ? String(sc.net_quantity) : '',
+    quantity: str(sc?.quantity),
+    net_quantity: str(sc?.net_quantity),
     freight: sc?.freight ?? 'excluded',
-    bag_weight: sc?.bag_weight != null ? String(sc.bag_weight) : '',
-    rate: sc?.rate != null ? String(sc.rate) : '',
+    bag_weight: str(sc?.bag_weight),
+    rate: str(sc?.rate),
     payment_term_id: sc?.payment_term_id ?? '',
     remarks: sc?.remarks ?? '',
     price_basis: sc?.price_basis ?? '',
     delivery_schedule: sc?.delivery_schedule ?? '',
     special_instructions: sc?.special_instructions ?? '',
+    sale_type: sc?.sale_type ?? 'local',
+    job_process_id: sc?.job_process_id ?? '',
+    delivery_address: sc?.delivery_address ?? '',
+    transporter_id: sc?.transporter_id ?? '',
+    vehicle_no: sc?.vehicle_no ?? '',
+    driver_phone: sc?.driver_phone ?? '',
+    buyer_comm_basis: sc?.buyer_comm_basis ?? '',
+    buyer_comm_value: str(sc?.buyer_comm_value),
+    supplier_comm_basis: sc?.supplier_comm_basis ?? '',
+    supplier_comm_value: str(sc?.supplier_comm_value),
   }
 }
 
 export function ConfirmationDrawer({
-  sc, canManage, suppliers, buyers, companies, counts, terms, onClose, onDone,
+  sc, canManage, canOrder, item, suppliers, buyers, companies, counts, terms, transporters, jobs, onClose, onDone,
 }: {
   sc: ScRow | null
   canManage: boolean
+  canOrder: boolean
+  /** Its Dispatch and Billing item, if one exists. */
+  item: { id: string; order_no: string; dispatch_status: string } | null
   suppliers: Party[]
   buyers: Party[]
   companies: Company[]
   counts: CountRow[]
   terms: PaymentTerm[]
+  transporters: Transporter[]
+  jobs: JobProcess[]
   onClose: () => void
   onDone: (message: string, keepOpenId?: string) => void | Promise<void>
 }) {
+  const navigate = useNavigate()
   const [f, setF] = useState<Form>(toForm(sc))
   const [dealNo, setDealNo] = useState<string | null>(null)
   useEffect(() => {
@@ -77,6 +109,12 @@ export function ConfirmationDrawer({
   const net = numOrNull(f.net_quantity)
   const bag = numOrNull(f.bag_weight)
   const rate = numOrNull(f.rate)
+  const bVal = numOrNull(f.buyer_comm_value)
+  const sVal = numOrNull(f.supplier_comm_value)
+  const weight = totalWeight(f.uom, qty, bag)
+  const value = weight !== null && rate !== null ? weight * rate : null
+  const bComm = commission(f.buyer_comm_basis || null, bVal, value, f.uom, qty, weight, bag)
+  const sComm = commission(f.supplier_comm_basis || null, sVal, value, f.uom, qty, weight, bag)
 
   const problems: string[] = []
   if (!f.supplier_id) problems.push('Supplier')
@@ -89,20 +127,25 @@ export function ConfirmationDrawer({
   if (f.uom === 'BAGS' && (bag === null || bag <= 0)) problems.push('Bag weight (needed for BAGS)')
   if (f.bag_weight && (bag === null || bag <= 0)) problems.push('Bag weight (a number above zero)')
   if (f.rate && (rate === null || rate < 0)) problems.push('Rate (a number)')
+  if (f.driver_phone && !/^[0-9+ -]{6,20}$/.test(f.driver_phone.trim())) problems.push('Driver phone (digits only)')
   const locked = !!sc?.deal_id
   if (locked && !f.price_basis) problems.push('Ex-mill / Net')
 
-  /** Picking a contact fills in its company; it can still be changed. */
+  /** Picking a contact fills in its company and commission terms; both can still be changed. */
   function pickParty(side: 'supplier' | 'buyer', id: string) {
     const list = side === 'supplier' ? suppliers : buyers
     const company = list.find((x) => x.id === id)?.company_id ?? ''
     setF((p) => ({ ...p, [`${side}_id`]: id, [`${side}_company_id`]: company || p[`${side}_company_id` as const] }) as Form)
   }
+  function pickJob(id: string) {
+    const j = jobs.find((x) => x.id === id)
+    setF((p) => ({ ...p, job_process_id: id, delivery_address: j ? j.delivery_address || j.office_address || '' : p.delivery_address }))
+  }
 
   async function save() {
     setBusy(true)
     setErr(null)
-    const editable = {
+    const editable: Record<string, unknown> = {
       net_quantity: net ?? qty,
       freight: f.freight,
       price_basis: f.price_basis || null,
@@ -110,6 +153,12 @@ export function ConfirmationDrawer({
       delivery_schedule: f.delivery_schedule.trim() || null,
       special_instructions: f.special_instructions.trim() || null,
       remarks: f.remarks.trim() || null,
+      sale_type: f.sale_type,
+      job_process_id: f.job_process_id || null,
+      delivery_address: f.delivery_address.trim() || null,
+      transporter_id: f.transporter_id || null,
+      vehicle_no: f.vehicle_no.trim() || null,
+      driver_phone: f.driver_phone.trim() || null,
     }
     const payload = locked ? editable : {
       ...editable,
@@ -122,6 +171,9 @@ export function ConfirmationDrawer({
       quantity: qty,
       rate,
       payment_term_id: f.payment_term_id || null,
+      // blank on a new manual confirmation: the database takes each party's master terms
+      ...(sc || f.buyer_comm_basis ? { buyer_comm_basis: f.buyer_comm_basis || null, buyer_comm_value: f.buyer_comm_basis ? bVal : null } : {}),
+      ...(sc || f.supplier_comm_basis ? { supplier_comm_basis: f.supplier_comm_basis || null, supplier_comm_value: f.supplier_comm_basis ? sVal : null } : {}),
     }
     const { data, error } = sc
       ? await supabase.from('sales_confirmations').update(payload).eq('id', sc.id).select('id, sc_no, status')
@@ -132,9 +184,19 @@ export function ConfirmationDrawer({
     if (!row) return setErr('Your account cannot change this confirmation.')
     const ready = row.status === 'confirmed'
     await onDone(
-      `${row.sc_no} ${sc ? 'updated' : 'created'}.${ready ? ' Use "SMS Supplier" and "SMS Buyer" to send it.' : ' It is still a draft: fill in every required field to send it.'}`,
-      ready ? row.id : undefined,
+      `${row.sc_no} ${sc ? 'saved' : 'created'}.${ready ? ' Use “Send to supplier” and “Send to buyer” to send it.' : ' It is still incomplete: fill in every required field to send it.'}`,
+      row.id,
     )
+  }
+
+  async function setStage(stage: string) {
+    if (!sc) return
+    setBusy(true)
+    setErr(null)
+    const { data, error } = await supabase.from('sales_confirmations').update({ stage }).eq('id', sc.id).select('id')
+    setBusy(false)
+    if (error || !data || data.length === 0) return setErr(error ? errMessage(error, 'Could not change the status') : 'Your account cannot change this confirmation.')
+    await onDone(`${sc.sc_no} is now ${scStage(stage).label}.`, sc.id)
   }
 
   async function cancelSc() {
@@ -151,10 +213,21 @@ export function ConfirmationDrawer({
     setBusy(true)
     const { data, error } = await supabase.from('sales_confirmations').delete().eq('id', sc.id).select('id')
     setBusy(false)
-    if (error || !data || data.length === 0) return setErr(error ? errMessage(error) : 'Only drafts can be deleted.')
+    if (error || !data || data.length === 0) return setErr(error ? errMessage(error) : 'Only incomplete drafts can be deleted.')
     await onDone(`${sc.sc_no} deleted.`)
   }
 
+  async function createItem() {
+    if (!sc) return
+    setBusy(true)
+    setErr(null)
+    const { data, error } = await supabase.rpc('create_dispatch_bill', { p_sc: sc.id })
+    setBusy(false)
+    if (error) return setErr(errMessage(error, 'Could not create the Dispatch and Billing item'))
+    navigate(`/orders?open=${data as string}`)
+  }
+
+  const transporter = transporters.find((t) => t.id === f.transporter_id)
   const names: Names = {
     supplier: suppliers.find((x) => x.id === f.supplier_id)?.name ?? '',
     buyer: buyers.find((x) => x.id === f.buyer_id)?.name ?? '',
@@ -162,47 +235,49 @@ export function ConfirmationDrawer({
     buyerCompany: companies.find((x) => x.id === f.buyer_company_id)?.name ?? '',
     count: counts.find((x) => x.id === f.count_id)?.display_name ?? '',
     term: terms.find((x) => x.id === f.payment_term_id)?.name ?? '',
+    transporter: transporter?.name ?? '',
+    deliveryTo: [jobs.find((j) => j.id === f.job_process_id)?.name, f.delivery_address.trim()].filter(Boolean).join(', '),
   }
-  const saved = sc !== null && sc.status === 'confirmed' && problems.length === 0
+  const dirty = sc ? JSON.stringify(f) !== JSON.stringify(toForm(sc)) : true
+  const complete = sc !== null && sc.status === 'confirmed' && problems.length === 0
+  const hasDelivery = !!(sc?.transporter_id || sc?.vehicle_no)
+  const cancelled = sc?.status === 'cancelled'
+
+  const stageOptions = !sc || !canManage || cancelled ? [] : SC_STAGES
+    .filter((s) => s.value !== sc.stage && s.value !== 'cancelled')
+    .filter((s) => s.value === 'draft' || sc.status === 'confirmed')
+    .filter((s) => s.value !== 'send_delivery' || hasDelivery)
 
   const partyOptions = (list: Party[], current: string) =>
-    list.filter((x) => x.is_active || x.id === current).map((x) => (
-      <option key={x.id} value={x.id}>{x.name}</option>
-    ))
+    list.filter((x) => x.is_active || x.id === current).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))
   const companyOptions = (current: string) =>
     companies.filter((c) => c.is_active || c.id === current).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)
 
   return (
-    <Drawer title={sc ? `${sc.sc_no} · ${sc.status === 'confirmed' ? 'Confirmed' : sc.status === 'cancelled' ? 'Cancelled' : 'Draft'}` : 'New sales confirmation'} onClose={onClose}>
+    <Drawer title={sc ? sc.sc_no : 'New sales confirmation'} onClose={onClose}>
+      <div className="panel-status">
+        {sc ? (
+          <StatusPicker current={scStage(scGroup(sc))} options={stageOptions} onPick={(s) => void setStage(s)} disabled={busy || dirty} />
+        ) : (
+          <StatusPicker current={scStage('draft')} options={[]} onPick={() => undefined} disabled />
+        )}
+        <span className="small muted">
+          {sc ? <>Created {formatDateTime(sc.confirmed_at)}{dealNo ? <> · from deal <span className="mono">{dealNo}</span></> : null}</> : 'Number, date and time are set automatically when you save.'}
+        </span>
+      </div>
+
       {err && <div className="alert">{err}</div>}
       {!canManage && <div className="notice small">You can view this confirmation; changing or sending it needs the “Create, edit and send sales confirmations” permission.</div>}
-
-      <p className="muted small">
-        Date and time:{' '}
-        <strong>{sc ? formatDateTime(sc.confirmed_at) : 'recorded automatically when you save'}</strong>
-        {' '}· not editable.
-      </p>
-
+      {sc && sc.status === 'draft' && !cancelled && <div className="notice small">Incomplete: fill in the required fields before it can be sent.</div>}
       {locked && (
         <div className="notice small">
-          Created from a deal: the commercial terms below are locked. You can change freight, ex-mill / net, bag weight, delivery schedule and special instructions.
+          Created from a deal: parties, count, quantity, rate, payment terms and commission are locked. Freight, ex-mill / net, bag weight,
+          type, delivery and transport details, schedule and instructions can change.
         </div>
       )}
-      <fieldset disabled={!canManage || locked} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        {locked && (
-          <>
-            <h3 className="section-title">Internal company and commission</h3>
-            <div className="form-grid">
-              <Field id="sc-co" label="Internal company"><input id="sc-co" value={companies.find((c) => c.id === sc?.company_id)?.name ?? '—'} readOnly /></Field>
-              <Field id="sc-deal" label="Deal reference"><input id="sc-deal" value={dealNo ?? '—'} readOnly /></Field>
-              <Field id="sc-br" label="Buyer rate"><input id="sc-br" className="mono" value={sc?.buyer_rate ?? ''} readOnly /></Field>
-              <Field id="sc-sr" label="Supplier rate"><input id="sc-sr" className="mono" value={sc?.supplier_rate ?? ''} readOnly /></Field>
-              <Field id="sc-cs" label="Commission structure"><input id="sc-cs" value={sc?.commission_type ? `${sc.commission_type}${sc.commission_value !== null ? ` · ${sc.commission_value}` : ''}` : '—'} readOnly /></Field>
-            </div>
-          </>
-        )}
 
-        <h3 className="section-title">A · Supplier</h3>
+      <fieldset disabled={!canManage || locked || cancelled} className="plain-fieldset">
+        <h3 className="section-title">Parties</h3>
         <div className="form-grid">
           <Field id="sc-supplier" label="Supplier" required>
             <select id="sc-supplier" value={f.supplier_id} onChange={(e) => pickParty('supplier', e.target.value)}>
@@ -210,23 +285,19 @@ export function ConfirmationDrawer({
               {partyOptions(suppliers, f.supplier_id)}
             </select>
           </Field>
-          <Field id="sc-supplier-co" label="Supplier company" required hint="Filled from the supplier's Company; change it if needed.">
+          <Field id="sc-supplier-co" label="Supplier company" required>
             <select id="sc-supplier-co" value={f.supplier_company_id} onChange={(e) => set('supplier_company_id', e.target.value)}>
               <option value="">Choose…</option>
               {companyOptions(f.supplier_company_id)}
             </select>
           </Field>
-        </div>
-
-        <h3 className="section-title">B · Buyer</h3>
-        <div className="form-grid">
           <Field id="sc-buyer" label="Buyer" required>
             <select id="sc-buyer" value={f.buyer_id} onChange={(e) => pickParty('buyer', e.target.value)}>
               <option value="">Choose…</option>
               {partyOptions(buyers, f.buyer_id)}
             </select>
           </Field>
-          <Field id="sc-buyer-co" label="Buyer company" required hint="Filled from the buyer's Company; change it if needed.">
+          <Field id="sc-buyer-co" label="Buyer company" required>
             <select id="sc-buyer-co" value={f.buyer_company_id} onChange={(e) => set('buyer_company_id', e.target.value)}>
               <option value="">Choose…</option>
               {companyOptions(f.buyer_company_id)}
@@ -234,25 +305,23 @@ export function ConfirmationDrawer({
           </Field>
         </div>
 
-        <h3 className="section-title">C · Goods, rate and terms</h3>
+        <h3 className="section-title">Goods, rate and terms</h3>
         <div className="form-grid">
           <Field id="sc-count" label="Count" required>
             <select id="sc-count" value={f.count_id} onChange={(e) => set('count_id', e.target.value)}>
               <option value="">Choose…</option>
-              {counts.filter((c) => c.is_active || c.id === f.count_id).map((c) => (
-                <option key={c.id} value={c.id}>{c.display_name}</option>
-              ))}
+              {counts.filter((c) => c.is_active || c.id === f.count_id).map((c) => (<option key={c.id} value={c.id}>{c.display_name}</option>))}
             </select>
+          </Field>
+          <Field id="sc-qty" label="Quantity" required>
+            <input id="sc-qty" inputMode="decimal" className="mono" value={f.quantity} onChange={(e) => set('quantity', e.target.value)} />
           </Field>
           <Field id="sc-uom" label="UOM" required>
             <select id="sc-uom" value={f.uom} onChange={(e) => set('uom', e.target.value)}>
-              {SC_UOMS.map((u) => (<option key={u} value={u}>{u}</option>))}
+              {UOMS.map((u) => (<option key={u.value} value={u.value}>{u.label}</option>))}
             </select>
           </Field>
-          <Field id="sc-qty" label="Ex-mill quantity" required>
-            <input id="sc-qty" inputMode="decimal" className="mono" value={f.quantity} onChange={(e) => set('quantity', e.target.value)} />
-          </Field>
-          <Field id="sc-rate" label={`Rate (per ${f.uom})`}>
+          <Field id="sc-rate" label="Final rate (₹ per kg)">
             <input id="sc-rate" inputMode="decimal" className="mono" value={f.rate} onChange={(e) => set('rate', e.target.value)} />
           </Field>
           <Field id="sc-term" label="Payment terms">
@@ -262,10 +331,15 @@ export function ConfirmationDrawer({
             </select>
           </Field>
         </div>
+        <div className="comm-grid">
+          <CommBox label="Buyer commission" basis={f.buyer_comm_basis} value={f.buyer_comm_value} amount={bComm} isNew={!sc}
+            onBasis={(v) => set('buyer_comm_basis', v)} onValue={(v) => set('buyer_comm_value', v)} />
+          <CommBox label="Supplier commission" basis={f.supplier_comm_basis} value={f.supplier_comm_value} amount={sComm} isNew={!sc}
+            onBasis={(v) => set('supplier_comm_basis', v)} onValue={(v) => set('supplier_comm_value', v)} />
+        </div>
       </fieldset>
 
-      <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <h3 className="section-title">Editable terms</h3>
+      <fieldset disabled={!canManage || cancelled} className="plain-fieldset">
         <div className="form-grid">
           <Field id="sc-freight" label="Freight" required>
             <select id="sc-freight" value={f.freight} onChange={(e) => set('freight', e.target.value as Form['freight'])}>
@@ -280,16 +354,56 @@ export function ConfirmationDrawer({
               <option value="net">Net</option>
             </select>
           </Field>
-          <Field id="sc-bag" label="Bag weight (kg)" required={f.uom === 'BAGS'} hint="For example 60 or 45.36. Shown on the confirmation.">
+          <Field id="sc-bag" label="Bag weight (kg)" required={f.uom === 'BAGS'}>
             <input id="sc-bag" inputMode="decimal" className="mono" value={f.bag_weight} onChange={(e) => set('bag_weight', e.target.value)} />
           </Field>
-          <Field id="sc-net" label="Net quantity" hint="Leave blank to use the ex-mill quantity.">
+          <Field id="sc-net" label="Net quantity" hint="Blank = same as the quantity.">
             <input id="sc-net" inputMode="decimal" className="mono" value={f.net_quantity} onChange={(e) => set('net_quantity', e.target.value)} />
+          </Field>
+        </div>
+        <div className="figures">
+          <div><span>Total weight</span><strong className="mono">{weight === null ? '—' : `${inr(weight)} kg`}</strong></div>
+          <div><span>Value</span><strong className="mono">₹{inr(value, 0)}</strong></div>
+          <div><span>Total commission</span><strong className="mono">₹{inr(bComm === null && sComm === null ? null : (bComm ?? 0) + (sComm ?? 0), 0)}</strong></div>
+        </div>
+
+        <h3 className="section-title">Delivery</h3>
+        <div className="form-grid">
+          <Field id="sc-type" label="Type">
+            <select id="sc-type" value={f.sale_type} onChange={(e) => set('sale_type', e.target.value as Form['sale_type'])}>
+              {SALE_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
+            </select>
+          </Field>
+          <Field id="sc-job" label="Sizing / delivery address" hint="Blank = the buyer’s own address.">
+            <select id="sc-job" value={f.job_process_id} onChange={(e) => pickJob(e.target.value)}>
+              <option value="">Buyer’s address</option>
+              {jobs.filter((j) => j.is_active || j.id === f.job_process_id).map((j) => (<option key={j.id} value={j.id}>{j.name}</option>))}
+            </select>
           </Field>
           <Field id="sc-sched" label="Delivery schedule">
             <input id="sc-sched" value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} />
           </Field>
         </div>
+        {(f.job_process_id || f.delivery_address) && (
+          <Field id="sc-addr" label="Delivery address">
+            <textarea id="sc-addr" rows={2} value={f.delivery_address} onChange={(e) => set('delivery_address', e.target.value)} />
+          </Field>
+        )}
+        <div className="form-grid">
+          <Field id="sc-tr" label="Transport company">
+            <select id="sc-tr" value={f.transporter_id} onChange={(e) => set('transporter_id', e.target.value)}>
+              <option value="">—</option>
+              {transporters.filter((t) => t.is_active || t.id === f.transporter_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
+            </select>
+          </Field>
+          <Field id="sc-veh" label="Vehicle number">
+            <input id="sc-veh" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} />
+          </Field>
+          <Field id="sc-drv" label="Driver phone">
+            <input id="sc-drv" inputMode="tel" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} />
+          </Field>
+        </div>
+        <p className="field-hint">Once the transport company or vehicle is in, sending again moves this confirmation to “Send with Delivery Info”.</p>
         <Field id="sc-instr" label="Special instructions">
           <textarea id="sc-instr" rows={2} value={f.special_instructions} onChange={(e) => set('special_instructions', e.target.value)} />
         </Field>
@@ -298,22 +412,69 @@ export function ConfirmationDrawer({
         </Field>
       </fieldset>
 
-      {problems.length > 0 && <p className="field-hint">Still needed to confirm: {problems.join(', ')}.</p>}
+      {problems.length > 0 && !cancelled && <p className="field-hint">Still needed to send: {problems.join(', ')}.</p>}
 
-      {canManage && (
+      {canManage && !cancelled && (
         <div className="drawer-actions">
-          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
-            {busy ? 'Saving…' : sc ? 'Save changes' : 'Create confirmation'}
-          </button>
-          {sc && sc.status === 'draft' && <DeleteControl label="Delete draft" name={sc.sc_no} busy={busy} onConfirm={() => void remove()} />}
-          {sc && sc.status !== 'draft' && sc.status !== 'cancelled' && <CancelControl busy={busy} onConfirm={() => void cancelSc()} />}
+          {(!sc || dirty) && (
+            <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
+              {busy ? 'Saving…' : sc ? 'Save changes' : 'Create confirmation'}
+            </button>
+          )}
+          {sc && sc.status === 'draft' && <DeleteControl label="Delete" name={sc.sc_no} busy={busy} onConfirm={() => void remove()} />}
+          {sc && sc.status === 'confirmed' && !item && <CancelControl busy={busy} onConfirm={() => void cancelSc()} />}
+        </div>
+      )}
+      {sc && dirty && complete && <p className="field-hint">Save your changes before sending.</p>}
+
+      {sc && !cancelled && (
+        <div className="notice">
+          <h3 className="section-title" style={{ marginTop: 0 }}>Dispatch and Billing</h3>
+          {item ? (
+            <p className="small">
+              <Link to={`/orders?open=${item.id}`}><span className="mono">{item.order_no}</span></Link> · {dispatchStatus(item.dispatch_status).label}
+            </p>
+          ) : sc.status !== 'confirmed' ? (
+            <p className="small muted">Available once the confirmation is complete.</p>
+          ) : canOrder ? (
+            <p>
+              <button className="btn primary" type="button" disabled={busy || dirty} onClick={() => void createItem()}>Create Dispatch and Billing</button>{' '}
+              <span className="small muted">Copies the parties, goods, rate, commission and delivery details.</span>
+            </p>
+          ) : (
+            <p className="small muted">Creating it needs the “Create and manage orders” permission.</p>
+          )}
         </div>
       )}
 
-      {saved && canManage && sc && (
+      {complete && !dirty && canManage && sc && !cancelled && (
         <SendPanel sc={sc} names={names} supplier={suppliers.find((x) => x.id === sc.supplier_id) ?? null} buyer={buyers.find((x) => x.id === sc.buyer_id) ?? null} onSent={(text) => onDone(text, sc.id)} />
       )}
       {sc && <NotificationLog sc={sc} canManage={canManage} />}
     </Drawer>
+  )
+}
+
+function CommBox({ label, basis, value, amount, isNew, onBasis, onValue }: {
+  label: string
+  basis: string
+  value: string
+  amount: number | null
+  isNew: boolean
+  onBasis: (v: string) => void
+  onValue: (v: string) => void
+}) {
+  return (
+    <div className="comm-box">
+      <span className="comm-label">{label}</span>
+      <div className="comm-row">
+        <select aria-label={`${label} type`} value={basis} onChange={(e) => onBasis(e.target.value)}>
+          <option value="">{isNew ? 'From master' : 'None'}</option>
+          {COMM_BASES.map((b) => (<option key={b.value} value={b.value}>{b.label}</option>))}
+        </select>
+        <input aria-label={`${label} value`} className="mono" inputMode="decimal" placeholder={basis === 'pct' ? '%' : '₹'} disabled={!basis} value={value} onChange={(e) => onValue(e.target.value)} />
+      </div>
+      <span className="comm-amount mono">{basis ? `${commTerms(basis, Number(value) || 0)} = ₹${inr(amount, 0)}` : isNew ? 'Taken from the party master on save' : '—'}</span>
+    </div>
   )
 }
