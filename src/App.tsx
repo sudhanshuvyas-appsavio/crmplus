@@ -13,6 +13,8 @@ import Companies from './pages/Companies'
 import Contacts from './pages/Contacts'
 import Counts from './pages/Counts'
 import JobProcesses from './pages/JobProcesses'
+import Locations from './pages/Locations'
+import MasterData from './pages/MasterData'
 import PendingConfirmations from './pages/PendingConfirmations'
 import PendingDispatches from './pages/PendingDispatches'
 import PendingDocuments from './pages/PendingDocuments'
@@ -73,6 +75,9 @@ export default function App() {
           <Route element={<RequirePermission permission="audit.view" />}>
             <Route path="/audit" element={<AuditLog />} />
           </Route>
+          <Route path="/master-data" element={<MasterData />} />
+          <Route path="/master-data/:register" element={<MasterData />} />
+          <Route path="/locations" element={<Locations />} />
           <Route path="/companies" element={<Companies />} />
           <Route path="/leads" element={<Leads />} />
           <Route path="/contacts" element={<Contacts />} />

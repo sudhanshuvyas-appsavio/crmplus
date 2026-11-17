@@ -504,3 +504,86 @@ tr.clickable { cursor: pointer; }
 .skeleton-stack { display: grid; gap: 8px; }
 .skeleton { height: 14px; border-radius: 4px; background: var(--surface-3); animation: pulse 1.3s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+/* ---------- master data workspace ----------------------------------------
+   The Pharma ERP's Master Data layout: a register list on the left, the
+   register's grid beside it, forms as a centred modal. Everything is scoped
+   under .md-* so the same screens, opened at their own routes, look as before. */
+.md-page { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.md-head { flex: none; margin-bottom: 14px; }
+.md-head h1 { font-size: 22px; font-weight: 600; }
+.md-frame {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 13.5rem minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.md-rail { background: var(--surface-2); border-right: 1px solid var(--border); padding: 8px; overflow-y: auto; }
+.md-rail ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.md-link {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px transparent;
+}
+.md-link:hover { background: var(--surface-3); color: var(--ink); }
+.md-link.active { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border-strong), 0 1px 2px rgba(20, 26, 50, 0.06); }
+.md-pane { min-width: 0; min-height: 0; overflow: auto; padding: 18px 20px 24px; }
+
+/* The embedded screens bring their own page heading; make it a register heading. */
+.md-pane .page-head { margin-bottom: 12px; }
+.md-pane .page-head h1 { font-size: 16px; font-weight: 600; }
+.md-pane .page-sub { font-size: 12.5px; }
+.md-pane .table-wrap { border-radius: 8px; }
+.md-pane th { font: 600 12px/1 var(--body); letter-spacing: 0.01em; text-transform: none; padding: 10px 14px; }
+.md-pane td { padding: 10px 14px; }
+
+/* Forms open as one fixed-size centred modal, like the Pharma ERP drawer. */
+.md-pane .scrim { background: rgba(14, 18, 34, 0.4); backdrop-filter: blur(1px); cursor: default; }
+.md-pane .drawer {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  width: min(95vw, 980px);
+  height: min(88vh, 860px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lift);
+  overflow: hidden;
+}
+.md-pane .drawer-head { padding: 14px 22px; }
+.md-pane .drawer-body { padding: 18px 22px 0; display: flex; flex-direction: column; }
+.md-pane .drawer-body > :last-child { margin-bottom: 0; }
+.md-pane .drawer .drawer-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  background: var(--surface);
+  padding: 14px 0 calc(14px + env(safe-area-inset-bottom, 0px));
+}
+.md-pane .form-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+/* Search / filter row above a grid. */
+.list-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.list-search { flex: 1 1 220px; max-width: 340px; border: 1px solid var(--border-strong); background: var(--surface-2); border-radius: 6px; padding: 8px 11px; outline: none; }
+.list-search:focus { border-color: var(--brand); background: var(--surface); }
+
+@media (max-width: 760px) {
+  .md-page { height: auto; }
+  .md-frame { grid-template-columns: 1fr; }
+  .md-rail { border-right: 0; border-bottom: 1px solid var(--border); padding: 6px; overflow-x: auto; overflow-y: hidden; }
+  .md-rail ul { flex-direction: row; }
+  .md-link { white-space: nowrap; }
+  .md-pane { padding: 14px 12px 20px; overflow: visible; }
+  .md-pane .drawer { width: 100vw; height: 100dvh; border-radius: 0; border: 0; }
+}

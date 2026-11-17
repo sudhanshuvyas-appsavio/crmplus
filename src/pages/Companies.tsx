@@ -17,22 +17,32 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { downloadCSV, parseCSV, toCSV } from '../lib/csv'
 import { formatDateTime } from '../lib/format'
+import { GST_STATES, isGst, isMobile } from '../lib/party'
 
 type Editing = { mode: 'create' } | { mode: 'edit'; company: Company } | null
 
 type FormState = {
   name: string
+  trade_name: string
+  legal_name: string
   short_name: string
   brand_name: string
   currency: string
   ref_prefix: string
   address: string
   phone_numbers: string
+  phone_1: string
+  phone_2: string
+  phone_3: string
   mobile: string
   fax: string
   email: string
   tax_id: string
   pan_number: string
+  state: string
+  state_code: string
+  bank_account_1: string
+  bank_account_2: string
   is_home: boolean
   is_buyer: boolean
   is_supplier: boolean
@@ -41,17 +51,26 @@ type FormState = {
 
 const BLANK_FORM: FormState = {
   name: '',
+  trade_name: '',
+  legal_name: '',
   short_name: '',
   brand_name: '',
   currency: 'USD',
   ref_prefix: '',
   address: '',
   phone_numbers: '',
+  phone_1: '',
+  phone_2: '',
+  phone_3: '',
   mobile: '',
   fax: '',
   email: '',
   tax_id: '',
   pan_number: '',
+  state: '',
+  state_code: '',
+  bank_account_1: '',
+  bank_account_2: '',
   is_home: false,
   is_buyer: false,
   is_supplier: false,
@@ -61,17 +80,26 @@ const BLANK_FORM: FormState = {
 function toForm(company: Company): FormState {
   return {
     name: company.name,
+    trade_name: company.trade_name ?? '',
+    legal_name: company.legal_name ?? '',
     short_name: company.short_name,
     brand_name: company.brand_name ?? '',
     currency: company.currency,
     ref_prefix: company.ref_prefix,
     address: company.address ?? '',
     phone_numbers: (company.phone_numbers ?? []).join(', '),
+    phone_1: company.phone_1 ?? '',
+    phone_2: company.phone_2 ?? '',
+    phone_3: company.phone_3 ?? '',
     mobile: company.mobile ?? '',
     fax: company.fax ?? '',
     email: company.email ?? '',
     tax_id: company.tax_id ?? '',
     pan_number: company.pan_number ?? '',
+    state: company.state ?? '',
+    state_code: company.state_code ?? '',
+    bank_account_1: company.bank_account_1 ?? '',
+    bank_account_2: company.bank_account_2 ?? '',
     is_home: company.is_home,
     is_buyer: company.is_buyer,
     is_supplier: company.is_supplier,
@@ -239,19 +267,34 @@ export default function Companies() {
             .map((p) => p.trim())
             .filter(Boolean)
           const pan = (get('pan_number') ?? '').trim().toUpperCase()
+          const taxId = (get('tax_id') ?? '').trim().toUpperCase()
+          // A valid GSTIN carries its own state: its first two digits are the
+          // state code, so a row that leaves state blank still gets it.
+          const gstState = isGst(taxId) ? taxId.slice(0, 2) : ''
+          const stateCode = (get('state_code') ?? '').trim() || gstState
+          const optional = (col: string) => (get(col) ?? '').trim() || null
           const { error } = await supabase.from('companies').insert({
             name,
+            trade_name: optional('trade_name'),
+            legal_name: optional('legal_name'),
             short_name: shortName,
-            brand_name: (get('brand_name') ?? '').trim() || null,
+            brand_name: optional('brand_name'),
             currency: (get('currency') ?? '').trim() || 'USD',
             ref_prefix: refPrefix,
-            address: (get('address') ?? '').trim() || null,
+            address: optional('address'),
             phone_numbers: phones.length ? phones : null,
-            mobile: (get('mobile') ?? '').trim() || null,
-            fax: (get('fax') ?? '').trim() || null,
-            email: (get('email') ?? '').trim() || null,
-            tax_id: (get('tax_id') ?? '').trim() || null,
+            phone_1: optional('phone_1'),
+            phone_2: optional('phone_2'),
+            phone_3: optional('phone_3'),
+            mobile: optional('mobile'),
+            fax: optional('fax'),
+            email: optional('email'),
+            tax_id: taxId || null,
             pan_number: pan || null,
+            state_code: stateCode || null,
+            state: optional('state') ?? (stateCode ? GST_STATES[stateCode] ?? null : null),
+            bank_account_1: optional('bank_account_1'),
+            bank_account_2: optional('bank_account_2'),
             is_home: wantsHome,
             is_buyer: parseBool(get('is_buyer'), false),
             is_supplier: parseBool(get('is_supplier'), false),
@@ -419,12 +462,13 @@ export default function Companies() {
                 )}
                 <th>Name</th>
                 <th>Brand / group</th>
+                <th>GST number</th>
+                <th>State</th>
                 <th>Short name</th>
-                <th>Currency</th>
                 <th>Ref prefix</th>
                 <th>Role</th>
                 <th>Status</th>
-                <th>Last updated</th>
+                <th>Opened</th>
               </tr>
             </thead>
             <tbody>
@@ -447,10 +491,14 @@ export default function Companies() {
                   <td>
                     <strong>{company.name}</strong>
                     {company.is_home && <span className="chip brand" style={{ marginLeft: 8 }}>Home</span>}
+                    {company.legal_name && company.legal_name !== company.name && (
+                      <div className="small muted">{company.legal_name}</div>
+                    )}
                   </td>
                   <td className="small muted">{company.brand_name || '—'}</td>
+                  <td className="mono small">{company.tax_id || '—'}</td>
+                  <td className="small">{company.state || '—'}</td>
                   <td className="mono">{company.short_name}</td>
-                  <td className="mono">{company.currency}</td>
                   <td className="mono">{company.ref_prefix}</td>
                   <td>
                     {!company.is_buyer && !company.is_supplier ? (
@@ -473,7 +521,7 @@ export default function Companies() {
                       <span className="chip bad">Inactive</span>
                     )}
                   </td>
-                  <td className="mono small">{formatDateTime(company.updated_at)}</td>
+                  <td className="mono small">{company.record_date || formatDateTime(company.created_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -524,6 +572,8 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
     try {
       const payload = {
         name: form.name.trim(),
+        trade_name: form.trade_name.trim() || null,
+        legal_name: form.legal_name.trim() || null,
         short_name: form.short_name.trim(),
         brand_name: form.brand_name.trim() || null,
         currency: form.currency.trim() || 'USD',
@@ -533,11 +583,18 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
           .split(',')
           .map((n) => n.trim())
           .filter(Boolean),
+        phone_1: form.phone_1.trim() || null,
+        phone_2: form.phone_2.trim() || null,
+        phone_3: form.phone_3.trim() || null,
         mobile: form.mobile.trim() || null,
         fax: form.fax.trim() || null,
         email: form.email.trim() || null,
         tax_id: form.tax_id.trim() || null,
         pan_number: form.pan_number.trim().toUpperCase() || null,
+        state: form.state.trim() || null,
+        state_code: form.state_code.trim() || null,
+        bank_account_1: form.bank_account_1.trim() || null,
+        bank_account_2: form.bank_account_2.trim() || null,
         is_home: form.is_home,
         is_buyer: form.is_buyer,
         is_supplier: form.is_supplier,
@@ -572,6 +629,16 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
         <div className="field">
           <label htmlFor="c-name">Company name</label>
           <input id="c-name" value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
+        </div>
+        <div className="field">
+          <label htmlFor="c-trade">Trade name</label>
+          <input id="c-trade" value={form.trade_name} onChange={(e) => set('trade_name', e.target.value)} />
+          <p className="field-hint">The name the business trades under, if it differs from the legal name.</p>
+        </div>
+        <div className="field">
+          <label htmlFor="c-legal">Legal name</label>
+          <input id="c-legal" value={form.legal_name} onChange={(e) => set('legal_name', e.target.value)} />
+          <p className="field-hint">As registered, and as it appears on the GST certificate.</p>
         </div>
         <div className="field">
           <label htmlFor="c-short">Short name</label>
@@ -612,17 +679,84 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
           <p className="field-hint">Comma-separated if there's more than one.</p>
         </div>
         <div className="field">
+          <label htmlFor="c-phone1">Phone 1</label>
+          <input id="c-phone1" value={form.phone_1} onChange={(e) => set('phone_1', e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="c-phone2">Phone 2</label>
+          <input id="c-phone2" value={form.phone_2} onChange={(e) => set('phone_2', e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="c-phone3">Phone 3</label>
+          <input id="c-phone3" value={form.phone_3} onChange={(e) => set('phone_3', e.target.value)} />
+        </div>
+        <div className="field">
           <label htmlFor="c-mobile">Mobile</label>
-          <input id="c-mobile" value={form.mobile} onChange={(e) => set('mobile', e.target.value)} />
-          <p className="field-hint">Primary contact mobile, separate from the office lines above.</p>
+          <input id="c-mobile" inputMode="numeric" value={form.mobile} onChange={(e) => set('mobile', e.target.value)} />
+          {form.mobile.trim() !== '' && !isMobile(form.mobile) ? (
+            <p className="field-warn">Mobile numbers are 10 digits, without +91 or a leading 0.</p>
+          ) : (
+            <p className="field-hint">Primary contact mobile, separate from the office lines above.</p>
+          )}
         </div>
         <div className="field">
           <label htmlFor="c-fax">Fax</label>
           <input id="c-fax" value={form.fax} onChange={(e) => set('fax', e.target.value)} />
         </div>
         <div className="field">
-          <label htmlFor="c-tax">Tax ID</label>
-          <input id="c-tax" value={form.tax_id} onChange={(e) => set('tax_id', e.target.value)} />
+          <label htmlFor="c-tax">GST number</label>
+          <input
+            id="c-tax"
+            className="mono"
+            value={form.tax_id}
+            onChange={(e) => {
+              // "GSTIN : 33AB…" pasted from a certificate: keep only the number.
+              const value = e.target.value.replace(/^\s*gstin\s*:?\s*/i, '').replace(/\s+/g, '').toUpperCase()
+              setForm((prev) => ({
+                ...prev,
+                tax_id: value,
+                // The first two digits of a GSTIN are the state code.
+                ...(isGst(value)
+                  ? { state_code: value.slice(0, 2), state: GST_STATES[value.slice(0, 2)] ?? prev.state }
+                  : {}),
+              }))
+            }}
+            maxLength={15}
+          />
+          {form.tax_id.trim() !== '' && !isGst(form.tax_id) ? (
+            <p className="field-warn">Not a complete GST number yet (15 characters, e.g. 33AHFPK5121I1Z5).</p>
+          ) : (
+            <p className="field-hint">Filling this in sets the state below.</p>
+          )}
+        </div>
+        <div className="field">
+          <label htmlFor="c-state">State</label>
+          <select
+            id="c-state"
+            value={form.state_code}
+            onChange={(e) =>
+              setForm((prev) => ({
+                ...prev,
+                state_code: e.target.value,
+                state: e.target.value ? GST_STATES[e.target.value] ?? '' : '',
+              }))
+            }
+          >
+            <option value="">—</option>
+            {Object.entries(GST_STATES).map(([code, name]) => (
+              <option key={code} value={code}>
+                {name} ({code})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="c-bank1">Bank account 1</label>
+          <input id="c-bank1" value={form.bank_account_1} onChange={(e) => set('bank_account_1', e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="c-bank2">Bank account 2</label>
+          <input id="c-bank2" value={form.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
         </div>
         <div className="field">
           <label htmlFor="c-pan">PAN number</label>

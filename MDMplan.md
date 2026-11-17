@@ -1,5 +1,7 @@
 # MDM Plan: Master Data Management for Commission Desk
 
+> **Superseded in part.** This plan was written from the browser UI before the monday connector was available. Some monday facts below are wrong (Buyers & Suppliers has 45 items and about 72 columns; "Private/Deleted" no longer exists; Counts workflows copy a formula, not the name; Location MDM and Transport Company are much richer). See [CRMMasterPlan.md](CRMMasterPlan.md), section 3 and section 13, for the corrected facts and the plan for the whole CRM.
+
 **Goal:** make the Commission Desk web app (Vite + React + Supabase) the single place where master data is created, validated and maintained, replacing the **MDM** folder of boards in monday.com (workspace "CRM", folder "MDM").
 
 **Sources used**

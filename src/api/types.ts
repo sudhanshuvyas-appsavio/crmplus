@@ -129,9 +129,29 @@ export interface Company {
   is_buyer: boolean
   is_supplier: boolean
   is_active: boolean
+  /** Business-unit fields from the monday "Business Units" board (MDM plan G1). */
+  trade_name: string | null
+  legal_name: string | null
+  state: string | null
+  state_code: string | null
+  phone_1: string | null
+  phone_2: string | null
+  phone_3: string | null
+  bank_account_1: string | null
+  bank_account_2: string | null
+  /** The business date the record was opened (a date, not a timestamp). */
+  record_date: string
   created_by: string | null
   created_at: string
   updated_at: string
+}
+
+/** A delivery / station name (`station_master`), the monday "Location MDM" list. */
+export interface StationMaster {
+  id: string
+  name: string
+  is_active: boolean
+  created_at: string
 }
 
 /** The subset of Company columns a CSV import/export round-trips. Order here
@@ -139,17 +159,26 @@ export interface Company {
  *  against (case-insensitively). */
 export const COMPANY_CSV_COLUMNS = [
   'name',
+  'trade_name',
+  'legal_name',
   'short_name',
   'brand_name',
   'currency',
   'ref_prefix',
   'address',
   'phone_numbers',
+  'phone_1',
+  'phone_2',
+  'phone_3',
   'mobile',
   'fax',
   'email',
   'tax_id',
   'pan_number',
+  'state',
+  'state_code',
+  'bank_account_1',
+  'bank_account_2',
   'is_home',
   'is_buyer',
   'is_supplier',

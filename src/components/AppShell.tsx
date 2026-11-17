@@ -48,6 +48,7 @@ const NAV: (NavItem | { heading: string })[] = [
   { to: '/collection-tasks', label: 'Collection tasks', icon: 'M5 4h14v16H5zM8 9l2 2 3-3M8 15h8', anyOf: ['order.read', 'order.manage'] },
   { to: '/ledger', label: 'Commission ledger', icon: 'M12 4v16M8 8h6.5a2.5 2.5 0 0 1 0 5H9a2.5 2.5 0 0 0 0 5h7', permission: 'report.view', soon: true },
   { heading: 'Reference' },
+  { to: '/master-data', label: 'Master data', icon: 'M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2zM4 6v6c0 1.1 3.6 2 8 2s8-.9 8-2V6M4 12v6c0 1.1 3.6 2 8 2s8-.9 8-2v-6' },
   { to: '/contacts', label: 'Contacts', icon: 'M12 4.6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8M5 20c1.4-3.4 4-5 7-5s5.6 1.6 7 5', anyOf: ['buyer.manage', 'mill.manage', 'lead.manage', 'lead.qualify'] },
   { to: '/counts', label: 'Count master', icon: 'M6 4v16M10 4v16M14 4v16M18 4v16M4 8h16', anyOf: ['article.manage', 'lead.manage', 'lead.qualify'] },
   { to: '/payment-terms', label: 'Payment terms', icon: 'M4 7h16v10H4zM4 11h16M8 15h3', anyOf: ['deal.read', 'lead.manage', 'settings.manage'] },
