@@ -151,7 +151,33 @@ export interface StationMaster {
   id: string
   name: string
   is_active: boolean
+  state: string | null
+  address: string | null
+  gst: string | null
+  phone: string | null
+  email: string | null
+  md_contact: string | null
+  accounts_phone: string | null
+  zone: string | null
   created_at: string
+  updated_at: string
+}
+
+/** A row in `location_links`: a location a buyer, supplier, transporter or delivery address uses. */
+export type LinkOwner = 'buyer' | 'supplier' | 'transporter' | 'job_process'
+export interface LocationLink {
+  id: string
+  owner_type: LinkOwner
+  owner_id: string
+  location_id: string
+}
+
+/** A row in `party_counts`: a count a buyer buys or a supplier supplies. */
+export interface PartyCount {
+  id: string
+  party_type: 'buyer' | 'supplier'
+  party_id: string
+  count_id: string
 }
 
 /** The subset of Company columns a CSV import/export round-trips. Order here
@@ -190,11 +216,19 @@ export type CompanyCsvColumn = (typeof COMPANY_CSV_COLUMNS)[number]
 /* ---- Count master (T-002) ------------------------------------------------ */
 
 export const COUNT_MACHINES = ['OE', 'RING SPUN', 'VORTEX'] as const
-export const COUNT_COMPOSITIONS = ['COTTON', 'POLYESTER', 'VISCOSE', 'LINEN', 'HEMP', 'BLENDED'] as const
-export const COUNT_BLENDS = ['COTTON/POLYESTER', 'COTTON/VISCOSE'] as const
+export const COUNT_YARNS = ['COTTON', 'POLYESTER', 'VISCOSE', 'LINEN', 'HEMP', 'LYCRA'] as const
+export const COUNT_COMPOSITIONS = [...COUNT_YARNS, 'BLENDED'] as const
+/** Every pair of two different yarns, the two long-standing blends first. */
+export const COUNT_BLENDS: string[] = [
+  'COTTON/POLYESTER',
+  'COTTON/VISCOSE',
+  ...COUNT_YARNS.flatMap((a, i) => COUNT_YARNS.slice(i + 1).map((b) => `${a}/${b}`)).filter(
+    (x) => x !== 'COTTON/POLYESTER' && x !== 'COTTON/VISCOSE',
+  ),
+]
 export const COUNT_YARN_TYPES = ['CHEESE', 'CONE'] as const
 export const COUNT_PROCESSES = ['COMBED', 'KARDED', 'KARDED COMPACT', 'COMBED COMPACT'] as const
-export const COUNT_CERTIFICATIONS = ['BCI', 'OEKO TEX', 'GOTS', 'NPOP', 'NOP'] as const
+export const COUNT_CERTIFICATIONS = ['BCI', 'OEKO TEX', 'GOTS', 'NPOP', 'NOP', 'GRS'] as const
 export const COUNT_PLIES = ['SINGLE', 'DOUBLE'] as const
 export const COUNT_COMMON_RATIOS = ['100%', '50/50', '60/40', '70/30', '65/35', '80/20'] as const
 
@@ -217,6 +251,44 @@ export interface CountRow {
   updated_at: string
 }
 
+/* ---- Lookups used by several masters ------------------------------------- */
+
+export const ZONES: { value: string; label: string }[] = [
+  { value: 'WEST', label: 'West Zone' },
+  { value: 'SOUTH', label: 'South Zone' },
+  { value: 'NORTH', label: 'North Zone' },
+]
+export const VEHICLE_TYPES: { value: string; label: string }[] = [
+  { value: 'TRUCK', label: 'Truck' },
+  { value: 'LORRY', label: 'Lorry' },
+  { value: 'TEMPO', label: 'Tempo' },
+]
+export const BUYER_MACHINE_TYPES = ['SULZER', 'AIRJET', 'POWERLOOM'] as const
+
+/** The fields the buyer and supplier masters share beyond the T-003/T-004 core. */
+export interface PartyProfile {
+  short_name: string | null
+  customer_code: string | null
+  website: string | null
+  map_url: string | null
+  office_phone: string | null
+  res_phone: string | null
+  mill_address: string | null
+  remarks_2: string | null
+  contact_1_email: string | null
+  contact_2_name: string | null
+  contact_2_mobile: string | null
+  contact_2_email: string | null
+  contact_3_name: string | null
+  contact_3_mobile: string | null
+  contact_3_email: string | null
+  sales_person_id: string | null
+  collection_staff_id: string | null
+  messenger_id: string | null
+  qty_bags_month: number | null
+  qty_kgs_month: number | null
+}
+
 /* ---- Supplier and buyer masters (T-003, T-004) --------------------------- */
 
 export const CATEGORIES = ['1', '2', '3', '4'] as const
@@ -228,7 +300,7 @@ export const COMMISSION_BASES: { value: string; label: string }[] = [
 
 /** A row in `supplier_master`. One record per supplier; a party that is also a
  *  buyer has a separate row in buyer_master, matched on PAN/GST. */
-export interface SupplierMaster {
+export interface SupplierMaster extends PartyProfile {
   id: string
   supplier_code: string
   name: string
@@ -254,12 +326,17 @@ export interface SupplierMaster {
   gst_verify_note: string | null
   notes: string | null
   is_active: boolean
+  /** Supplier-only profile. */
+  machine_type: string | null
+  counts_supplying: number | null
+  spindles: number | null
+  monthly_production: number | null
   created_at: string
   updated_at: string
 }
 
 /** A row in `buyer_master`. */
-export interface BuyerMaster {
+export interface BuyerMaster extends PartyProfile {
   id: string
   buyer_code: string
   name: string
@@ -284,6 +361,14 @@ export interface BuyerMaster {
   gst_verify_note: string | null
   notes: string | null
   is_active: boolean
+  bank_account_1: string | null
+  bank_account_2: string | null
+  /** Buyer-only profile. */
+  machine_types: string[] | null
+  no_of_looms: number | null
+  fabric_producing: string | null
+  reed_pick: string | null
+  width: string | null
   created_at: string
   updated_at: string
 }
@@ -690,6 +775,12 @@ export interface Transporter {
   state: string | null
   pan: string | null
   bank_account: string | null
+  bank_account_2: string | null
+  email: string | null
+  vehicle_type: string | null
+  vehicle_no_1: string | null
+  vehicle_no_2: string | null
+  vehicle_no_3: string | null
   company_id: string | null
   info: string | null
   remarks: string | null
@@ -720,6 +811,8 @@ export interface JobProcess {
   state: string | null
   pan: string | null
   bank_account: string | null
+  email_1: string | null
+  email_2: string | null
   company_id: string | null
   info: string | null
   remarks: string | null

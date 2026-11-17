@@ -15,7 +15,10 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
+import { LinkPicker, useLocationOptions } from '../components/LinkPicker'
+import { loadLinkIds, syncLinks } from '../lib/links'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
+import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -30,6 +33,7 @@ const CSV_COLUMNS = [
   'process_code', 'name', 'short_name', 'buyer', 'station', 'contact_person', 'mobile',
   'contact_person_2', 'mobile_2', 'office_phone', 'res_phone', 'office_address', 'delivery_address',
   'gst', 'state_code', 'state', 'pan', 'bank_account', 'company', 'info', 'remarks', 'is_active',
+  'email_1', 'email_2',
 ] as const
 
 type Form = {
@@ -54,12 +58,15 @@ type Form = {
   info: string
   remarks: string
   is_active: boolean
+  email_1: string
+  email_2: string
 }
 
 const blank: Form = {
   name: '', short_name: '', buyer_id: '', station_id: '', office_address: '', delivery_address: '',
   contact_person: '', mobile: '', contact_person_2: '', mobile_2: '', office_phone: '', res_phone: '',
   gst: '', state_code: '', state: '', pan: '', bank_account: '', company_id: '', info: '', remarks: '', is_active: true,
+  email_1: '', email_2: '',
 }
 
 const fromRow = (r: JobProcess): Form => ({
@@ -68,6 +75,7 @@ const fromRow = (r: JobProcess): Form => ({
   mobile: r.mobile ?? '', contact_person_2: r.contact_person_2 ?? '', mobile_2: r.mobile_2 ?? '', office_phone: r.office_phone ?? '',
   res_phone: r.res_phone ?? '', gst: r.gst ?? '', state_code: r.state_code ?? '', state: r.state ?? '', pan: r.pan ?? '',
   bank_account: r.bank_account ?? '', company_id: r.company_id ?? '', info: r.info ?? '', remarks: r.remarks ?? '', is_active: r.is_active,
+  email_1: r.email_1 ?? '', email_2: r.email_2 ?? '',
 })
 
 function problems(f: Form): string[] {
@@ -76,6 +84,8 @@ function problems(f: Form): string[] {
   if (f.mobile && !isMobile(f.mobile)) out.push('Mobile (10 digits)')
   if (f.mobile_2 && !isMobile(f.mobile_2)) out.push('Second mobile (10 digits)')
   if (f.gst && !isGst(f.gst)) out.push('GST (15 characters, valid format)')
+  if (f.email_1.trim() && !f.email_1.includes('@')) out.push('Email 1 (must contain @)')
+  if (f.email_2.trim() && !f.email_2.includes('@')) out.push('Email 2 (must contain @)')
   if (f.pan && f.pan.trim().length !== 10) out.push('PAN (10 characters)')
   if (f.gst && f.state_code && f.gst.slice(0, 2) !== f.state_code) out.push('State code (must match the first two digits of the GST)')
   return out
@@ -90,6 +100,7 @@ const payload = (f: Form) => {
     res_phone: t(f.res_phone), gst: t(f.gst.toUpperCase()), state_code: t(f.state_code), state: t(f.state),
     pan: t(f.pan.toUpperCase()), bank_account: t(f.bank_account), company_id: f.company_id || null,
     info: t(f.info), remarks: t(f.remarks), is_active: f.is_active,
+    email_1: t(f.email_1), email_2: t(f.email_2),
   }
 }
 
@@ -103,6 +114,7 @@ export default function JobProcesses() {
   const [editing, setEditing] = useState<JobProcess | 'new' | null>(null)
   const [search, setSearch] = useState('')
   const [buyerFilter, setBuyerFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [buyers, setBuyers] = useState<Buyer[]>([])
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
@@ -134,11 +146,19 @@ export default function JobProcesses() {
     return (rows ?? []).filter(
       (x) =>
         (!buyerFilter || x.buyer_id === buyerFilter) &&
+        (!statusFilter || (statusFilter === 'active') === x.is_active) &&
         (!q ||
           [x.name, x.short_name, x.process_code, x.contact_person, x.mobile, x.gst, x.pan, x.station_id ? stationName.get(x.station_id) : '']
             .some((v) => (v ?? '').toLowerCase().includes(q))),
     )
-  }, [rows, search, buyerFilter, stationName])
+  }, [rows, search, buyerFilter, statusFilter, stationName])
+
+  const paging = usePaging(shown, [search, buyerFilter, statusFilter].join('|'))
+
+  const filterDefs: FilterDef[] = [
+    { name: 'buyer', label: 'Buyer', allLabel: 'All buyers', options: buyers.map((b) => ({ value: b.id, label: b.name })) },
+    { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
+  ]
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
 
@@ -191,6 +211,7 @@ export default function JobProcesses() {
           gst, state_code: r.get('state_code') || gst.slice(0, 2), state: r.get('state') || GST_STATES[gst.slice(0, 2)] || '',
           pan: r.get('pan').toUpperCase(), bank_account: r.get('bank_account'), company_id: company?.id ?? '',
           info: r.get('info'), remarks: r.get('remarks'), is_active: parseBool(r.get('is_active'), true),
+          email_1: r.get('email_1'), email_2: r.get('email_2'),
         }
         const missing = problems(f)
         if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
@@ -212,17 +233,28 @@ export default function JobProcesses() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <h1>Transportation</h1>
-          <p className="page-sub">JobProcesses, whether our own resource or a third party.</p>
-        </div>
+      <GridToolbar
+        title="Sizing / Delivery Address"
+        total={rows.length}
+        singular="job process"
+        plural="job processes"
+        query={search}
+        onQuery={setSearch}
+        searchPlaceholder="Search name, code, contact, mobile, GST, PAN or station"
+        filters={filterDefs}
+        values={{ buyer: buyerFilter, status: statusFilter }}
+        onFilter={(name, value) => (name === 'buyer' ? setBuyerFilter(value) : setStatusFilter(value))}
+        onClear={() => {
+          setBuyerFilter('')
+          setStatusFilter('')
+        }}
+      >
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing('new')}>
             New job process
           </button>
         )}
-      </header>
+      </GridToolbar>
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -247,44 +279,36 @@ export default function JobProcesses() {
       />
       <ImportIssues results={importResults} />
 
-      <div className="form-grid" style={{ maxWidth: 560 }}>
-        <div className="field">
-          <input aria-label="Search job processes" placeholder="Search name, code, contact, mobile, GST, PAN or station" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <div className="field">
-          <select aria-label="Filter by buyer" value={buyerFilter} onChange={(e) => setBuyerFilter(e.target.value)}>
-            <option value="">All buyers</option>
-            {buyers.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-          </select>
-        </div>
-      </div>
-
-      {shown.length === 0 ? (
-        <div className="card pad empty">{rows.length === 0 ? 'No job processes yet.' : 'No job process matches.'}</div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {canManage && (
+                <th style={{ width: 32 }}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all job processes" />
+                </th>
+              )}
+              <th>Code</th>
+              <th className="left">Job process</th>
+              <th>Buyer</th>
+              <th>Station</th>
+              <th>Contact</th>
+              <th>Mobile</th>
+              <th>GST</th>
+              <th>Company</th>
+              <th>Status</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.length === 0 ? (
               <tr>
-                {canManage && (
-                  <th style={{ width: 32 }}>
-                    <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all job processes" />
-                  </th>
-                )}
-                <th>Code</th>
-                <th>Job process</th>
-                <th>Buyer</th>
-                <th>Station</th>
-                <th>Contact</th>
-                <th>Mobile</th>
-                <th>GST</th>
-                <th>Company</th>
-                <th>Status</th>
-                <th>Updated</th>
+                <td className="empty" colSpan={canManage ? 11 : 10}>
+                  {rows.length === 0 ? 'No job processes yet.' : 'No job process matches.'}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {shown.map((x) => (
+            ) : (
+              paging.visible.map((x) => (
                 <tr key={x.id} className="clickable" onClick={() => setEditing(x)}>
                   {canManage && (
                     <td onClick={(e) => e.stopPropagation()}>
@@ -292,7 +316,7 @@ export default function JobProcesses() {
                     </td>
                   )}
                   <td className="mono small">{x.process_code}</td>
-                  <td>
+                  <td className="left">
                     <strong>{x.name}</strong>
                     {x.short_name && <span className="muted small"> · {x.short_name}</span>}
                   </td>
@@ -305,11 +329,11 @@ export default function JobProcesses() {
                   <td>{x.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
                   <td className="mono small">{formatDateTime(x.updated_at)}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {editing && (
         <JobProcessDrawer
@@ -327,6 +351,8 @@ export default function JobProcesses() {
           }}
         />
       )}
+
+      <GridPager {...paging.pager} singular="job process" plural="job processes" />
     </>
   )
 }
@@ -346,8 +372,20 @@ function JobProcessDrawer({
   const [tab, setTab] = useState<'account' | 'info' | 'remarks'>('account')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const locationOptions = useLocationOptions()
+  const [locationIds, setLocationIds] = useState<string[]>([])
+  const [linksLoaded, setLinksLoaded] = useState(!row)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
   const missing = problems(f)
+
+  useEffect(() => {
+    if (!row) return
+    let live = true
+    loadLinkIds('location', 'job_process', row.id)
+      .then((ids) => { if (live) { setLocationIds(ids); setLinksLoaded(true) } })
+      .catch(() => { if (live) setErr("Could not load this record's locations.") })
+    return () => { live = false }
+  }, [row])
 
   /** Typing a GSTIN fills the state code, state and PAN that it carries. */
   function setGst(value: string) {
@@ -371,10 +409,25 @@ function JobProcessDrawer({
     const { data, error } = row
       ? await supabase.from('job_processes').update(payload(f)).eq('id', row.id).select('id')
       : await supabase.from('job_processes').insert(payload(f)).select('id')
+    if (error) {
+      setBusy(false)
+      return setErr(errMessage(error, 'Could not save this job process'))
+    }
+    if (!data || data.length === 0) {
+      setBusy(false)
+      return setErr('Your account cannot change this job process.')
+    }
+    const saved = row ? `${f.name.trim()} updated.` : `${f.name.trim()} added.`
+    let linkFailed = false
+    if (row ? linksLoaded : locationIds.length > 0) {
+      try {
+        await syncLinks('location', 'job_process', data[0]!.id as string, locationIds)
+      } catch {
+        linkFailed = true
+      }
+    }
     setBusy(false)
-    if (error) return setErr(errMessage(error, 'Could not save this job process'))
-    if (!data || data.length === 0) return setErr('Your account cannot change this job process.')
-    await onDone(row ? `${f.name.trim()} updated.` : `${f.name.trim()} added.`)
+    await onDone(linkFailed ? `${saved} The record saved, but its locations could not be saved; open it again to retry.` : saved)
   }
 
   async function remove() {
@@ -410,6 +463,12 @@ function JobProcessDrawer({
               {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
             </select>
           </Field>
+          <Field id="t-email1" label="Email 1">
+            <input id="t-email1" type="email" value={f.email_1} onChange={(e) => set('email_1', e.target.value)} />
+          </Field>
+          <Field id="t-email2" label="Email 2">
+            <input id="t-email2" type="email" value={f.email_2} onChange={(e) => set('email_2', e.target.value)} />
+          </Field>
           <Field id="t-cp" label="Contact person">
             <input id="t-cp" value={f.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
           </Field>
@@ -429,6 +488,15 @@ function JobProcessDrawer({
             <input id="t-rphone" className="mono" value={f.res_phone} onChange={(e) => set('res_phone', e.target.value)} />
           </Field>
         </div>
+        <LinkPicker
+          id="t-locations"
+          label="Locations"
+          hint="Optional: the stations this job process serves."
+          options={locationOptions}
+          value={locationIds}
+          onChange={setLocationIds}
+          disabled={!canManage}
+        />
         <Field id="t-oaddr" label="Office address">
           <textarea id="t-oaddr" rows={3} value={f.office_address} onChange={(e) => set('office_address', e.target.value)} />
         </Field>

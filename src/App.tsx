@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { RequireAuth, RequireGuest, RequirePermission } from './auth/guards'
 import { useAuth } from './auth/AuthProvider'
@@ -9,17 +9,11 @@ import ChangePassword from './pages/ChangePassword'
 import ForgotPassword from './pages/ForgotPassword'
 import Home from './pages/Home'
 import Login from './pages/Login'
-import Companies from './pages/Companies'
-import Contacts from './pages/Contacts'
-import Counts from './pages/Counts'
-import JobProcesses from './pages/JobProcesses'
-import Locations from './pages/Locations'
 import MasterData from './pages/MasterData'
 import PendingConfirmations from './pages/PendingConfirmations'
 import PendingDispatches from './pages/PendingDispatches'
 import PendingDocuments from './pages/PendingDocuments'
 import Orders from './pages/Orders'
-import Transporters from './pages/Transporters'
 import SalesConfirmations from './pages/SalesConfirmations'
 import Deals from './pages/Deals'
 import MailingList from './pages/MailingList'
@@ -38,10 +32,17 @@ import StaffExpenses from './pages/StaffExpenses'
 import SalesDashboard from './pages/SalesDashboard'
 import BillingDashboard from './pages/BillingDashboard'
 import CollectionDashboard from './pages/CollectionDashboard'
-import PaymentTerms from './pages/PaymentTerms'
 import Leads from './pages/Leads'
 import ResetPassword from './pages/ResetPassword'
 import Users from './pages/Users'
+
+/** The old stand-alone register routes now open inside Master Data, so every
+ *  register looks and behaves the same. The query string is kept: a link such
+ *  as /contacts?search=... still opens the register already narrowed. */
+function ToRegister({ to }: { to: string }) {
+  const { search } = useLocation()
+  return <Navigate to={`/master-data/${to}${search}`} replace />
+}
 
 /** The forced password change sits outside the shell: a user who has to set a
  *  password cannot reach anything else, so there is no navigation to show. */
@@ -77,13 +78,13 @@ export default function App() {
           </Route>
           <Route path="/master-data" element={<MasterData />} />
           <Route path="/master-data/:register" element={<MasterData />} />
-          <Route path="/locations" element={<Locations />} />
-          <Route path="/companies" element={<Companies />} />
+          <Route path="/locations" element={<ToRegister to="locations" />} />
+          <Route path="/companies" element={<ToRegister to="business-units" />} />
           <Route path="/leads" element={<Leads />} />
-          <Route path="/contacts" element={<Contacts />} />
-          <Route path="/buyers" element={<Navigate to="/contacts" replace />} />
-          <Route path="/suppliers" element={<Navigate to="/contacts" replace />} />
-          <Route path="/counts" element={<Counts />} />
+          <Route path="/contacts" element={<ToRegister to="buyers-suppliers" />} />
+          <Route path="/buyers" element={<ToRegister to="buyers-suppliers" />} />
+          <Route path="/suppliers" element={<ToRegister to="buyers-suppliers" />} />
+          <Route path="/counts" element={<ToRegister to="counts" />} />
           <Route element={<RequirePermission permission="deal.read" />}>
             <Route path="/deals" element={<Deals />} />
           </Route>
@@ -110,9 +111,9 @@ export default function App() {
           <Route path="/collection-tasks" element={<CollectionTasks />} />
           <Route path="/pending-transporter-invoices" element={<PendingTransporterInvoices />} />
           <Route path="/orders" element={<Orders />} />
-          <Route path="/transportation" element={<Transporters />} />
-          <Route path="/job-process" element={<JobProcesses />} />
-          <Route path="/payment-terms" element={<PaymentTerms />} />
+          <Route path="/transportation" element={<ToRegister to="transport" />} />
+          <Route path="/job-process" element={<ToRegister to="delivery-address" />} />
+          <Route path="/payment-terms" element={<ToRegister to="payment-terms" />} />
           <Route path="/mailing-list" element={<MailingList />} />
           <Route path="*" element={<NotBuiltYet />} />
         </Route>

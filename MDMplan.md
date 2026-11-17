@@ -70,13 +70,13 @@ Rules the database already enforces (the "Record Validations" the monday boards 
 |---|---|---|---|---|
 | G1 | Business Units: Trade Name, Legal Name, Phone 1/2, Bank accounts, state, record date | Present as columns | Columns exist in the database (`trade_name`, `legal_name`, `phone_1..3`, `bank_account_1/2`, `state`, `state_code`, `record_date`) but are **not in `Company` (types.ts) or the Companies form** | Add the fields to the type, form, CSV columns; show Trade vs Legal name |
 | G2 | Business Units: Documents | Files column | `company_documents` (limit trigger `cd_limit`) | Confirm upload UI covers it; otherwise add |
-| G3 | Party contacts | Contact Person 1-3 with phone and email | One contact person + mobile on the master; extra numbers in `party_md_contacts` (name, mobile, email, designation), gated by `md_contact.view` | Decide whether to expose up to 3 contacts on the main form; migrate Contact 1 into `contact_person`/`mobile` (required) and 2-3 into `party_md_contacts` |
+| G3 | Party contacts | Contact Person 1-3 with phone and email | One contact person + mobile on the master; extra numbers in `party_md_contacts` (name, mobile, email, designation), gated by `md_contact.view` | Decide whether to expose up to 3 contacts on the main form; contact 1 feeds `contact_person`/`mobile` (required), contacts 2-3 go to `party_md_contacts` |
 | G4 | Party "Private / Deleted" | Type value that moves the row to a hidden group | `is_active` flag | Map Private/Deleted to `is_active = false`; add a visible "Inactive / Private" filter and reason note |
-| G5 | Single Type field | Type = Buyer / Supplier | Role = Buyer / Supplier / Both (two tables joined by PAN) | Keep the app model. Import rule: one monday row becomes one master row per its Type |
+| G5 | Single Type field | Type = Buyer / Supplier | Role = Buyer / Supplier / Both (two tables joined by PAN) | Keep the app model (Role Buyer / Supplier / Both) |
 | G6 | Counts: two-yarn recipe with percentages and computed total | Yarn 1 / %, Yarn 2 / %, Overall Composition | Machine + composition + ratio ("60/40") + blend | Same information, different shape. Keep the app model; map Yarn 1 % / Yarn 2 % to `ratio` ("60/40"), pair to `blended` (COTTON/POLYESTER, COTTON/VISCOSE). Totals must be 100 |
 | G7 | Counts: "Is Duplicate" | Flag column | Unique index on `display_name` | No work; surface the clash message (already in `errMessage`) |
 | G8 | Counts: "Thread Count" | Number | `count_no` 6-120 | Equivalent |
-| G9 | Counts: certification spelled "OKEA TEX" | Typo in monday | `OEKO TEX` | Map OKEA TEX to OEKO TEX on import |
+| G9 | Counts: certification spelled "OKEA TEX" | Typo in monday | `OEKO TEX` | Keep OEKO TEX (the monday typo is not copied) |
 | G10 | Transport Company: Vehicle Type | Column | `transporter_type` is internal / third_party, **no vehicle type** (vehicle numbers are on trips) | Add `vehicle_type` (or a lookup) to `transporters` if the business wants it; ask first |
 | G11 | Transport Company: Mill/Factory/Delivery address | Column | `delivery_address` | Equivalent |
 | G12 | Sizing/Delivery Address | Process, Person, Date, Office Address, GST | `job_processes` (process code, name, buyer, station, addresses, GST, PAN, bank) | Superset; map Process to `name`, Person to `contact_person` |
@@ -86,7 +86,7 @@ Rules the database already enforces (the "Record Validations" the monday boards 
 | G16 | "Send Bank Details" | Saved view on parties | Sales confirmation can open WhatsApp/mail links (`src/lib/integrations.ts`); no bank-details send | Optional feature: send a party the home company's bank details by WhatsApp/mail link; log in the activity feed |
 | G17 | Reports views | Board Reports views on Buyers & Suppliers, Location MDM | Not built for masters | Optional: counts by state / role / category, incomplete-record report, unverified-GST report |
 | G18 | Auto date | Date = today on create | `created_at`; `companies.record_date` | No work; keep `created_at` |
-| G19 | Stricter app rules vs messy monday data | Anything goes | Required fields and unique GST/name | **Biggest risk:** a straight import will fail many rows (see section 6) |
+| G19 | Stricter app rules vs loose monday data | Anything goes | Required fields and unique GST/name | Keep the stricter rules; they stop the junk GSTINs, free-text states and duplicates seen in monday |
 
 ---
 
@@ -104,7 +104,6 @@ Most tables exist. Proposed change list; every change is a new file in `supabase
 | `job_processes` | exists | None |
 | `payment_terms` | exists | None |
 | `station_master` | exists | Optional unique-name handling already present (`station_master_name_uq`) |
-| `mdm_import_batches` / `mdm_import_rows` | **new** | One row per import run and per source row (monday item id, status created / merged / rejected, reason), so migration is auditable and re-runnable |
 | `mdm_requests` | **new, optional** | Pending "request new master" records (G15) with requester, payload JSON, status, approver |
 
 ---
@@ -121,36 +120,15 @@ Keep the existing keys; add only what is missing.
 | Edit transporters / job processes | `transport.manage` / `jobprocess.manage` (existing) |
 | Edit payment terms, locations | `settings.manage` (existing) |
 | See party contact numbers | `md_contact.view` (existing) |
-| Run MDM import | new `mdm.import` (dangerous: true) |
 | Approve master requests | new `mdm.approve` |
 
 Add both new keys to `permission_catalogue` and to the Management / Accounts templates in `PROFILE_TEMPLATES` (`src/api/types.ts`) as appropriate.
 
 ---
 
-## 6. Migration from monday.com
+## 6. No monday data migration
 
-monday has no connector available in this session and the monday API needs a token, so use a board export.
-
-1. **Export** each MDM board to Excel/CSV from monday (Menu > Export board to Excel). Ask the board owner; do not paste credentials anywhere.
-2. **Stage** every row in `mdm_import_rows` with the monday item id.
-3. **Clean** before loading (rules below), then run the importer in **dry-run** mode first and review the rejects.
-4. **Load** in this order, because later masters point at earlier ones: Payment Terms, Locations, Business Units, Counts, Buyers & Suppliers, Transport Company, Sizing/Delivery Address.
-5. **Reconcile:** counts per board in monday vs rows created / merged / rejected; spot check 10 rows per board.
-6. **Freeze** the monday MDM boards (read-only) after sign-off; keep them for one quarter.
-
-Cleaning rules by board:
-
-| Board | Rules |
-|---|---|
-| Business Units | Trim; uppercase PAN; `Name` to `name`/`short_name`; Trade Name / Legal Name to their columns; phone fields to `phone_1`, `phone_2`, `mobile`; GST to `tax_id`; derive `ref_prefix` (unique, 4 chars) and ask the business which unit is `is_home` |
-| Buyers & Suppliers | Strip "GSTIN :" prefixes and spaces, uppercase; **reject** a GSTIN that fails the 15-character regex but keep the row as `incomplete`; derive state code from the first two digits of GSTIN and normalise state names against `GST_STATES` (`src/lib/party.ts`); phone to 10 digits (drop +91 and leading 0); Contact 1 to `contact_person`/`mobile`, Contacts 2-3 to `party_md_contacts`; Type Buyer to `buyer_master`, Supplier to `supplier_master`; Private/Deleted to `is_active = false`; skip obvious test rows after the business confirms |
-| Duplicate GSTINs | The same GSTIN on two different supplier names violates the unique index. Do not auto-merge. List every pair, let the business choose "same party" (merge) or "different unit" (fix the GSTIN, since sister units normally have their own) |
-| Counts | Parse names such as "10S OE", "20S", "41'S CARDED COMPACT" into count_no / machine / process where possible; otherwise rebuild from the Yarn 1 / Yarn 2 / % / Process / Certification / Type columns; reject test names ("cotton", "Wool", "New name"); ratio must total 100; map "OKEA TEX" to OEKO TEX; keep the original name in `legacy_name` |
-| Transport Company, Sizing/Delivery, Location | Trim, dedupe by lower-case name, normalise phones and GST |
-| Payment Terms | Load the six values as they are; confirm ADVANCE RTGS advance percentage |
-
-Every rejected row goes into a downloadable CSV with a plain-language reason (the importer already works this way through `importCsvFile` / `importSummary` in `src/lib/bulk.ts`).
+This is a standalone build modelled on the monday MDM features. No party, count, location or other record is imported from monday. The app starts empty with seed lists (payment terms, zones, vehicle types, units, count options; see `CRMMasterPlan.md` section 12), and the business enters its own records, using the CSV import and export each register already has.
 
 ---
 
@@ -160,13 +138,10 @@ Each phase ends with something that can be used and checked. Estimates are rough
 
 ### Phase 0: Decisions and data (2 days)
 - Confirm the open questions in section 11.
-- Obtain the board exports (section 6, step 1).
-- Agree the cleaning rules and who owns the "same party or different unit" calls.
 
 ### Phase 1: Close the field gaps (3 days)
 - G1: add Trade Name, Legal Name, phones, bank accounts, state and record date to `Company`, the Companies form and the CSV import/export (`COMPANY_CSV_COLUMNS`).
 - G3, G4: contact list (up to 3) and the inactive/private flow with reason on the Contacts drawer.
-- G9: map certification spelling in the importer.
 - Optional G10: vehicle type on transporters.
 - **Done when:** a Business Unit and a party saved in the app carry every field the monday board carried, and `npm run typecheck` is clean.
 
@@ -174,24 +149,22 @@ Each phase ends with something that can be used and checked. Estimates are rough
 - G13: `/locations` list with add, rename, deactivate, search, CSV import, bulk delete, gated by `settings.manage`. Reuse `ListTools`, `Drawer` and `bulk.ts`.
 - **Done when:** the Location MDM values can be maintained without the Leads screen.
 
-### Phase 3: Import tool (4 days)
-- New admin page `/mdm-import` (permission `mdm.import`): choose a board type, upload CSV, preview, **dry-run**, run, download rejects.
-- Tables `mdm_import_batches` / `mdm_import_rows`; row-by-row insert so one bad row never blocks the rest (existing pattern).
-- Cleaning functions in `src/lib/mdmClean.ts`: GST normaliser, mobile normaliser, state normaliser, count-name parser, duplicate-GST detector.
-- **Done when:** a dry-run over the real exports produces a reject list a person can act on.
+### Phase 3: CSV import for every register (2 days)
+- Extend the existing CSV import and export (`src/lib/bulk.ts`) to transporters, job processes and payment terms, with a dry run and a reject file, for the business's own data. No monday import.
+- **Done when:** every register can be exported and re-imported with the same columns.
 
 ### Phase 4: Data quality and reports (3 days)
 - "Needs attention" page: incomplete parties (`incomplete = true`), unverified GST, duplicate GST suspects, missing contact, counts failing the ratio rule.
 - Master summary report: counts by state, role, category; export to CSV.
-- **Done when:** the business can see what is still dirty after import.
+- **Done when:** the business can see what is still incomplete.
 
 ### Phase 5: Optional workflow features (4 days)
 - G15 "Request new master" with approval (`mdm_requests`, `mdm.approve`).
 - G16 "Send bank details" link (WhatsApp / mail, logged to `activity_log`).
 - Wire the GST portal lookup in an Edge Function when credentials exist (`lookupGst` stub).
 
-### Phase 6: Cutover (2 days)
-- Run the import on production after a staging rehearsal; reconcile (section 6, step 5); freeze monday boards; brief the users.
+### Phase 6: Launch (2 days)
+- Rehearse on a staging Supabase project with test records, run the verification checklist, create users and role templates, brief the users.
 
 ---
 
@@ -209,10 +182,10 @@ Each phase ends with something that can be used and checked. Estimates are rough
 - [ ] `npm run typecheck` and `npm run build` pass.
 - [ ] Each MDM table: create, edit, deactivate, delete-blocked-when-in-use, CSV round trip.
 - [ ] A user without the matching permission cannot write (RLS) and sees a clear message.
-- [ ] Import dry-run on each real export: created + merged + rejected = source rows.
+- [ ] CSV round trip on each register: export, re-import, same rows.
 - [ ] Duplicate GST pairs are listed, not silently merged.
-- [ ] Count names from import equal the trigger-built `display_name`.
-- [ ] Audit log shows who imported and when.
+- [ ] Count display names always come from the database trigger.
+- [ ] Audit log shows who changed or bulk-imported records.
 - [ ] Migration files committed and `supabase/schema/public.sql` refreshed.
 
 ---
@@ -224,9 +197,8 @@ Each phase ends with something that can be used and checked. Estimates are rough
 | Strict database rules reject much of the monday data | Dry-run first; allow partial records flagged `incomplete`; give the business a fix list |
 | Duplicate GSTINs across different names | Manual decision per pair; never auto-merge |
 | Counts cannot be parsed from free text | Rebuild from structured columns; unresolved rows go to a manual queue |
-| monday boards keep changing during migration | Freeze edits at export time; re-export for the final run |
 | Real party data in test environments | Rehearse on a staging Supabase project, not production |
-| Secrets | No monday token or service key in the front end; imports run through RLS or an Edge Function |
+| Secrets | No service key in the front end; imports run through RLS |
 
 ---
 
@@ -240,7 +212,7 @@ Each phase ends with something that can be used and checked. Estimates are rough
 6. Is **Vehicle Type** on Transport Company needed, and with what list of values?
 7. What is the advance percentage for "ADVANCE RTGS"?
 8. Should anyone outside the MDM team be able to submit records (the creation forms), with approval?
-9. Who may run the import, and who signs off the reconciliation?
+9. Who may import records in bulk?
 
 ---
 

@@ -16,21 +16,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { BuyerMaster, SupplierMaster } from '../api/types'
-import { CATEGORIES } from '../api/types'
+import { BUYER_MACHINE_TYPES, CATEGORIES } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import {
-  CommissionFields, Field, gstPatch,
-  blankSupplier, buyerPayload, buyerProblems, supplierPayload, supplierProblems,
-  type BuyerForm, type SupplierForm,
+  Field, PartyProfileSections, gstPatch,
+  blankBuyerOnly, blankSupplier, buyerOnlyFromRow, buyerPayload, buyerProblems, profileFromRows,
+  supplierOnlyFromRow, supplierPayload, supplierProblems,
+  type BuyerForm, type FullPartyForm, type SupplierForm,
 } from '../components/PartyForms'
-import { PartyExtras } from '../components/PartyExtras'
+import { PartyExtras, useProfileNames } from '../components/PartyExtras'
+import { loadLinkIds, syncLinks } from '../lib/links'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
+import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
 import type { BulkDeleteResult, CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
-import { errMessage, isGst, isMobile, numOrNull } from '../lib/party'
+import { errMessage, isGst, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 
 export type Role = 'buyer' | 'supplier' | 'both'
@@ -95,16 +98,19 @@ function makeContact(supplier: SupplierMaster | null, buyer: BuyerMaster | null)
 
 /* ---- the form: the union of the two masters' fields --------------------------- */
 
-type ContactForm = SupplierForm & { spindlage_capacity: string; role: Role; company_id: string }
+type ContactForm = FullPartyForm & { role: Role; company_id: string }
 type CompanyOption = { id: string; name: string; is_active: boolean }
 
 function formFromContact(c: Contact | null): ContactForm {
-  if (!c) return { ...blankSupplier(), spindlage_capacity: '', role: 'buyer', company_id: '' }
+  if (!c) return { ...blankSupplier(), ...blankBuyerOnly(), spindlage_capacity: '', role: 'buyer', company_id: '' }
   const s = c.supplier
   const b = c.buyer
   const pick = (a: string | null | undefined, z: string | null | undefined) => (a ?? '').trim() || (z ?? '') || ''
   const base = s ?? b!
   return {
+    ...profileFromRows(s, b),
+    ...supplierOnlyFromRow(s),
+    ...buyerOnlyFromRow(b),
     role: c.role,
     company_id: s?.company_id ?? b?.company_id ?? '',
     name: base.name,
@@ -114,8 +120,8 @@ function formFromContact(c: Contact | null): ContactForm {
     address: pick(s?.address, b?.address),
     gst: pick(s?.gst, b?.gst),
     pan: pick(s?.pan, b?.pan),
-    bank_account_1: s?.bank_account_1 ?? '',
-    bank_account_2: s?.bank_account_2 ?? '',
+    bank_account_1: pick(s?.bank_account_1, b?.bank_account_1),
+    bank_account_2: pick(s?.bank_account_2, b?.bank_account_2),
     spindlage_capacity: b?.spindlage_capacity ?? '',
     product_range: pick(b?.product_range, s?.product_range),
     state_code: pick(s?.state_code, b?.state_code),
@@ -132,12 +138,7 @@ function formFromContact(c: Contact | null): ContactForm {
 }
 
 const toSupplierForm = (f: ContactForm): SupplierForm => ({ ...f })
-const toBuyerForm = (f: ContactForm): BuyerForm => ({
-  name: f.name, contact_person: f.contact_person, mobile: f.mobile, email: f.email, address: f.address,
-  gst: f.gst, pan: f.pan, spindlage_capacity: f.spindlage_capacity, product_range: f.product_range,
-  state_code: f.state_code, state: f.state, category: f.category, commission_basis: f.commission_basis,
-  commission_value: f.commission_value, notes: f.notes, is_active: f.is_active,
-})
+const toBuyerForm = (f: ContactForm): BuyerForm => ({ ...f })
 
 /** What is still missing for the chosen role, in the masters' own wording. */
 function problems(f: ContactForm): string[] {
@@ -148,26 +149,32 @@ function problems(f: ContactForm): string[] {
   return [...new Set(cleaned)]
 }
 
-async function createContact(f: ContactForm): Promise<void> {
+type SavedIds = { supplier: string | null; buyer: string | null }
+
+async function createContact(f: ContactForm): Promise<SavedIds> {
   let supplierId: string | null = null
+  let buyerId: string | null = null
   if (hasSupplier(f.role)) {
     const { data, error } = await supabase.from('supplier_master').insert({ ...supplierPayload(toSupplierForm(f)), company_id: f.company_id || null }).select('id').single()
     if (error) throw error
     supplierId = (data as { id: string }).id
   }
   if (hasBuyer(f.role)) {
-    const { error } = await supabase.from('buyer_master').insert({ ...buyerPayload(toBuyerForm(f)), company_id: f.company_id || null })
+    const { data, error } = await supabase.from('buyer_master').insert({ ...buyerPayload(toBuyerForm(f)), company_id: f.company_id || null }).select('id').single()
     if (error) {
       // keep it all-or-nothing: take back the supplier record this call just made
       if (supplierId) await supabase.from('supplier_master').delete().eq('id', supplierId)
       throw error
     }
+    buyerId = (data as { id: string }).id
   }
+  return { supplier: supplierId, buyer: buyerId }
 }
 
 /** Saves the form onto the contact's existing records, adding the missing
- *  side when the role widens and deactivating a side the role no longer has. */
-async function saveContact(c: Contact, f: ContactForm): Promise<void> {
+ *  side when the role widens and deactivating a side the role no longer has.
+ *  Returns the id of each side the role includes (for saving its links). */
+async function saveContact(c: Contact, f: ContactForm): Promise<SavedIds> {
   const done: string[] = []
   const attempt = async (label: string, run: () => PromiseLike<{ error: unknown; data?: unknown }>) => {
     const res = await run()
@@ -179,6 +186,7 @@ async function saveContact(c: Contact, f: ContactForm): Promise<void> {
     return res
   }
 
+  const ids: SavedIds = { supplier: null, buyer: null }
   const sides: { label: 'supplier' | 'buyer'; want: boolean; row: SupplierMaster | BuyerMaster | null; table: string }[] = [
     { label: 'supplier', want: hasSupplier(f.role), row: c.supplier, table: 'supplier_master' },
     { label: 'buyer', want: hasBuyer(f.role), row: c.buyer, table: 'buyer_master' },
@@ -191,13 +199,16 @@ async function saveContact(c: Contact, f: ContactForm): Promise<void> {
     if (side.want && side.row) {
       const res = await attempt(side.label, () => supabase.from(side.table).update(payload).eq('id', side.row!.id).select('id'))
       if (((res.data as unknown[]) ?? []).length === 0) throw new Error('Your account cannot change the ' + side.label + ' record.')
+      ids[side.label] = side.row.id
     } else if (side.want) {
-      await attempt(side.label, () => supabase.from(side.table).insert(payload))
+      const res = await attempt(side.label, () => supabase.from(side.table).insert(payload).select('id'))
+      ids[side.label] = ((res.data as { id: string }[] | null) ?? [])[0]?.id ?? null
     } else if (side.row && side.row.is_active) {
       const res = await attempt(side.label, () => supabase.from(side.table).update({ is_active: false }).eq('id', side.row!.id).select('id'))
       if (((res.data as unknown[]) ?? []).length === 0) throw new Error('Your account cannot change the ' + side.label + ' record.')
     }
   }
+  return ids
 }
 
 /* ---- list screen ------------------------------------------------------------------ */
@@ -206,6 +217,12 @@ const CSV_COLUMNS = [
   'role', 'company', 'supplier_code', 'buyer_code', 'name', 'contact_person', 'mobile', 'email', 'address', 'gst', 'pan',
   'bank_account_1', 'bank_account_2', 'spindlage_capacity', 'product_range', 'state_code', 'state', 'category',
   'commission_basis', 'commission_value', 'notes', 'is_active', 'gst_status',
+  // the profile: scalar columns only (locations and counts are links, kept in the form)
+  'short_name', 'customer_code', 'website', 'map_url', 'office_phone', 'res_phone', 'mill_address', 'remarks_2',
+  'contact_1_email', 'contact_2_name', 'contact_2_mobile', 'contact_2_email', 'contact_3_name', 'contact_3_mobile', 'contact_3_email',
+  'sales_person', 'collection_staff', 'messenger',
+  'machine_types', 'no_of_looms', 'fabric_producing', 'reed_pick', 'width',
+  'machine_type', 'counts_supplying', 'spindles', 'monthly_production', 'qty_bags_month', 'qty_kgs_month',
 ] as const
 
 type Editing = { mode: 'create' } | { mode: 'edit'; contact: Contact } | null
@@ -225,11 +242,13 @@ export default function Contacts() {
   const [search, setSearch] = useState(params.get('q') ?? '')
   const [roleFilter, setRoleFilter] = useState<'' | Role>('')
   const [catFilter, setCatFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [rangeSearch, setRangeSearch] = useState('')
   const [spinSearch, setSpinSearch] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
+  const profileNames = useProfileNames()
 
   const load = useCallback(async () => {
     const [s, b, co] = await Promise.all([
@@ -261,6 +280,7 @@ export default function Contacts() {
     const sq = spinSearch.trim().toLowerCase()
     return contacts.filter((c) => {
       if (roleFilter && c.role !== roleFilter) return false
+      if (statusFilter && (statusFilter === 'active') !== c.active) return false
       if (companyFilter && (c.supplier?.company_id ?? c.buyer?.company_id) !== companyFilter) return false
       const cat = c.supplier?.category ?? c.buyer?.category ?? ''
       if (catFilter && cat !== catFilter && c.buyer?.category !== catFilter) return false
@@ -268,11 +288,36 @@ export default function Contacts() {
       if (rq && !range.includes(rq)) return false
       if (sq && !(c.buyer?.spindlage_capacity ?? '').toLowerCase().includes(sq)) return false
       if (!q) return true
-      return [c.name, c.supplier?.supplier_code, c.buyer?.buyer_code, c.supplier?.gst, c.buyer?.gst, c.supplier?.pan, c.buyer?.pan]
+      return [
+        c.name, c.supplier?.short_name, c.buyer?.short_name, c.supplier?.customer_code, c.buyer?.customer_code,
+        c.supplier?.supplier_code, c.buyer?.buyer_code, c.supplier?.gst, c.buyer?.gst, c.supplier?.pan, c.buyer?.pan,
+      ]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q))
     })
-  }, [contacts, search, roleFilter, companyFilter, catFilter, rangeSearch, spinSearch])
+  }, [contacts, search, roleFilter, statusFilter, companyFilter, catFilter, rangeSearch, spinSearch])
+
+  const paging = usePaging(shown, [search, roleFilter, statusFilter, companyFilter, catFilter, rangeSearch, spinSearch].join('|'))
+
+  const filterDefs: FilterDef[] = [
+    { name: 'role', label: 'Role', allLabel: 'All roles', options: ROLES },
+    { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
+    { name: 'company', label: 'Company', allLabel: 'All companies', options: companies.map((c) => ({ value: c.id, label: c.name })) },
+    { name: 'category', label: 'Category', allLabel: 'All categories', options: CATEGORIES.map((c) => ({ value: c, label: `Category ${c}` })) },
+  ]
+  const filterValues = { role: roleFilter, status: statusFilter, company: companyFilter, category: catFilter }
+  function setFilter(name: string, value: string) {
+    if (name === 'role') setRoleFilter(value as '' | Role)
+    else if (name === 'status') setStatusFilter(value)
+    else if (name === 'company') setCompanyFilter(value)
+    else if (name === 'category') setCatFilter(value)
+  }
+  function clearFilters() {
+    setRoleFilter('')
+    setStatusFilter('')
+    setCompanyFilter('')
+    setCatFilter('')
+  }
 
   const selection = useSelection(useMemo(() => shown.map((c) => c.key), [shown]))
   const byKey = useMemo(() => new Map(contacts.map((c) => [c.key, c])), [contacts])
@@ -311,6 +356,9 @@ export default function Contacts() {
         buyer_code: c.buyer?.buyer_code ?? '',
         is_active: c.active,
         gst_status: (c.supplier ?? c.buyer)?.gst_status ?? '',
+        sales_person: profileNames[f.sales_person_id] ?? '',
+        collection_staff: profileNames[f.collection_staff_id] ?? '',
+        messenger: profileNames[f.messenger_id] ?? '',
       }
     })
     downloadCSV(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(CSV_COLUMNS, list))
@@ -334,7 +382,22 @@ export default function Contacts() {
         const companyName = r.get('company')
         const company = companyName ? companies.find((x) => x.name.toLowerCase() === companyName.toLowerCase()) : undefined
         if (companyName && !company) throw new Error(`Company "${companyName}" is not in the Companies list`)
+        const machineTypes = r
+          .get('machine_types')
+          .split(/[;,|/]/)
+          .map((m) => m.trim().toUpperCase())
+          .filter(Boolean)
+        const badMachine = machineTypes.find((m) => !(BUYER_MACHINE_TYPES as readonly string[]).includes(m))
+        if (badMachine) throw new Error(`Machine type "${badMachine}" is not one of: ${BUYER_MACHINE_TYPES.join(', ')}`)
+        const person = (col: string): string => {
+          const wanted = r.get(col)
+          if (!wanted) return ''
+          const hit = Object.entries(profileNames).find(([, n]) => n.toLowerCase() === wanted.toLowerCase())
+          if (!hit) throw new Error(`${col.replace('_', ' ')} "${wanted}" is not a user of this app`)
+          return hit[0]
+        }
         const base: ContactForm = {
+          ...blankBuyerOnly(),
           ...blankSupplier({
             name: r.get('name'),
             contact_person: r.get('contact_person'),
@@ -352,7 +415,36 @@ export default function Contacts() {
             commission_value: r.get('commission_value'),
             notes: r.get('notes'),
             is_active: parseBool(r.get('is_active'), true),
+            short_name: r.get('short_name'),
+            customer_code: r.get('customer_code'),
+            website: r.get('website'),
+            map_url: r.get('map_url'),
+            office_phone: r.get('office_phone').replace(/\D/g, ''),
+            res_phone: r.get('res_phone').replace(/\D/g, ''),
+            mill_address: r.get('mill_address'),
+            remarks_2: r.get('remarks_2'),
+            contact_1_email: r.get('contact_1_email'),
+            contact_2_name: r.get('contact_2_name'),
+            contact_2_mobile: r.get('contact_2_mobile').replace(/\D/g, ''),
+            contact_2_email: r.get('contact_2_email'),
+            contact_3_name: r.get('contact_3_name'),
+            contact_3_mobile: r.get('contact_3_mobile').replace(/\D/g, ''),
+            contact_3_email: r.get('contact_3_email'),
+            sales_person_id: person('sales_person'),
+            collection_staff_id: person('collection_staff'),
+            messenger_id: person('messenger'),
+            machine_type: r.get('machine_type'),
+            counts_supplying: r.get('counts_supplying'),
+            spindles: r.get('spindles'),
+            monthly_production: r.get('monthly_production'),
+            qty_bags_month: r.get('qty_bags_month'),
+            qty_kgs_month: r.get('qty_kgs_month'),
           }),
+          machine_types: [...new Set(machineTypes)],
+          no_of_looms: r.get('no_of_looms'),
+          fabric_producing: r.get('fabric_producing'),
+          reed_pick: r.get('reed_pick'),
+          width: r.get('width'),
           commission_basis: basis,
           spindlage_capacity: r.get('spindlage_capacity'),
           role,
@@ -378,19 +470,25 @@ export default function Contacts() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <h1>Contacts</h1>
-          <p className="page-sub">
-            Buyers and suppliers in one list. Each contact has a role: Buyer, Supplier or Both.
-          </p>
-        </div>
+      <GridToolbar
+        title="Buyers & Suppliers"
+        total={contacts.length}
+        singular="contact"
+        plural="contacts"
+        query={search}
+        onQuery={setSearch}
+        searchPlaceholder="Search by name, short name, code, GST or PAN"
+        filters={filterDefs}
+        values={filterValues}
+        onFilter={setFilter}
+        onClear={clearFilters}
+      >
         {canCreateAny && (
           <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
-            Add a contact
+            New contact
           </button>
         )}
-      </header>
+      </GridToolbar>
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -421,65 +519,43 @@ export default function Contacts() {
       <ImportIssues results={importResults} />
 
       <div className="drawer-actions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none', marginBottom: 12 }}>
-        <input aria-label="Search contacts" placeholder="Search by name, code, GST or PAN" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 260 }} />
-        <select aria-label="Filter by role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as '' | Role)}>
-          <option value="">All roles</option>
-          {ROLES.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Filter by company" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
-          <option value="">All companies</option>
-          {companies.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Filter by category" value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>
-          <option value="">All categories</option>
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              Category {c}
-            </option>
-          ))}
-        </select>
         <input aria-label="Filter by product range or count" placeholder="Product range / count" value={rangeSearch} onChange={(e) => setRangeSearch(e.target.value)} style={{ maxWidth: 200 }} />
         <input aria-label="Filter by spindlage or capacity" placeholder="Spindlage / capacity" value={spinSearch} onChange={(e) => setSpinSearch(e.target.value)} style={{ maxWidth: 180 }} />
       </div>
 
-      {shown.length === 0 ? (
-        <div className="card pad empty">
-          {contacts.length === 0 ? 'No contacts yet.' : 'No contact matches those filters.'}
-          {contacts.length === 0 && canCreateAny ? ' Add the first one.' : ''}
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {canCreateAny && (
+                <th style={{ width: 32 }}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all contacts" />
+                </th>
+              )}
+              <th>Code</th>
+              <th>Customer code</th>
+              <th className="left">Contact</th>
+              <th>Role</th>
+              <th>Company</th>
+              <th>Person</th>
+              <th>GST</th>
+              <th>State</th>
+              <th>Category</th>
+              <th>Product range</th>
+              <th>Status</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.length === 0 ? (
               <tr>
-                {canCreateAny && (
-                  <th style={{ width: 32 }}>
-                    <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all contacts" />
-                  </th>
-                )}
-                <th>Code</th>
-                <th>Contact</th>
-                <th>Role</th>
-                <th>Company</th>
-                <th>Person</th>
-                <th>GST</th>
-                <th>State</th>
-                <th>Category</th>
-                <th>Product range</th>
-                <th>Status</th>
-                <th>Updated</th>
+                <td className="empty" colSpan={canCreateAny ? 13 : 12}>
+                  {contacts.length === 0 ? 'No contacts yet.' : 'No contact matches those filters.'}
+                  {contacts.length === 0 && canCreateAny ? ' Add the first one.' : ''}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {shown.map((c) => {
+            ) : (
+              paging.visible.map((c) => {
                 const base = c.supplier ?? c.buyer!
                 return (
                   <tr key={c.key} className="clickable" onClick={() => setEditing({ mode: 'edit', contact: c })}>
@@ -493,8 +569,12 @@ export default function Contacts() {
                       {c.supplier && c.buyer && <br />}
                       {c.buyer?.buyer_code}
                     </td>
-                    <td>
+                    <td className="mono small">{c.supplier?.customer_code || c.buyer?.customer_code || '—'}</td>
+                    <td className="left">
                       <strong>{c.name}</strong>
+                      {(c.supplier?.short_name || c.buyer?.short_name) && (
+                        <div className="muted small">{c.supplier?.short_name || c.buyer?.short_name}</div>
+                      )}
                     </td>
                     <td>
                       <span className={c.role === 'both' ? 'chip brand' : 'chip'}>{roleLabel(c.role)}</span>
@@ -519,11 +599,11 @@ export default function Contacts() {
                     <td className="mono small">{formatDateTime(c.updated)}</td>
                   </tr>
                 )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {editing && (
         <ContactDrawer
@@ -534,14 +614,16 @@ export default function Contacts() {
           canSupplier={canSupplier}
           canEdit={editing.mode === 'create' ? canCreateAny : canEditContact(editing.contact)}
           onClose={() => setEditing(null)}
-          onDone={async (text) => {
-            setBanner({ kind: 'ok', text })
+          onDone={async (text, kind = 'ok') => {
+            setBanner({ kind, text })
             setEditing(null)
             await load()
           }}
           onError={(text) => setBanner({ kind: 'bad', text })}
         />
       )}
+
+      <GridPager {...paging.pager} singular="contact" plural="contacts" />
     </>
   )
 }
@@ -557,7 +639,7 @@ function ContactDrawer({
   canSupplier: boolean
   canEdit: boolean
   onClose: () => void
-  onDone: (message: string) => void | Promise<void>
+  onDone: (message: string, kind?: 'ok' | 'bad') => void | Promise<void>
   onError: (message: string) => void
 }) {
   const existing = editing.mode === 'edit' ? editing.contact : null
@@ -570,26 +652,82 @@ function ContactDrawer({
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [side, setSide] = useState<'buyer' | 'supplier'>(existing?.buyer ? 'buyer' : 'supplier')
+  const [locationIds, setLocationIds] = useState<string[]>([])
+  const [countIds, setCountIds] = useState<string[]>([])
+  // an existing contact's links must be read before they can be saved, or saving would wipe them
+  const [linksReady, setLinksReady] = useState(!existing)
+  const [linksNote, setLinksNote] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!existing) return undefined
+    let live = true
+    const owners: { type: 'supplier' | 'buyer'; id: string }[] = [
+      ...(existing.supplier ? [{ type: 'supplier' as const, id: existing.supplier.id }] : []),
+      ...(existing.buyer ? [{ type: 'buyer' as const, id: existing.buyer.id }] : []),
+    ]
+    const read = async (kind: 'location' | 'count') => [...new Set((await Promise.all(owners.map((o) => loadLinkIds(kind, o.type, o.id)))).flat())]
+    Promise.all([read('location'), read('count')])
+      .then(([l, c]) => {
+        if (!live) return
+        setLocationIds(l)
+        setCountIds(c)
+        setLinksReady(true)
+      })
+      .catch((caught) => {
+        if (live) setLinksNote(`Locations and counts could not be loaded (${errMessage(caught)}). They are left unchanged when you save.`)
+      })
+    return () => {
+      live = false
+    }
+  }, [existing])
 
   const set = <K extends keyof ContactForm>(key: K, value: ContactForm[K]) => setForm((p) => ({ ...p, [key]: value }))
   const patch = (values: Partial<ContactForm>) => setForm((p) => ({ ...p, ...values }))
+  const setProfile = <K extends keyof FullPartyForm>(key: K, value: FullPartyForm[K]) => setForm((p) => ({ ...p, [key]: value }) as ContactForm)
   const missing = problems(form)
   const p = 'c'
   const roleAllowed = (r: Role) => (hasSupplier(r) ? canSupplier : true) && (hasBuyer(r) ? canBuyer : true)
 
+  /** Saves locations and counts for each side the role includes. Returns what failed, in words. */
+  async function saveLinks(ids: SavedIds): Promise<string[]> {
+    if (!linksReady) return []
+    if (!existing && locationIds.length === 0 && countIds.length === 0) return []
+    const failures: string[] = []
+    const owners = [
+      ...(hasSupplier(form.role) && ids.supplier ? [{ type: 'supplier' as const, id: ids.supplier }] : []),
+      ...(hasBuyer(form.role) && ids.buyer ? [{ type: 'buyer' as const, id: ids.buyer }] : []),
+    ]
+    for (const o of owners) {
+      for (const kind of ['location', 'count'] as const) {
+        try {
+          await syncLinks(kind, o.type, o.id, kind === 'location' ? locationIds : countIds)
+        } catch (caught) {
+          failures.push(`${kind === 'location' ? 'locations' : 'counts'} on the ${o.type} record: ${errMessage(caught)}`)
+        }
+      }
+    }
+    return failures
+  }
+
   async function save() {
     setBusy(true)
     setFormError(null)
+    let ids: SavedIds
     try {
-      if (existing) await saveContact(existing, form)
-      else await createContact(form)
+      ids = existing ? await saveContact(existing, form) : await createContact(form)
     } catch (caught) {
       setBusy(false)
       setFormError(errMessage(caught, 'Could not save this contact'))
       return
     }
+    const linkFailures = await saveLinks(ids)
     setBusy(false)
-    await onDone(`${form.name.trim()} ${existing ? 'updated' : 'added'}.`)
+    const saved = `${form.name.trim()} ${existing ? 'updated' : 'added'}.`
+    if (linkFailures.length > 0) {
+      await onDone(`${saved} The contact itself is saved, but its links were not: ${linkFailures.join('; ')}. Open it again and save to retry.`, 'bad')
+      return
+    }
+    await onDone(saved)
   }
 
   async function remove() {
@@ -644,81 +782,35 @@ function ContactDrawer({
               ))}
             </select>
           </Field>
-          <Field id={`${p}-company`} label="Company" hint="The company this contact belongs to. It then appears in that company's Contacts list.">
-            <select id={`${p}-company`} value={form.company_id} onChange={(e) => set('company_id', e.target.value)}>
-              <option value="">—</option>
-              {companies
-                .filter((c) => c.is_active || c.id === form.company_id)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
-          </Field>
         </div>
-        <p className="muted small">Fields marked * are required.</p>
-        <div className="form-grid">
-          <Field id={`${p}-name`} label="Name" required hint="Must be unique -- the same contact is never entered twice.">
-            <input id={`${p}-name`} value={form.name} onChange={(e) => set('name', e.target.value)} />
-          </Field>
-          <Field id={`${p}-contact`} label="Contact person" required>
-            <input id={`${p}-contact`} value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
-          </Field>
-          <Field id={`${p}-mobile`} label="Mobile" required={showSupplier} hint={form.mobile && !isMobile(form.mobile) ? 'Mobile must be exactly 10 digits.' : undefined}>
-            <input id={`${p}-mobile`} inputMode="numeric" maxLength={10} className="mono" value={form.mobile} onChange={(e) => set('mobile', e.target.value.replace(/\D/g, ''))} />
-          </Field>
-          <Field id={`${p}-email`} label="Email">
-            <input id={`${p}-email`} type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
-          </Field>
-          <Field
-            id={`${p}-gst`}
-            label="GST"
-            required
-            hint={form.gst && !isGst(form.gst) ? 'Not a valid GST number yet -- 15 characters, e.g. 33AHFPK5121I1Z5.' : 'Format-checked. The state is filled in from the first two digits.'}
-          >
-            <input id={`${p}-gst`} className="mono" maxLength={15} value={form.gst} onChange={(e) => patch(gstPatch(form, e.target.value))} />
-          </Field>
-          <Field id={`${p}-pan`} label="PAN" required hint="10 characters, upper case.">
-            <input id={`${p}-pan`} className="mono" maxLength={10} value={form.pan} onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
-          </Field>
-          {showSupplier && (
-            <>
-              <Field id={`${p}-bank1`} label="Bank A/c (1)" required>
-                <input id={`${p}-bank1`} className="mono" value={form.bank_account_1} onChange={(e) => set('bank_account_1', e.target.value)} />
-              </Field>
-              <Field id={`${p}-bank2`} label="Bank A/c (2)">
-                <input id={`${p}-bank2`} className="mono" value={form.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
-              </Field>
-            </>
-          )}
-          {showBuyer && (
-            <Field id={`${p}-spin`} label="Capacity / spindlage" required>
-              <input id={`${p}-spin`} value={form.spindlage_capacity} onChange={(e) => set('spindlage_capacity', e.target.value)} />
+        <PartyProfileSections
+          idPrefix={p}
+          form={form}
+          set={setProfile}
+          patch={patch}
+          showBuyer={showBuyer}
+          showSupplier={showSupplier}
+          locationIds={locationIds}
+          countIds={countIds}
+          onLocationIds={setLocationIds}
+          onCountIds={setCountIds}
+          linksDisabled={!canEdit || !linksReady}
+          linksNote={linksNote}
+          businessUnit={
+            <Field id={`${p}-company`} label="Company" hint="The company this contact belongs to. It then appears in that company's Contacts list.">
+              <select id={`${p}-company`} value={form.company_id} onChange={(e) => set('company_id', e.target.value)}>
+                <option value="">—</option>
+                {companies
+                  .filter((c) => c.is_active || c.id === form.company_id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </select>
             </Field>
-          )}
-          <Field
-            id={`${p}-range`}
-            label="Product range"
-            required={showBuyer}
-            hint={showBuyer ? 'The counts and types this buyer uses.' : 'Counts and yarn types this supplier makes -- used by the search.'}
-          >
-            <input id={`${p}-range`} value={form.product_range} onChange={(e) => set('product_range', e.target.value)} />
-          </Field>
-          <Field id={`${p}-scode`} label="State code" required={showSupplier}>
-            <input id={`${p}-scode`} className="mono" maxLength={2} inputMode="numeric" value={form.state_code} onChange={(e) => set('state_code', e.target.value.replace(/\D/g, ''))} />
-          </Field>
-          <Field id={`${p}-state`} label="State" required={showSupplier}>
-            <input id={`${p}-state`} value={form.state} onChange={(e) => set('state', e.target.value)} />
-          </Field>
-          <CommissionFields idPrefix={p} form={form} set={set} />
-        </div>
-        <Field id={`${p}-address`} label="Full address">
-          <textarea id={`${p}-address`} rows={3} value={form.address} onChange={(e) => set('address', e.target.value)} />
-        </Field>
-        <Field id={`${p}-notes`} label="Notes">
-          <textarea id={`${p}-notes`} rows={2} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
-        </Field>
+          }
+        />
         <div className="switch-row">
           <label className="check">
             <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />

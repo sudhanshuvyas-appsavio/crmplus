@@ -9,13 +9,16 @@
  *  may open. Hiding a register is a courtesy; the database policies are what
  *  actually refuse a read or write.
  *
- *  Count master is deliberately not listed: the plan leaves it as it is. */
+ *  The registers are the seven of the monday MDM folder, in the same order:
+ *  Business Units, Buyers & Suppliers, Counts, Transport Company, Locations,
+ *  Sizing / Delivery Address and Payment Terms. */
 
 import { useMemo, type ComponentType } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 import Companies from './Companies'
 import Contacts from './Contacts'
+import Counts from './Counts'
 import JobProcesses from './JobProcesses'
 import Locations from './Locations'
 import PaymentTerms from './PaymentTerms'
@@ -45,15 +48,23 @@ export const REGISTERS: Register[] = [
     key: 'buyers-suppliers',
     label: 'Buyers & Suppliers',
     title: 'Buyers & Suppliers',
-    purpose: 'Every mill and buyer, with GST, PAN, contacts and documents.',
+    purpose: 'Every mill and buyer: GST, PAN, three contacts, addresses, bank details, commission, team and linked locations and counts.',
     Component: Contacts,
     anyOf: ['buyer.manage', 'mill.manage', 'lead.manage', 'lead.qualify'],
+  },
+  {
+    key: 'counts',
+    label: 'Counts',
+    title: 'Counts',
+    purpose: 'Yarn specifications: count, machine, composition, process, certification and type.',
+    Component: Counts,
+    anyOf: ['article.manage', 'lead.manage', 'lead.qualify', 'deal.read'],
   },
   {
     key: 'transport',
     label: 'Transport Company',
     title: 'Transport Company',
-    purpose: 'Transporters who carry goods, with contact and delivery details.',
+    purpose: 'Transporters: vehicle type and numbers, contacts, GST, PAN, bank accounts and locations served.',
     Component: Transporters,
     anyOf: ['transport.read', 'transport.manage'],
   },
@@ -69,7 +80,7 @@ export const REGISTERS: Register[] = [
     key: 'locations',
     label: 'Locations',
     title: 'Locations',
-    purpose: 'The delivery and station names the other registers pick from.',
+    purpose: 'Delivery sites: address, GST, contacts, zone and the parties that use them.',
     Component: Locations,
     anyOf: ['settings.manage', 'lead.manage', 'lead.qualify', 'deal.read'],
   },

@@ -15,6 +15,7 @@ import {
 import type { CountRow } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
+import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
@@ -64,6 +65,14 @@ function toForm(row: CountRow): FormState {
   }
 }
 
+/** "COTTON/POLYESTER" shown as "Cotton / Polyester"; the stored value is unchanged. */
+function blendLabel(value: string): string {
+  return value
+    .split('/')
+    .map((y) => y.charAt(0) + y.slice(1).toLowerCase())
+    .join(' / ')
+}
+
 /** Mirrors the database trigger so the form can preview the name. */
 function previewName(f: FormState): string {
   if (!f.count_no && !f.machine && !f.composition) return '—'
@@ -88,7 +97,7 @@ function problems(f: FormState): string[] {
   if (!f.machine) out.push('Machine')
   if (!f.composition) out.push('Composition')
   if (!/^[0-9]{1,3}(%|(\/[0-9]{1,3})+)$/.test(f.ratio.trim())) out.push('Ratio (like 100% or 60/40)')
-  if (f.composition === 'BLENDED' && !f.blended) out.push('Blended (cotton/polyester or cotton/viscose)')
+  if (f.composition === 'BLENDED' && !f.blended) out.push('Blended (a pair of two different yarns)')
   if (!f.yarn_type) out.push('Type (cheese or cone)')
   return out
 }
@@ -122,6 +131,7 @@ export default function Counts() {
     return (rows ?? []).filter((r) => !q || r.display_name.toLowerCase().includes(q))
   }, [rows, search])
 
+  const paging = usePaging(shown, search)
   const selection = useSelection(useMemo(() => shown.map((r) => r.id), [shown]))
 
   async function deleteSelected() {
@@ -154,7 +164,10 @@ export default function Counts() {
           machine: pickOne('Machine', r.get('machine'), COUNT_MACHINES, true),
           composition,
           ratio: r.get('ratio').replace(/\s+/g, '').toUpperCase(),
-          blended: composition === 'BLENDED' ? pickOne('Blended', r.get('blended'), COUNT_BLENDS, true) : '',
+          blended:
+            composition === 'BLENDED'
+              ? pickOne('Blended', r.get('blended').replace(/\s*\/\s*/g, '/'), COUNT_BLENDS, true)
+              : '',
           yarn_type: pickOne('Type', r.get('yarn_type'), COUNT_YARN_TYPES, true),
           process: pickOne('Process', r.get('process'), COUNT_PROCESSES),
           certification: pickOne('Certification', r.get('certification'), COUNT_CERTIFICATIONS),
@@ -191,20 +204,35 @@ export default function Counts() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <h1>Count master</h1>
-          <p className="page-sub">
-            The yarn specifications leads and deals are quoted against. Each specification can exist
-            only once.
-          </p>
-        </div>
+      {editing && canManage && (
+        <CountDrawer
+          key={editing.mode === 'edit' ? editing.row.id : 'create'}
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onDone={async (text) => {
+            setBanner({ kind: 'ok', text })
+            setEditing(null)
+            await load()
+          }}
+          onError={(text) => setBanner({ kind: 'bad', text })}
+        />
+      )}
+
+      <GridToolbar
+        title="Counts"
+        total={rows.length}
+        singular="count"
+        plural="counts"
+        query={search}
+        onQuery={setSearch}
+        searchPlaceholder="Search counts, e.g. ring spun cotton"
+      >
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
-            Add a count
+            New count
           </button>
         )}
-      </header>
+      </GridToolbar>
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -235,80 +263,59 @@ export default function Counts() {
       />
       <ImportIssues results={importResults} />
 
-      <div className="field" style={{ maxWidth: 360 }}>
-        <input
-          aria-label="Search counts"
-          placeholder="Search counts, e.g. ring spun cotton"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      {shown.length === 0 ? (
-        <div className="card pad empty">
-          {rows.length === 0 ? 'No counts yet.' : 'No count matches that search.'}
-          {rows.length === 0 && canManage ? ' Add the first one.' : ''}
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {canManage && (
+                <th style={{ width: 32 }}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all counts" />
+                </th>
+              )}
+              <th className="left">Count</th>
+              <th>Machine</th>
+              <th>Composition</th>
+              <th>Type</th>
+              <th>Process</th>
+              <th>Certification</th>
+              <th>Status</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paging.visible.map((r) => (
+              <tr key={r.id} className={canManage ? 'clickable' : ''} onClick={() => canManage && setEditing({ mode: 'edit', row: r })}>
                 {canManage && (
-                  <th style={{ width: 32 }}>
-                    <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all counts" />
-                  </th>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selection.isSelected(r.id)} onChange={() => selection.toggle(r.id)} aria-label={`Select ${r.display_name}`} />
+                  </td>
                 )}
-                <th>Count</th>
-                <th>Machine</th>
-                <th>Composition</th>
-                <th>Type</th>
-                <th>Process</th>
-                <th>Certification</th>
-                <th>Status</th>
-                <th>Updated</th>
+                <td className="left">
+                  <strong>{r.display_name}</strong>
+                </td>
+                <td className="small">{r.machine}</td>
+                <td className="small">
+                  {r.ratio} {r.blended ?? r.composition}
+                </td>
+                <td className="small">{r.yarn_type}</td>
+                <td className="small muted">{r.process ?? '—'}</td>
+                <td className="small muted">{r.certification ?? '—'}</td>
+                <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
+                <td className="mono small">{formatDateTime(r.updated_at)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr key={r.id} className={canManage ? 'clickable' : ''} onClick={() => canManage && setEditing({ mode: 'edit', row: r })}>
-                  {canManage && (
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={selection.isSelected(r.id)} onChange={() => selection.toggle(r.id)} aria-label={`Select ${r.display_name}`} />
-                    </td>
-                  )}
-                  <td>
-                    <strong>{r.display_name}</strong>
-                  </td>
-                  <td className="small">{r.machine}</td>
-                  <td className="small">
-                    {r.ratio} {r.blended ?? r.composition}
-                  </td>
-                  <td className="small">{r.yarn_type}</td>
-                  <td className="small muted">{r.process ?? '—'}</td>
-                  <td className="small muted">{r.certification ?? '—'}</td>
-                  <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
-                  <td className="mono small">{formatDateTime(r.updated_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {editing && canManage && (
-        <CountDrawer
-          key={editing.mode === 'edit' ? editing.row.id : 'create'}
-          editing={editing}
-          onClose={() => setEditing(null)}
-          onDone={async (text) => {
-            setBanner({ kind: 'ok', text })
-            setEditing(null)
-            await load()
-          }}
-          onError={(text) => setBanner({ kind: 'bad', text })}
-        />
-      )}
+            ))}
+            {shown.length === 0 && (
+              <tr>
+                <td className="empty" colSpan={canManage ? 9 : 8}>
+                  {rows.length === 0 ? 'No counts yet.' : 'No count matches that search.'}
+                  {rows.length === 0 && canManage ? ' Add the first one.' : ''}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <GridPager {...paging.pager} singular="count" plural="counts" />
     </>
   )
 }
@@ -379,12 +386,19 @@ function CountDrawer({
     await onDone('Count deleted.')
   }
 
-  const select = (id: string, value: string, options: readonly string[], onChange: (v: string) => void, blank = '—') => (
+  const select = (
+    id: string,
+    value: string,
+    options: readonly string[],
+    onChange: (v: string) => void,
+    blank = '—',
+    label: (v: string) => string = (v) => v,
+  ) => (
     <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">{blank}</option>
       {options.map((o) => (
         <option key={o} value={o}>
-          {o}
+          {label(o)}
         </option>
       ))}
     </select>
@@ -421,7 +435,7 @@ function CountDrawer({
         </Field>
         {form.composition === 'BLENDED' && (
           <Field id="ct-blend" label="Blended" required>
-            {select('ct-blend', form.blended, COUNT_BLENDS, (v) => set('blended', v), 'Choose…')}
+            {select('ct-blend', form.blended, COUNT_BLENDS, (v) => set('blended', v), 'Choose…', blendLabel)}
           </Field>
         )}
         <Field id="ct-type" label="Type" required>

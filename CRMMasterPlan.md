@@ -1,6 +1,6 @@
 # CRM Master Plan: monday.com CRM to Commission Desk
 
-**Purpose.** One plan for every block and every feature of the monday.com "CRM" workspace (Appsavio), mapped onto the Commission Desk web app in this repository (Vite + React + Supabase). For each block it says what monday does today, what the app already does, what is missing, the features to build, and how to migrate the data.
+**Purpose.** One plan for every block and every feature of the monday.com "CRM" workspace (Appsavio), mapped onto the Commission Desk web app in this repository (Vite + React + Supabase). For each block it says what monday does today, what the app already does, what is missing, and the features to build. It is a feature plan for a **standalone CRM** modelled on the monday workflows; no monday data is imported.
 
 **Sources (all read-only, 17 Nov 2026)**
 - monday.com workspace "CRM" (id 2480519) through the monday connector: all 3 folders, 8 loose boards, 7 MDM boards, 3 CRM boards, 7 Tasks boards, subitem boards, automations, formulas, labels, item counts.
@@ -14,7 +14,7 @@
 - Reports views, and any column hidden from the connector.
 - No personal data (names, phones, GSTINs, bank details) is reproduced here; patterns only.
 
-> `MDMplan.md` was written earlier from the browser UI and has errors. Section 3 of this file replaces its monday facts; section 13 lists the corrections.
+> `MDMplan.md` was written earlier from the browser UI and has some wrong monday facts. Section 3 of this file replaces them.
 
 ---
 
@@ -52,7 +52,7 @@ Every outbound document: email button and/or WhatsApp template -> logged in What
 ## 2. Cross-cutting findings that shape every block
 
 1. **monday is a prototype, the app is the product.** Most Tasks boards hold almost no real data (0 to 31 items, blank statuses), and the only run count available (5 runs, 0 failures, new workflow engine only) suggests little automation traffic. The app already implements more than monday (qualification rules, approval guards, close rules).
-2. **Master data is the hub.** Every board links to Buyers & Suppliers, Business Units, Counts, Location, Sizing or Transport. Migrating masters first, with stable keys, is the critical path.
+2. **Master data is the hub.** Every board links to Buyers & Suppliers, Business Units, Counts, Location, Sizing or Transport. Build the masters first; every other block depends on them.
 3. **Mirror columns are the main source of fragility.** Mirror-of-mirror values return nothing through the API (Transport Invoice total shows 0; Payment Pending goes negative). The app should store the value it needs at the moment of the event (snapshot) and keep a foreign key.
 4. **Money is half-manual.** Commission Invoices has hand-typed Total, Net, Round Off, TDS, Add, Deduct; status never leaves "Generated" (36 of 36). The app already computes commission and closes orders from facts.
 5. **WhatsApp works but is unobserved.** 124 messages logged: 75 sent, 39 failed (16 invalid phone, others template and account errors), 10 blank; no delivery, read or reply tracking; bank details sit in clear text on a public board.
@@ -76,7 +76,7 @@ Every outbound document: email button and/or WhatsApp template -> logged in What
 | **Sizing/Delivery Address** | 2 | 15: Name (process/unit), Person, Date, address, GST, State, Contact 1/2 with phone and email, Remarks, Documents, link to Location | none |
 | **Payment Terms** | 6 | Name, Days | values 10/20/30/45/60 DAYS PDC and ADVANCE RTGS (0) |
 
-Data quality: junk GSTIN/PAN values, free-text states (including cities), mixed phone formats, test rows ("New name", "cotton", "Wool"), duplicate GSTINs across different names, many count names that cannot be parsed.
+Lessons for the clone (what not to copy): GSTIN, PAN and state as free text; mixed phone formats; counts typed by hand instead of built from their parts; the same GSTIN on different parties; duplicate and stale columns. The app's constraints already prevent these.
 
 ### 3.2 App today
 See `MDMplan.md` section 2 for the table list and validation rules. In short: strict database rules (GST/PAN/state-code/mobile checks, unique GST and name, `incomplete` flag, count display-name trigger plus unique index, GST verification state) and RLS by permission key (`settings.manage`, `buyer.manage`, `mill.manage`, `article.manage`, `transport.manage`, `jobprocess.manage`, `md_contact.view`).
@@ -100,11 +100,11 @@ See `MDMplan.md` section 2 for the table list and validation rules. In short: st
 | A-13 | Sizing/delivery address profile | Two contacts with email, remarks, location link | P2 |
 | A-14 | Count model alignment | Add LYCRA and GRS (business decision), map "Karded Compact (Combed Compact)", ratio must total 100, duplicate rule covers every field including process, certification, type | P1 |
 | A-15 | Data-quality centre | Incomplete parties, unverified or duplicate GSTIN, missing contacts, invalid counts | P2 |
-| A-16 | Import tool | CSV/Excel import with dry run and reject file; see section 11 | P1 |
+| A-16 | CSV import and export for every register | Dry run, per-row result, reject file, for the business's own data (exists for companies, parties, counts, locations; extend to transporters, job processes, payment terms) | P2 |
 | A-17 | Private/Deleted | Not a monday state any more; use `is_active` only | Decision |
 | A-18 | Request-new-master workflow (optional) | Replaces the creation forms: pending record, approver | P3 |
 
-Data model changes: new `delivery_locations`, `party_locations`, `party_counts`, `party_business_units`; extend `transporters` (vehicle type, 3 vehicle numbers); `bank_accounts` (owner type/id, bank, branch, account, IFSC, is_primary); `party_commission` columns. New permissions `mdm.import`, `mdm.approve`.
+Data model changes: new `delivery_locations`, `party_locations`, `party_counts`, `party_business_units`; extend `transporters` (vehicle type, 3 vehicle numbers); `bank_accounts` (owner type/id, bank, branch, account, IFSC, is_primary); `party_commission` columns. New permission `mdm.approve` (for the optional request flow).
 
 ---
 
@@ -275,62 +275,96 @@ New tables: `notifications`, `message_templates`, `messages`, `task_rules` (thre
 
 ---
 
-## 11. Migration from monday
+## 11. monday CRM capabilities to clone (platform features)
 
-1. **Export** each board with the owner (Excel export) or request a read-only monday token for a one-time script. Never put the token in the front end.
-2. **Staging tables** `mdm_import_batches` / `mdm_import_rows` keep the monday item id, status and reason for every row.
-3. **Load order:** Payment Terms, Locations, Business Units, Counts, Parties, Transporters, Sizing addresses, then party links; then Deals, Sales Confirmations, Dispatch and Billing, Commission Invoices, Transporter Type Details, Transport Invoices; then tasks (only open ones); finally the message log (optional, archive only).
-4. **Cleaning rules:** GSTIN uppercase, strip prefixes; PAN uppercase 10 chars; state from the GSTIN prefix; phones to 10 digits (drop 91 and leading 0); numbers stored as text for bill/cheque/invoice numbers; counts rebuilt from the structured yarn columns, free-text names kept as `legacy_name`; drop test rows after the owner agrees.
-5. **Duplicate GSTINs** across different names: list, never auto-merge.
-6. **Reconcile:** per board, source rows = created + merged + rejected; sample ten rows per board; totals for dispatch quantity, commission and payment pending must match monday formulas.
-7. **Freeze** monday boards after sign-off (read-only for one quarter). Delete unused template boards (Quotes & Invoices, Test JC, Build Vibe app, 8 empty subitem boards, orphan duplicate subitem board).
+The goal is a standalone CRM with the same business features and flows, not a copy of the monday product or its data. Each monday capability the Appsavio workspace relies on becomes a fixed feature of the app. A generic no-code board builder is out of scope.
 
-What not to migrate: stale and test automations, empty status columns, duplicate columns, mirrors (recomputed), bank text in message logs, test messages.
+| monday capability | How the workspace uses it | Standalone feature |
+|---|---|---|
+| Typed columns (status, dropdown, people, date, numbers, files, phone, email, location, checkbox, link) | Every board | Typed database columns with constraints; status and dropdown lists stored as editable lists (see section 12) |
+| Groups by status | Deals, Sales Confirmation, Dispatch, Cheques | Saved list views with status filters and counts; state lives in one column, never duplicated into a group |
+| Board relations and mirrors | Party, count, location, business unit links everywhere | Foreign keys and joined views; the value needed at the time of the event is copied onto the record (snapshot) |
+| Formulas | Commission, totals, weights, trip cost, payment pending, feedback due date, validation messages | SQL functions and views, one definition used by screens and exports |
+| Subitems | Dispatch entries, Payment Collection lines | Child tables with their own numbers and a parent rule (sum of children cannot exceed parent) |
+| Auto-number | Deal, confirmation, invoice, dispatch entry numbers | Database sequences with year prefix (already the pattern) |
+| Item conversation and activity | "Start conversation" on items, emails and activities | Activity log per record (exists) with notes, calls, meetings, reminders |
+| Files column | Documents, proofs, invoices, bank documents | Storage bucket with typed attachments per record (exists for parties and deals) |
+| Creation forms | Every MDM board and every Tasks board | Validated "new record" forms with required fields; optional request-and-approve flow |
+| Buttons | "Send Email" on confirmations and invoices | Action buttons on a record: generate PDF, send, log |
+| Automations (trigger, condition, action) | Approvals, record creation on status change, date-based reminders, notifications | Rules in section 9; thresholds and recipients stored as data |
+| Notifications and inbox | Manager review, payment pending, feedback due | In-app notification centre with email copy |
+| People columns, owner, guests | Owner, Manager, Accounts, Messenger, Sales Person, Collection Staff | Users, roles and permission keys; assignment fields on records |
+| Dashboards and reports | Billing and dispatch dashboard | Dashboard pages in section 10 |
+| Table view tools (search, filter, sort, group, export) | All boards | List tools (exist): search, filters, sort, CSV export; add saved views |
+| Integrations (Gmail, WhatsApp API, Emails and Activities, AI) | Confirmations, invoices, dispatch notices | Edge Functions in section 8 |
+| Location and file capture (GPS check-in, photo) | Every Tasks board | Phone-friendly field screen (E-10) |
+
+Out of scope: generic board/column builder, marketplace apps, monday AI and agents, multi-account hosting.
 
 ---
 
-## 12. Roadmap
+## 12. Starting data (no monday import)
+
+The app starts empty. No party, deal, invoice or message data is brought across from monday. What the app ships with is configuration, taken from the labels monday uses, so the business can start entering real records on day one.
+
+| List | Seed values |
+|---|---|
+| Units of measure | KG, TONS, METERS, BAGS (existing) plus HANKS, BALES, CARTON, CHIPPA |
+| Payment terms | 10, 20, 30, 45, 60 DAYS PDC; ADVANCE RTGS (0 days, advance 100%) |
+| Price basis / freight | Net, Ex-Mill; Included, Excluded |
+| Sale type | Local, Export |
+| Deal states | per decision B-01 (monday: New Deal, Manager Approval, Approved, Reconsider, Closed Lost) |
+| Confirmation states | Draft, Send, Send with delivery info |
+| Dispatch states | Draft, In progress, Partially dispatched, Fully dispatched, Cancelled, Returned |
+| Transport type | Own transport, Agreed third party, Third party (direct payment by party) |
+| Vehicle type | Truck, Lorry, Tempo |
+| Commission basis | Percentage of ex-mill value, Per kg, Per bag |
+| Payment mode | NEFT, UPI, RTGS, Cash, Cards, Cheque, Online |
+| Count options | Machine: Vortex, Ring Spun, OE. Yarn: Cotton, Polyester, Viscose, Linen, Hemp (Lycra pending decision). Ply: Single, Double. Process: Combed, Karded, Karded Compact, Combed Compact. Certification: BCI, OEKO TEX, GOTS, NPOP, NOP (GRS pending). Type: Cone, Cheese |
+| Zones | West, South, North |
+| Party category | 1, 2, 3, 4 |
+| Cheque states | Pending, Collected, Deposited, Cleared |
+| Collection states | Outstanding, Completed |
+| Task states | Not started, In progress, Done, Stuck |
+| Message templates | sales confirmation (buyer, supplier), commission invoice, transport invoice, dispatch notice, document |
+| Reminder thresholds | 30, 45, 60 days (editable) |
+
+Users bring their own data through the existing CSV import and export on each register (dry run, per-row result, reject file). The first administrator creates users, assigns role templates and enters the home company.
+
+---
+
+## 13. Roadmap
 
 | Phase | Scope | Depends on | Rough effort |
 |---|---|---|---|
-| 0. Decisions | Section 14 questions; obtain exports | none | 2 d |
-| 1. MDM completion | A-01 to A-16, units B-03, import tool | 0 | 12 d |
+| 0. Decisions | Section 14 questions; WhatsApp provider and shared mailbox set-up | none | 2 d |
+| 1. Master data | A-01 to A-15, A-18, seed lists, units B-03 | 0 | 10 d |
 | 2. Sales pipeline | B-01, B-02, B-05 to B-08, B-11 | 1 | 8 d |
 | 3. Execution and billing | C-02 to C-08, D-01 to D-07 | 2 | 14 d |
 | 4. Transport billing | D-08 to D-12 | 3 | 8 d |
-| 5. Messaging service | F-01 to F-06, F-09 | 1 (parties), provider account | 10 d |
+| 5. Messaging service | F-01 to F-06, F-09 | 1, provider account | 10 d |
 | 6. Field tasks | E-01 to E-13, mobile view | 3, 5 | 12 d |
 | 7. Reports and polish | G-01 to G-05, H-01 to H-03, data-quality centre | all | 6 d |
-| 8. Cutover | Rehearsal on staging, reconcile, freeze monday | all | 4 d |
+| 8. Hardening and launch | Staging rehearsal with test data, user acceptance, backups, role set-up, user guide | all | 4 d |
 
-Effort is working days for one developer who knows the repo; Phases 5 and 6 can overlap with 3 and 4 if a second developer is available. Every database change is a new file in `supabase/migrations/` and the schema snapshot is refreshed afterwards.
-
----
-
-## 13. Corrections to `MDMplan.md`
-
-1. Buyers & Suppliers has **45 items and about 72 columns**, not 43 and 16; it has office and residence phones, three contact emails, bank details, commission pairs, staff pickers and several links. The "no real mobile" and "no bank columns" observations are wrong.
-2. **"Private/Deleted" no longer exists** as a Type label or group; drop the G4 mapping.
-3. Counts: the 11 workflows copy a formula into a Summary text column (they do not rebuild the name); duplicate checks are 8 older rules that skip Process, Certification and Type; LYCRA and GRS exist in monday but not in the app.
-4. Location MDM is a 13-column delivery-site master, not a name list; Transport Company has 25 columns including Vehicle Type; Business Units has 19 columns (adds Mobile, Phone 3, PAN, bank 1-2).
-5. The relation model (party links to business unit, location, counts and sales confirmation; transport links to location and business unit) is missing from its data model section.
+Effort is working days for one developer who knows the repo; phases 5 and 6 can overlap with 3 and 4 with a second developer. Every database change is a new file in `supabase/migrations/` and the schema snapshot is refreshed afterwards.
 
 ---
 
 ## 14. Decisions needed from the business
 
 1. Deal status model: monday's five states or the app's longer chain?
-2. Are Lycra and GRS valid counts/certifications?
-3. Are Local/Export, Hanks/Bales/Carton/Chippa units in daily use?
+2. Are Lycra and GRS valid counts and certifications?
+3. Are Local/Export and the units Hanks, Bales, Carton, Chippa in daily use?
 4. Is the buyer/supplier production profile (looms, reed, machines) used by anyone?
 5. Is category 1-4 a credit grade that affects deals?
-6. Who owns WhatsApp: provider account, templates, opt-in, and the sender number?
+6. Who owns WhatsApp: provider account, templates, opt-in, sender number?
 7. Which shared mailbox sends invoices and confirmations?
 8. What are the real escalation days for unpaid invoices (30/45/60) and who is notified?
 9. Do sample deliveries need a full workflow or just a register?
-10. What does the Billing & Dispatch dashboard show today (open it with the owner)?
+10. What does the Billing & Dispatch dashboard show today (ask the owner for a screenshot)?
 11. May bank details be sent by WhatsApp, and who may see them?
-12. Which monday data is worth migrating (open tasks only? full message history?)
+12. What do the creation forms ask and which fields are required (not readable from monday)?
 
 ---
 
@@ -338,11 +372,11 @@ Effort is working days for one developer who knows the repo; Phases 5 and 6 can 
 
 | Risk | Mitigation |
 |---|---|
-| Strict app rules reject dirty monday data | Dry run, `incomplete` flag, reject file with plain reasons |
-| Duplicate GSTIN / count names | Manual decision list, no auto-merge |
-| WhatsApp approval and template changes | Start the provider approval in Phase 0; keep link-based sending as fallback |
-| Single-mailbox dependency | Move to a shared sender before cutover |
-| Two sources of truth during migration | Freeze monday at export time; re-export for the final load |
-| Unreadable forms and dashboard | Ask the owner for screenshots or exports |
-| Bank details exposure | Structured fields, restricted by permission, never in logs |
-| Scope growth | Treat P3 items as optional; ship by phase |
+| Scope creep into a generic no-code builder | Fixed features only (section 11); P3 items are optional |
+| WhatsApp template approval takes time | Start provider approval in Phase 0; keep link-based sending as fallback |
+| Single-mailbox dependency repeats | Shared sender from day one |
+| Rules engine grows complex | Keep rules few, with thresholds as data; every rule logged in `jobs` |
+| Unreadable forms and dashboard | Ask the owner for screenshots; confirm before building |
+| Bank details exposure | Structured fields, permission-gated, never written to logs |
+| Field staff need phones, not desktops | Build the mobile task screen early (Phase 6) and test on real devices |
+| Business rules differ from monday habits | User acceptance in Phase 8 with real scenarios |

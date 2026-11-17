@@ -9,12 +9,13 @@
  * a partial unique index in the database, not just client-side care. */
 
 import { CompanyContacts } from '../components/CompanyContacts'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { COMPANY_CSV_COLUMNS } from '../api/types'
 import type { Company } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
+import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
 import { downloadCSV, parseCSV, toCSV } from '../lib/csv'
 import { formatDateTime } from '../lib/format'
 import { GST_STATES, isGst, isMobile } from '../lib/party'
@@ -145,6 +146,7 @@ export default function Companies() {
   const [editing, setEditing] = useState<Editing>(null)
   const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -165,7 +167,19 @@ export default function Companies() {
     void load()
   }, [load])
 
-  const allSelected = companies !== null && companies.length > 0 && selected.size === companies.length
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return (companies ?? []).filter(
+      (c) =>
+        !q ||
+        [c.name, c.legal_name, c.brand_name, c.tax_id, c.state, c.short_name, c.ref_prefix].some((v) =>
+          (v ?? '').toLowerCase().includes(q),
+        ),
+    )
+  }, [companies, search])
+  const paging = usePaging(shown, search)
+
+  const allSelected = shown.length > 0 && shown.every((c) => selected.has(c.id))
 
   function toggleOne(id: string) {
     setSelected((prev) => {
@@ -177,8 +191,7 @@ export default function Companies() {
   }
 
   function toggleAll() {
-    if (!companies) return
-    setSelected(allSelected ? new Set() : new Set(companies.map((c) => c.id)))
+    setSelected(allSelected ? new Set() : new Set(shown.map((c) => c.id)))
   }
 
   async function deleteOne(company: Company) {
@@ -332,20 +345,35 @@ export default function Companies() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <h1>Companies</h1>
-          <p className="page-sub">
-            Every company record your agency deals with. The one marked <strong>Home</strong> drives
-            the app's own branding and the deal reference-number prefix.
-          </p>
-        </div>
+      {editing && canManage && (
+        <CompanyDrawer
+          key={editing.mode === 'edit' ? editing.company.id : 'create'}
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onDelete={deleteOne}
+          onSaved={async (message) => {
+            setBanner({ kind: 'ok', text: message })
+            setEditing(null)
+            await load()
+          }}
+          onError={(message) => setBanner({ kind: 'bad', text: message })}
+        />
+      )}
+
+      <GridToolbar
+        title="Business Units"
+        total={companies.length}
+        singular="business unit"
+        plural="business units"
+        query={search}
+        onQuery={setSearch}
+      >
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
-            Add a company
+            New business unit
           </button>
         )}
-      </header>
+      </GridToolbar>
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -441,108 +469,97 @@ export default function Companies() {
         </div>
       )}
 
-      {companies.length === 0 ? (
-        <div className="card pad empty">
-          No companies yet.{canManage ? ' Add one, or import a CSV to bring in several at once.' : ''}
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {canManage && (
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Select all companies"
+                  />
+                </th>
+              )}
+              <th className="left">Name</th>
+              <th>Brand / group</th>
+              <th>GST number</th>
+              <th>State</th>
+              <th>Short name</th>
+              <th>Ref prefix</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Opened</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paging.visible.map((company) => (
+              <tr
+                key={company.id}
+                className={canManage ? 'clickable' : ''}
+                onClick={() => canManage && setEditing({ mode: 'edit', company })}
+              >
                 {canManage && (
-                  <th style={{ width: 32 }}>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
-                      checked={allSelected}
-                      onChange={toggleAll}
-                      aria-label="Select all companies"
+                      checked={selected.has(company.id)}
+                      onChange={() => toggleOne(company.id)}
+                      aria-label={`Select ${company.name}`}
                     />
-                  </th>
+                  </td>
                 )}
-                <th>Name</th>
-                <th>Brand / group</th>
-                <th>GST number</th>
-                <th>State</th>
-                <th>Short name</th>
-                <th>Ref prefix</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Opened</th>
-              </tr>
-            </thead>
-            <tbody>
-              {companies.map((company) => (
-                <tr
-                  key={company.id}
-                  className={canManage ? 'clickable' : ''}
-                  onClick={() => canManage && setEditing({ mode: 'edit', company })}
-                >
-                  {canManage && (
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(company.id)}
-                        onChange={() => toggleOne(company.id)}
-                        aria-label={`Select ${company.name}`}
-                      />
-                    </td>
+                <td className="left">
+                  <strong>{company.name}</strong>
+                  {company.is_home && <span className="chip brand" style={{ marginLeft: 8 }}>Home</span>}
+                  {company.legal_name && company.legal_name !== company.name && (
+                    <div className="small muted">{company.legal_name}</div>
                   )}
-                  <td>
-                    <strong>{company.name}</strong>
-                    {company.is_home && <span className="chip brand" style={{ marginLeft: 8 }}>Home</span>}
-                    {company.legal_name && company.legal_name !== company.name && (
-                      <div className="small muted">{company.legal_name}</div>
-                    )}
-                  </td>
-                  <td className="small muted">{company.brand_name || '—'}</td>
-                  <td className="mono small">{company.tax_id || '—'}</td>
-                  <td className="small">{company.state || '—'}</td>
-                  <td className="mono">{company.short_name}</td>
-                  <td className="mono">{company.ref_prefix}</td>
-                  <td>
-                    {!company.is_buyer && !company.is_supplier ? (
-                      <span className="small muted">—</span>
-                    ) : (
-                      <>
-                        {company.is_buyer && <span className="chip">Buyer</span>}
-                        {company.is_supplier && (
-                          <span className="chip" style={company.is_buyer ? { marginLeft: 6 } : undefined}>
-                            Supplier
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </td>
-                  <td>
-                    {company.is_active ? (
-                      <span className="chip good">Active</span>
-                    ) : (
-                      <span className="chip bad">Inactive</span>
-                    )}
-                  </td>
-                  <td className="mono small">{company.record_date || formatDateTime(company.created_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {editing && canManage && (
-        <CompanyDrawer
-          key={editing.mode === 'edit' ? editing.company.id : 'create'}
-          editing={editing}
-          onClose={() => setEditing(null)}
-          onDelete={deleteOne}
-          onSaved={async (message) => {
-            setBanner({ kind: 'ok', text: message })
-            setEditing(null)
-            await load()
-          }}
-          onError={(message) => setBanner({ kind: 'bad', text: message })}
-        />
-      )}
+                </td>
+                <td className="small muted">{company.brand_name || '—'}</td>
+                <td className="mono small">{company.tax_id || '—'}</td>
+                <td className="small">{company.state || '—'}</td>
+                <td className="mono">{company.short_name}</td>
+                <td className="mono">{company.ref_prefix}</td>
+                <td>
+                  {!company.is_buyer && !company.is_supplier ? (
+                    <span className="small muted">—</span>
+                  ) : (
+                    <>
+                      {company.is_buyer && <span className="chip">Buyer</span>}
+                      {company.is_supplier && (
+                        <span className="chip" style={company.is_buyer ? { marginLeft: 6 } : undefined}>
+                          Supplier
+                        </span>
+                      )}
+                    </>
+                  )}
+                </td>
+                <td>
+                  {company.is_active ? (
+                    <span className="chip good">Active</span>
+                  ) : (
+                    <span className="chip bad">Inactive</span>
+                  )}
+                </td>
+                <td className="mono small">{company.record_date || formatDateTime(company.created_at)}</td>
+              </tr>
+            ))}
+            {shown.length === 0 && (
+              <tr>
+                <td className="empty" colSpan={canManage ? 10 : 9}>
+                  {companies.length === 0
+                    ? `No business units yet.${canManage ? ' Add one, or import a CSV to bring in several at once.' : ''}`
+                    : 'No business unit matches that search.'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <GridPager {...paging.pager} singular="business unit" plural="business units" />
     </>
   )
 }
