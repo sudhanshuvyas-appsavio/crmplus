@@ -196,7 +196,7 @@ function contactErrors(f: ContactForm, ctx: RuleCtx): FieldErrors {
   if (f.contact_3_mobile.trim() && !isMobile(f.contact_3_mobile)) er['c-c3mobile'] = 'Mobile numbers are exactly 10 digits.'
   if (f.contact_3_email.trim() && !isEmail(f.contact_3_email)) er['c-c3email'] = 'Enter a valid email, like name@company.com.'
 
-  if (!f.office_phone.trim()) er['c-ophone'] = 'Office phone is required.'
+  if (!f.office_phone.trim()) er['c-ophone'] = 'Office Phone is required.'
   else if (!/^[0-9]{6,15}$/.test(f.office_phone.trim())) er['c-ophone'] = 'Phone numbers are 6 to 15 digits.'
   if (f.res_phone.trim() && !/^[0-9]{6,15}$/.test(f.res_phone.trim())) er['c-rphone'] = 'Phone numbers are 6 to 15 digits.'
   if (f.email.trim() && !isEmail(f.email)) er['c-email'] = 'Enter a valid email, like name@company.com.'
