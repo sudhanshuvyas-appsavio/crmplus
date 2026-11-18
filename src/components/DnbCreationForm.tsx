@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase'
 import { Field } from './PartyForms'
 import { errMessage } from '../lib/party'
 import { formatDateTime } from '../lib/format'
-import { inr, uomLabel } from '../lib/deals'
+import { inr, rateText, uomLabel } from '../lib/deals'
 
 type Sc = { id: string; sc_no: string; confirmed_at: string; buyer_id: string | null; supplier_id: string | null; status: string }
 type Line = { id: string; sc_id: string; line_no: number; count_id: string; quantity: number; uom: string; rate: number | null }
@@ -99,7 +99,7 @@ export function DnbCreationForm({ canCreate, buyerName, supplierName, countName,
                           <td className="muted small">{l.line_no}</td>
                           <td className="small">{countName.get(l.count_id) ?? '—'}</td>
                           <td className="right mono small">{inr(l.quantity)} {uomLabel(l.uom)}</td>
-                          <td className="right mono small">{inr(l.rate)}</td>
+                          <td className="right mono small">{rateText(l.rate)}</td>
                           <td className="small">{withItem.has(l.id) ? <span className="muted">has an item</span> : <strong>will be created</strong>}</td>
                         </tr>
                       ))}

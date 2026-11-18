@@ -26,7 +26,7 @@ import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DEAL_GROUPS, commTerms, dealStatus, inr, uomLabel,
+  COMM_BASES, DEAL_GROUPS, commTerms, dealStatus, inr, rateText, uomLabel,
 } from '../lib/deals'
 
 type Party = MirrorParty
@@ -217,7 +217,7 @@ export default function Deals() {
     { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.quantity)}</span>) },
     { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
     { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.final_rate)}</span>) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{rateText(r.final_rate)}</span>) },
     { key: 'bcomm', label: 'Buyer Commission', render: (x) => cell(commTerms(x.buyer_comm_basis, x.buyer_comm_value)) },
     { key: 'scomm', label: 'Supplier Commission', render: (x) => cell(commTerms(x.supplier_comm_basis, x.supplier_comm_value)) },
     { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },

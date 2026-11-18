@@ -29,7 +29,7 @@ import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DNB_GROUPS, TRANSPORT_TYPES, dnbGroup, commTerms, dispatchStatus, inr, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
+  COMM_BASES, DNB_GROUPS, TRANSPORT_TYPES, dnbGroup, commTerms, dispatchStatus, inr, rateText, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
 } from '../lib/deals'
 
 type Named = { id: string; name: string }
@@ -455,7 +455,7 @@ function ItemPanel({
         <dt>Supplier</dt><dd>{names.supplier}</dd>
         <dt>Count</dt><dd>{count?.display_name ?? '—'}</dd>
         <dt>Quantity</dt><dd className="mono">{inr(order.quantity)} {uomLabel(order.uom)}{order.bag_weight ? ` · ${inr(order.bag_weight)} kg each` : ''}</dd>
-        <dt>Final rate</dt><dd className="mono">₹{inr(order.final_rate)} per kg</dd>
+        <dt>Final rate</dt><dd className="mono">₹{rateText(order.final_rate)} per kg</dd>
         <dt>Commission</dt><dd>Buyer {commTerms(order.buyer_comm_basis, order.buyer_comm_value)} · Supplier {commTerms(order.supplier_comm_basis, order.supplier_comm_value)}</dd>
         <dt>Sale Type</dt><dd>{saleTypeLabel(order.sale_type)}</dd>
       </dl>

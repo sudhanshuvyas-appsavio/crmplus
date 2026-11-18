@@ -25,7 +25,7 @@ import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
 import { formatDateTime } from '../lib/format'
-import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
+import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, rateText, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
 import { ConfirmationDrawer } from '../components/sc/ConfirmationDrawer'
 import { BulkSendDrawer } from '../components/sc/BulkSendDrawer'
 import { ScReports } from '../components/sc/ScReports'
@@ -219,7 +219,7 @@ export default function SalesConfirmations() {
     { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => cell(r.quantity, { mono: true })) },
     { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
     { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.rate)}</span>) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{rateText(r.rate)}</span>) },
     { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
     { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
     { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.delivery_address, { clip: true }) },
