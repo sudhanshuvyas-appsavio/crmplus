@@ -26,7 +26,7 @@ import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { formatDate } from '../lib/format'
@@ -181,7 +181,7 @@ export default function Locations() {
     [rows],
   )
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = searchKey(search)
     return (rows ?? []).filter((r) => {
       if (status !== 'all' && (status === 'active') !== r.is_active) return false
       if (zone && r.zone !== zone) return false
@@ -191,7 +191,7 @@ export default function Locations() {
       return [
         r.name, r.state, formatDate(r.created_at), (parties[r.id] ?? []).join(' '), r.address, r.gst, r.phone, r.email,
         r.md_contact, r.accounts_phone, ZONES.find((z) => z.value === r.zone)?.label ?? r.zone,
-      ].some((v) => (v ?? '').toLowerCase().includes(q))
+      ].some((v) => searchKey(v).includes(q))
     })
   }, [rows, search, status, zone, stateFilter, parties])
 

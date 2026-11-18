@@ -54,3 +54,8 @@ export function focusFirstError(errors: FieldErrors): void {
 export function requireText(errors: FieldErrors, id: string, value: string, message: string): void {
   if (!value.trim()) errors[id] = message
 }
+
+/** Lower-cased with runs of whitespace collapsed, so a search for "qa   dual" finds "QA Dual". */
+export function searchKey(value: string | null | undefined): string {
+  return (value ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
