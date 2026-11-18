@@ -17,7 +17,8 @@ import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
-import { FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { ErrorBanner, FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { findDuplicate, focusFirstError, isEmail, isStateCode, nameKey, requireText, type FieldErrors } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
@@ -101,16 +102,32 @@ const fromRow = (r: Transporter): Form => ({
   vehicle_no_3: r.vehicle_no_3 ?? '', bank_account_2: r.bank_account_2 ?? '',
 })
 
-function problems(f: Form): string[] {
-  const out: string[] = []
-  if (!f.name.trim()) out.push('Name')
-  if (f.mobile && !isMobile(f.mobile)) out.push('Mobile (10 digits)')
-  if (f.mobile_2 && !isMobile(f.mobile_2)) out.push('Second mobile (10 digits)')
-  if (f.gst && !isGst(f.gst)) out.push('GST (15 characters, valid format)')
-  if (f.email.trim() && !f.email.includes('@')) out.push('Email (must contain @)')
-  if (f.pan && f.pan.trim().length !== 10) out.push('PAN (10 characters)')
-  if (f.gst && f.state_code && f.gst.slice(0, 2) !== f.state_code) out.push('State code (must match the first two digits of the GST)')
-  return out
+/** Field id -> message, in the order the fields appear. A new record also needs the
+ *  fields monday's form marks required (an existing one may lack some of them). */
+function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string | null | undefined, isNew: boolean): FieldErrors {
+  const er: FieldErrors = {}
+  requireText(er, 't-name', f.name, 'Name is required.')
+  if (!er['t-name'] && findDuplicate(rows, selfId, (r) => r.name, f.name, nameKey)) er['t-name'] = 'A transport company with this name already exists.'
+  if (f.email.trim() && !isEmail(f.email)) er['t-email'] = 'Enter a valid email, like name@company.com.'
+  if (isNew) requireText(er, 't-gst', f.gst, 'GST No. is required.')
+  const gst = f.gst.trim().toUpperCase()
+  if (gst && !isGst(gst)) er['t-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPS5121G2ZK).'
+  if (isNew) requireText(er, 't-ophone', f.office_phone, 'Office Phone is required.')
+  if (isNew) requireText(er, 't-state', f.state, 'State is required.')
+  if (isNew) requireText(er, 't-sc', f.state_code, 'State Code is required.')
+  if (f.state_code.trim() && !isStateCode(f.state_code)) er['t-sc'] = 'State Code must be 2 digits.'
+  else if (gst && isGst(gst) && f.state_code.trim() && gst.slice(0, 2) !== f.state_code.trim()) er['t-sc'] = 'State Code must match the first two digits of the GST number.'
+  if (isNew) requireText(er, 't-oaddr', f.office_address, 'Office Address is required.')
+  if (isNew && !f.company_id) er['t-company'] = 'Business Units is required.'
+  if (isNew) requireText(er, 't-bank', f.bank_account, 'Bank Account Number 1 is required.')
+  if (isNew) requireText(er, 't-pan', f.pan, 'IT PAN is required.')
+  if (f.pan.trim() && f.pan.trim().length !== 10) er['t-pan'] = 'PAN must be 10 characters.'
+  if (isNew) requireText(er, 't-cp', f.contact_person, 'Contact Person 1 is required.')
+  if (isNew) requireText(er, 't-mob', f.mobile, 'Contact Person 1 Phone is required.')
+  if (f.mobile.trim() && !isMobile(f.mobile)) er['t-mob'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
+  if (f.mobile_2.trim() && !isMobile(f.mobile_2)) er['t-mob2'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
+  if (isNew) requireText(er, 't-vtype', f.vehicle_type, 'Vehicle Type is required.')
+  return er
 }
 
 const payload = (f: Form) => {
@@ -144,6 +161,9 @@ export default function Transporters() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [vehicleFilter, setVehicleFilter] = useState('')
+  const [stateFilter, setStateFilter] = useState('')
+  const [companyFilter, setCompanyFilter] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -177,23 +197,37 @@ export default function Transporters() {
   const stationName = useMemo(() => new Map(stations.map((x) => [x.id, x.name])), [stations])
   const companyName = useMemo(() => new Map(companies.map((x) => [x.id, x.name])), [companies])
 
+  const stateOptions = useMemo(
+    () => [...new Set((rows ?? []).map((x) => x.state).filter((s): s is string => Boolean(s?.trim())))].sort((p, q) => p.localeCompare(q)),
+    [rows],
+  )
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return (rows ?? []).filter(
-      (x) =>
-        (!typeFilter || x.transporter_type === typeFilter) &&
-        (!statusFilter || (statusFilter === 'active') === x.is_active) &&
-        (!q ||
-          [x.name, x.short_name, x.transporter_code, x.contact_person, x.mobile, x.gst, x.pan, x.email, x.vehicle_type, x.vehicle_no_1, x.vehicle_no_2, x.vehicle_no_3, x.station_id ? stationName.get(x.station_id) : '']
-            .some((v) => (v ?? '').toLowerCase().includes(q))),
-    )
-  }, [rows, search, typeFilter, statusFilter, stationName])
+    return (rows ?? []).filter((x) => {
+      if (typeFilter && x.transporter_type !== typeFilter) return false
+      if (statusFilter && (statusFilter === 'active') !== x.is_active) return false
+      if (vehicleFilter && x.vehicle_type !== vehicleFilter) return false
+      if (stateFilter && x.state !== stateFilter) return false
+      if (companyFilter && x.company_id !== companyFilter) return false
+      if (!q) return true
+      // Every column the grid shows.
+      return [
+        x.name, VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type, formatDate(x.created_at), x.email,
+        x.office_address, x.delivery_address, x.office_phone, x.res_phone, x.gst, x.state, x.state_code, x.bank_account,
+        x.bank_account_2, x.pan, x.contact_person, x.mobile, x.contact_person_2, x.mobile_2, x.vehicle_no_1, x.vehicle_no_2,
+        x.vehicle_no_3, x.remarks, (locationsOf[x.id] ?? []).join(' '), x.company_id ? companyName.get(x.company_id) : '',
+      ].some((v) => (v ?? '').toLowerCase().includes(q))
+    })
+  }, [rows, search, typeFilter, statusFilter, vehicleFilter, stateFilter, companyFilter, locationsOf, companyName])
 
-  const paging = usePaging(shown, [search, typeFilter, statusFilter].join('|'))
+  const paging = usePaging(shown, [search, typeFilter, statusFilter, vehicleFilter, stateFilter, companyFilter].join('|'))
 
   const filterDefs: FilterDef[] = [
     { name: 'type', label: 'Type', allLabel: 'All types', options: TYPES },
     { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
+    { name: 'vehicle', label: 'Vehicle Type', allLabel: 'All vehicle types', options: VEHICLE_TYPES.map((v) => ({ value: v.value, label: v.label })) },
+    { name: 'state', label: 'State', allLabel: 'All states', options: stateOptions.map((s) => ({ value: s, label: s })) },
+    { name: 'company', label: 'Business Units', allLabel: 'All business units', options: companies.map((c) => ({ value: c.id, label: c.name })) },
   ]
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
@@ -248,8 +282,8 @@ export default function Transporters() {
           vehicle_no_1: r.get('vehicle_no_1'), vehicle_no_2: r.get('vehicle_no_2'), vehicle_no_3: r.get('vehicle_no_3'),
           bank_account_2: r.get('bank_account_2'),
         }
-        const missing = problems(f)
-        if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
+        const found = Object.values(transporterErrors(f, rows ?? [], null, true))
+        if (found.length > 0) throw new Error(found.join(' '))
         const { error } = await supabase.from('transporters').insert(payload(f))
         if (error) throw error
       },
@@ -287,13 +321,22 @@ export default function Transporters() {
         plural="transporters"
         query={search}
         onQuery={setSearch}
-        searchPlaceholder="Search name, code, contact, mobile, email, vehicle, GST, PAN or station"
+        searchPlaceholder="Search name, email, address, phone, GST, PAN, state, vehicle, contact, bank or remarks"
         filters={filterDefs}
-        values={{ type: typeFilter, status: statusFilter }}
-        onFilter={(name, value) => (name === 'type' ? setTypeFilter(value) : setStatusFilter(value))}
+        values={{ type: typeFilter, status: statusFilter, vehicle: vehicleFilter, state: stateFilter, company: companyFilter }}
+        onFilter={(name, value) => {
+          if (name === 'type') setTypeFilter(value)
+          else if (name === 'status') setStatusFilter(value)
+          else if (name === 'vehicle') setVehicleFilter(value)
+          else if (name === 'state') setStateFilter(value)
+          else setCompanyFilter(value)
+        }}
         onClear={() => {
           setTypeFilter('')
           setStatusFilter('')
+          setVehicleFilter('')
+          setStateFilter('')
+          setCompanyFilter('')
         }}
       >
         {canManage && (
@@ -458,6 +501,7 @@ export default function Transporters() {
           key={editing === 'new' ? 'new' : editing.id}
           row={editing === 'new' ? null : editing}
           rows={rows}
+          onDocsChanged={() => void load()}
           canManage={canManage}
           stations={stations}
           companies={companies}
@@ -476,8 +520,9 @@ export default function Transporters() {
 }
 
 function TransporterDrawer({
-  row: existing, rows, canManage: canManageRecords, viewOnly = false, stations, companies, onClose, onDone,
+  row: existing, rows, canManage: canManageRecords, viewOnly = false, stations, companies, onClose, onDone, onDocsChanged,
 }: {
+  onDocsChanged?: () => void
   row: Transporter | null
   rows: Transporter[]
   canManage: boolean
@@ -501,20 +546,15 @@ function TransporterDrawer({
   const [locationIds, setLocationIds] = useState<string[]>([])
   const [linksLoaded, setLinksLoaded] = useState(!row)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
-  // The monday creation form marks these required; they are asked for on a new record
-  // (an existing record may legitimately lack some of them).
-  const required: [string, string][] = row
-    ? []
-    : [
-        ['Name', f.name], ['GST No.', f.gst], ['Office Phone', f.office_phone], ['State', f.state], ['State Code', f.state_code],
-        ['Office Address', f.office_address], ['Business Units', f.company_id], ['Bank Account Number 1', f.bank_account],
-        ['IT PAN', f.pan], ['Contact Person 1', f.contact_person], ['Contact Person 1 Phone', f.mobile], ['Vehicle Type', f.vehicle_type],
-      ]
-  const missing = [
-    ...required.filter(([, v]) => !v.trim()).map(([k]) => k),
-    ...(!row && locationIds.length === 0 ? ['Locations'] : []),
-    ...problems(f).filter((p) => !required.some(([k]) => p.startsWith(k))),
-  ]
+  const [submitted, setSubmitted] = useState(false)
+  const errors = useMemo(() => transporterErrors(f, rows, row?.id, !row), [f, rows, row])
+  const locationsMissing = !row && locationIds.length === 0
+  const fieldValue: Record<string, string> = {
+    't-name': f.name, 't-email': f.email, 't-gst': f.gst, 't-ophone': f.office_phone, 't-state': f.state, 't-sc': f.state_code,
+    't-oaddr': f.office_address, 't-company': f.company_id, 't-bank': f.bank_account, 't-pan': f.pan, 't-cp': f.contact_person,
+    't-mob': f.mobile, 't-mob2': f.mobile_2, 't-vtype': f.vehicle_type,
+  }
+  const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
 
   useEffect(() => {
     if (!row) return undefined
@@ -556,7 +596,13 @@ function TransporterDrawer({
   }
 
   async function save() {
-    if (missing.length > 0) return setErr(`Fix: ${missing.join(', ')}.`)
+    setSubmitted(true)
+    setErr(null)
+    if (Object.keys(errors).length > 0 || locationsMissing) {
+      if (Object.keys(errors).length > 0) focusFirstError(errors)
+      else document.getElementById('t-locations')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      return
+    }
     setBusy(true)
     setErr(null)
     const { data, error } = row
@@ -601,7 +647,7 @@ function TransporterDrawer({
 
   return (
     <Drawer title={existing ? `${existing.transporter_code} · ${existing.name}` : 'Transport Company Creation Form'} onClose={onClose} readOnly={viewOnly}>
-      {err && <div className="alert">{err}</div>}
+      <ErrorBanner message={err} />
       {!existing && !viewOnly && (
         <RecordAction
           action={action}
@@ -616,28 +662,28 @@ function TransporterDrawer({
       {showForm && (
         <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <FormSection title="Transport Type Details" count={11}>
-            <Field id="t-name" label="Name" required>
+            <Field id="t-name" label="Name" required error={show('t-name')}>
               <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
             </Field>
-            <Field id="t-email" label="Email">
+            <Field id="t-email" label="Email" error={show('t-email')}>
               <input id="t-email" type="email" value={f.email} placeholder="Enter Email" onChange={(ev) => set('email', ev.target.value)} />
             </Field>
-            <Field id="t-gst" label="GST No." required hint="monday calls this CGST. Fills state code, state and PAN.">
+            <Field id="t-gst" label="GST No." required error={show('t-gst')} hint="monday calls this CGST. Fills state code, state and PAN.">
               <input id="t-gst" className="mono" maxLength={15} value={f.gst} placeholder="Enter GST No." onChange={(ev) => setGst(ev.target.value)} />
             </Field>
-            <Field id="t-ophone" label="Office Phone" required>
+            <Field id="t-ophone" label="Office Phone" required error={show('t-ophone')}>
               <input id="t-ophone" className="mono" value={f.office_phone} placeholder="Office Phone number" onChange={(ev) => set('office_phone', ev.target.value)} />
             </Field>
             <Field id="t-rphone" label="Res Phone">
               <input id="t-rphone" className="mono" value={f.res_phone} placeholder="Res Phone number" onChange={(ev) => set('res_phone', ev.target.value)} />
             </Field>
-            <Field id="t-state" label="State" required>
+            <Field id="t-state" label="State" required error={show('t-state')}>
               <input id="t-state" value={f.state} placeholder="Enter State" onChange={(ev) => set('state', ev.target.value)} />
             </Field>
-            <Field id="t-sc" label="State Code" required>
+            <Field id="t-sc" label="State Code" required error={show('t-sc')}>
               <input id="t-sc" className="mono" maxLength={2} value={f.state_code} placeholder="Enter State Code" onChange={(ev) => set('state_code', ev.target.value.replace(/\D/g, ''))} />
             </Field>
-            <Field id="t-oaddr" label="Office Address" required>
+            <Field id="t-oaddr" label="Office Address" required error={show('t-oaddr')}>
               <textarea id="t-oaddr" rows={3} value={f.office_address} placeholder="Enter Office Address" onChange={(ev) => set('office_address', ev.target.value)} />
             </Field>
             <Field id="t-daddr" label="Mill/Factory/Delivery Address">
@@ -653,7 +699,8 @@ function TransporterDrawer({
               disabled={!canManage}
               placeholder="-- Select Locations --"
             />
-            <Field id="t-company" label="Business Units" required>
+            {submitted && locationsMissing && <p className="field-warn" role="alert">Locations is required: choose at least one.</p>}
+            <Field id="t-company" label="Business Units" required error={show('t-company')}>
               <select id="t-company" value={f.company_id} onChange={(ev) => set('company_id', ev.target.value)}>
                 <option value="">-- Select Business Units --</option>
                 {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
@@ -662,34 +709,34 @@ function TransporterDrawer({
           </FormSection>
 
           <FormSection title="Account Details" count={3}>
-            <Field id="t-bank" label="Bank Account Number 1" required>
+            <Field id="t-bank" label="Bank Account Number 1" required error={show('t-bank')}>
               <textarea id="t-bank" rows={2} value={f.bank_account} placeholder="Enter Bank Account Number 1" onChange={(ev) => set('bank_account', ev.target.value)} />
             </Field>
             <Field id="t-bank2" label="Bank Account Number 2">
               <textarea id="t-bank2" rows={2} value={f.bank_account_2} placeholder="Enter Bank Account Number 2" onChange={(ev) => set('bank_account_2', ev.target.value)} />
             </Field>
-            <Field id="t-pan" label="IT PAN" required hint="10 characters.">
+            <Field id="t-pan" label="IT PAN" required error={show('t-pan')} hint="10 characters.">
               <input id="t-pan" className="mono" maxLength={10} value={f.pan} placeholder="Enter IT PAN" onChange={(ev) => set('pan', ev.target.value.toUpperCase().replace(/\s+/g, ''))} />
             </Field>
           </FormSection>
 
           <FormSection title="Contact Details" count={4}>
-            <Field id="t-cp" label="Contact Person 1" required>
+            <Field id="t-cp" label="Contact Person 1" required error={show('t-cp')}>
               <input id="t-cp" value={f.contact_person} placeholder="Enter Contact Person 1" onChange={(ev) => set('contact_person', ev.target.value)} />
             </Field>
-            <Field id="t-mob" label="Contact Person 1 Phone" required hint="10 digits.">
+            <Field id="t-mob" label="Contact Person 1 Phone" required error={show('t-mob')} hint="10 digits.">
               <input id="t-mob" className="mono" inputMode="numeric" maxLength={10} value={f.mobile} placeholder="Contact Person 1 Phone number" onChange={(ev) => set('mobile', ev.target.value.replace(/\D/g, ''))} />
             </Field>
             <Field id="t-cp2" label="Contact Person 2">
               <input id="t-cp2" value={f.contact_person_2} placeholder="Enter Contact Person 2" onChange={(ev) => set('contact_person_2', ev.target.value)} />
             </Field>
-            <Field id="t-mob2" label="Contact Person 2 Phone" hint="10 digits.">
+            <Field id="t-mob2" label="Contact Person 2 Phone" error={show('t-mob2')} hint="10 digits.">
               <input id="t-mob2" className="mono" inputMode="numeric" maxLength={10} value={f.mobile_2} placeholder="Contact Person 2 Phone number" onChange={(ev) => set('mobile_2', ev.target.value.replace(/\D/g, ''))} />
             </Field>
           </FormSection>
 
           <FormSection title="Vehicle Details" count={4}>
-            <Field id="t-vtype" label="Vehicle Type" required>
+            <Field id="t-vtype" label="Vehicle Type" required error={show('t-vtype')}>
               <select id="t-vtype" value={f.vehicle_type} onChange={(ev) => set('vehicle_type', ev.target.value)}>
                 <option value="">-- Select Vehicle Type --</option>
                 {VEHICLE_TYPES.map((v) => (<option key={v.value} value={v.value}>{v.label}</option>))}
@@ -717,7 +764,7 @@ function TransporterDrawer({
           {!viewOnly && (
             <FormSection title="Documents" count={1}>
               <FullWidth>
-                {row ? <DocumentList store={transporterDocStore(row.id)} parentId={row.id} canEdit={canManage} /> : <PendingDocuments files={files} onChange={setFiles} disabled={busy} />}
+                {row ? <DocumentList store={transporterDocStore(row.id)} parentId={row.id} canEdit={canManage} onChanged={onDocsChanged} /> : <PendingDocuments files={files} onChange={setFiles} disabled={busy} />}
               </FullWidth>
             </FormSection>
           )}
@@ -738,9 +785,6 @@ function TransporterDrawer({
               </select>
             </Field>
             <FullWidth>
-              <Field id="t-info" label="Info" hint="Vehicle details, routes served or anything else worth knowing.">
-                <textarea id="t-info" rows={3} value={f.info} onChange={(ev) => set('info', ev.target.value)} />
-              </Field>
               <label className="check">
                 <input type="checkbox" checked={f.is_active} onChange={(ev) => set('is_active', ev.target.checked)} />
                 <span className="check-body">
@@ -752,11 +796,10 @@ function TransporterDrawer({
         </fieldset>
       )}
 
-      {missing.length > 0 && !viewOnly && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
 
       {canManage && (
         <div className="drawer-actions">
-          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0 || (!existing && action === 'update' && !picked)}>
+          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || (!existing && action === 'update' && !picked)}>
             {busy ? 'Saving…' : row ? '✓ Update Item' : '✓ Create Item'}
           </button>
           <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>

@@ -20,7 +20,8 @@ import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { ErrorBanner, FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { focusFirstError, type FieldErrors } from '../lib/validate'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
@@ -77,6 +78,18 @@ const FILTERS: FilterDef[] = [
     allLabel: 'All counts',
     options: [{ value: 'dup', label: 'Duplicates only' }],
   },
+  {
+    name: 'status',
+    label: 'Status',
+    allLabel: 'All statuses',
+    options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }],
+  },
+  {
+    name: 'machine',
+    label: 'Machine',
+    allLabel: 'All machines',
+    options: COUNT_MACHINES.map((m) => ({ value: m, label: m })),
+  },
 ]
 
 export default function Counts() {
@@ -112,12 +125,20 @@ export default function Counts() {
     const q = search.trim().toLowerCase()
     return (rows ?? []).filter((r) => {
       if (filterValues.dup === 'dup' && !r.is_duplicate) return false
+      if (filterValues.status && (filterValues.status === 'active') !== r.is_active) return false
+      if (filterValues.machine && r.machine !== filterValues.machine) return false
       if (!q) return true
-      return [r.name ?? '', String(r.item_no), r.display_name, r.yarn_1, r.yarn_2 ?? '', r.machine, r.process ?? '', r.certification ?? ''].join(' ').toLowerCase().includes(q)
+      const overall = overallOf(r)
+      // Every column the grid shows.
+      return [
+        r.name ?? '', formatDateTime(r.created_at), r.display_name, String(r.count_no), r.machine, r.yarn_1, String(r.yarn_1_pct),
+        r.yarn_2 ?? '', r.yarn_2_pct === null ? '' : String(r.yarn_2_pct), overall.composition, overall.yarn, r.ply ?? '',
+        r.process ?? '', r.certification ?? '', r.yarn_type, String(r.item_no), r.is_duplicate ? 'duplicate' : '', r.duplicate_error ?? '',
+      ].join(' ').toLowerCase().includes(q)
     })
   }, [rows, search, filterValues])
 
-  const paging = usePaging(shown, `${search}|${filterValues.dup ?? ''}`)
+  const paging = usePaging(shown, `${search}|${filterValues.dup ?? ''}|${filterValues.status ?? ''}|${filterValues.machine ?? ''}`)
   const selection = useSelection(useMemo(() => shown.map((r) => r.id), [shown]))
 
   async function deleteSelected() {
@@ -198,7 +219,8 @@ export default function Counts() {
         const form = recipeFromCsv(r)
         const missing = recipeProblems(form)
         if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
-        const { error } = await supabase.from('count_master').insert(payloadOf(form))
+        const { data: saved, error } = await supabase.from('count_master').insert(payloadOf(form)).select('is_duplicate,duplicate_error').single()
+        if (!error && saved?.is_duplicate) throw new Error(`Saved, but flagged as a duplicate: ${saved.duplicate_error ?? ''}`)
         if (error) throw error
       },
     )
@@ -262,6 +284,7 @@ export default function Counts() {
       )}
 
       <GridToolbar
+        searchPlaceholder="Search name, item ID, summary, thread count, machine, yarn, process, certification or type"
         title="Counts"
         subtitle={duplicateCount > 0 ? `${rows.length} counts · ${duplicateCount} flagged as duplicates` : undefined}
         total={rows.length}
@@ -269,7 +292,6 @@ export default function Counts() {
         plural="counts"
         query={search}
         onQuery={setSearch}
-        searchPlaceholder="Search counts, e.g. ring spun cotton"
         filters={FILTERS}
         values={filterValues}
         onFilter={(name, value) => setFilterValues((v) => ({ ...v, [name]: value }))}
@@ -354,6 +376,7 @@ export default function Counts() {
                   )}
                   <td className="left md-sticky">
                     <strong>{r.name || r.display_name}</strong>
+                    {!r.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                   </td>
                   <td className="mono small">{formatDateTime(r.created_at)}</td>
                   <td className="left small">{r.display_name}</td>
@@ -445,6 +468,7 @@ function CountDrawer({
   const [form, setForm] = useState<FormState>(opened ? toForm(opened) : BLANK)
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [submitted, setSubmitted] = useState(false)
 
   function chooseAction(next: 'create' | 'update') {
     setAction(next)
@@ -464,6 +488,25 @@ function CountDrawer({
 
   const state = recipeState(form)
   const missing = [...recipeProblems(form), ...(!existing && !form.name.trim() ? ['Name'] : [])]
+  const errors = useMemo(() => {
+    const er: FieldErrors = {}
+    if (!existing && !form.name.trim()) er['ct-name'] = 'Name is required.'
+    const n = Number(form.count_no)
+    if (!form.count_no.trim()) er['ct-no'] = 'Thread Count is required (6 to 120).'
+    else if (!Number.isInteger(n) || n < 6 || n > 120) er['ct-no'] = 'Thread Count must be a whole number from 6 to 120.'
+    if (!form.machine) er['ct-machine'] = 'Machine is required.'
+    if (!form.yarn_type) er['ct-type'] = 'Type is required.'
+    if (!form.yarn_1) er['ct-y1'] = 'Yarn 1 is required.'
+    const st = recipeState(form)
+    if (st.pct1 === null) er['ct-p1'] = 'Yarn 1 (Percentage) must be more than 0 and at most 100.'
+    else if (st.pct1 < 100 && form.yarn_2 === '') er['ct-y2'] = `Yarn 2 is required for the remaining ${fmtPct(100 - st.pct1)}%.`
+    return er
+  }, [form, existing])
+  const fieldValue: Record<string, string> = {
+    'ct-name': form.name, 'ct-no': form.count_no, 'ct-machine': form.machine, 'ct-type': form.yarn_type,
+    'ct-y1': form.yarn_1, 'ct-p1': form.yarn_1_pct, 'ct-y2': form.yarn_2,
+  }
+  const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
   const twin = useMemo(() => {
     if (missing.length > 0) return null
     const key = recipeKey(form)
@@ -471,8 +514,13 @@ function CountDrawer({
   }, [form, missing.length, rows, existing])
 
   async function save() {
-    setBusy(true)
+    setSubmitted(true)
     setFormError(null)
+    if (Object.keys(errors).length > 0) {
+      focusFirstError(errors)
+      return
+    }
+    setBusy(true)
     const payload = payloadOf(form)
     const res = existing
       ? await supabase.from('count_master').update(payload).eq('id', existing.id).select('is_duplicate,duplicate_error').single()
@@ -526,11 +574,7 @@ function CountDrawer({
 
   return (
     <Drawer title={opened ? opened.display_name : 'Counts Creation Form'} onClose={onClose} readOnly={readOnly}>
-      {formError && (
-        <div className="alert" role="alert">
-          {formError}
-        </div>
-      )}
+      <ErrorBanner message={formError} />
       {!opened && !readOnly && (
         <RecordAction
           action={action}
@@ -553,16 +597,16 @@ function CountDrawer({
           )}
 
           <FormSection title="Count Information" count={7}>
-            <Field id="ct-name" label="Name" required hint="Your own label for the count; the Summary is built from the recipe.">
+            <Field id="ct-name" label="Name" required error={show('ct-name')} hint="Your own label for the count; the Summary is built from the recipe.">
               <input id="ct-name" value={form.name} placeholder="Enter Name" onChange={(e) => set('name', e.target.value)} autoFocus />
             </Field>
-            <Field id="ct-no" label="Thread Count" required hint="Enter a value between 6s and 120s.">
+            <Field id="ct-no" label="Thread Count" required error={show('ct-no')} hint="Enter a value between 6s and 120s.">
               <input id="ct-no" inputMode="numeric" className="mono" value={form.count_no} placeholder="Enter Thread Count" onChange={(e) => set('count_no', e.target.value.replace(/\D/g, ''))} />
             </Field>
-            <Field id="ct-machine" label="Machine" required>
+            <Field id="ct-machine" label="Machine" required error={show('ct-machine')}>
               {select('ct-machine', form.machine, COUNT_MACHINES, (v) => set('machine', v), '-- Select Machine --')}
             </Field>
-            <Field id="ct-type" label="Type" required hint="Type of product.">
+            <Field id="ct-type" label="Type" required error={show('ct-type')} hint="Type of product.">
               {select('ct-type', form.yarn_type, COUNT_YARN_TYPES, (v) => set('yarn_type', v), '-- Select Type --')}
             </Field>
             <Field id="ct-process" label="Process">
@@ -582,16 +626,17 @@ function CountDrawer({
           </FormSection>
 
           <FormSection title="Fabric Composition" count={5}>
-            <Field id="ct-y1" label="Yarn 1" required>
+            <Field id="ct-y1" label="Yarn 1" required error={show('ct-y1')}>
               {select('ct-y1', form.yarn_1, COUNT_YARNS, (v) => set('yarn_1', v), '-- Select Yarn 1 --')}
             </Field>
-            <Field id="ct-p1" label="Yarn 1 (Percentage)" required hint="Up to 100. Below 100, a second yarn takes the rest.">
+            <Field id="ct-p1" label="Yarn 1 (Percentage)" required error={show('ct-p1')} hint="Up to 100. Below 100, a second yarn takes the rest.">
               <input id="ct-p1" inputMode="decimal" className="mono" value={form.yarn_1_pct} placeholder="Enter Yarn 1 (Percentage)" onChange={(e) => set('yarn_1_pct', e.target.value.replace(/[^0-9.]/g, ''))} />
             </Field>
             <Field
               id="ct-y2"
               label="Yarn 2"
               required={state.yarn2Enabled}
+              error={show('ct-y2')}
               hint={state.yarn2Reason ?? `Takes the remaining ${fmtPct(state.remainder ?? 0)}%.`}
             >
               {select(
@@ -632,9 +677,8 @@ function CountDrawer({
         </>
       )}
 
-      {missing.length > 0 && !readOnly && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
       <div className="drawer-actions">
-        <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0 || (!opened && action === 'update' && !picked)}>
+        <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || (!opened && action === 'update' && !picked)}>
           {busy ? 'Saving…' : existing ? '✓ Update Item' : '✓ Create Item'}
         </button>
         <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>

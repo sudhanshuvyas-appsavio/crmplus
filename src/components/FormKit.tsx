@@ -2,7 +2,7 @@
  *  cards, each holding a two-column grid of fields (the layout of monday's
  *  creation forms), and a segmented choice for the form's action. */
 
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 export function FormSection({
   title,
@@ -118,5 +118,20 @@ export function RecordAction({
         </FormSection>
       )}
     </>
+  )
+}
+
+/** A save error at the top of a form. The Save button is pinned at the bottom, so the
+ *  banner scrolls itself into view whenever its text changes. */
+export function ErrorBanner({ message }: { message: string | null | undefined }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (message) ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [message])
+  if (!message) return null
+  return (
+    <div ref={ref} className="alert" role="alert">
+      {message}
+    </div>
   )
 }

@@ -15,23 +15,18 @@ import { supabase } from '../lib/supabase'
 import { CATEGORIES } from '../api/types'
 import type { BuyerMaster, SupplierMaster } from '../api/types'
 import { Drawer } from './Drawer'
-import { Field } from './PartyForms'
+import { DEFAULT_COMMISSIONS, Field, FieldErrorsProvider } from './PartyForms'
 import { PhoneField } from './PhoneField'
-import { ActionChoice, FormSection, FullWidth } from './FormKit'
+import { ActionChoice, ErrorBanner, FormSection, FullWidth } from './FormKit'
+import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors } from '../lib/validate'
 import { PendingDocuments } from './documents/PendingDocuments'
 import { DocumentsPanel, useProfileNames } from './PartyExtras'
 import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
 import { loadLinkIds, syncLinks } from '../lib/links'
 import { errMessage, GST_STATES, isGst, numOrNull } from '../lib/party'
-import { joinPhone, phoneProblem, splitPhone } from '../lib/phone'
+import { joinPhone, phoneProblem, splitPhone, splitStored } from '../lib/phone'
 
 type Side = 'buyer' | 'supplier'
-
-export const DEFAULT_COMMISSIONS: { value: string; label: string }[] = [
-  { value: 'pct', label: 'Percentage of Ex Mill Value' },
-  { value: 'per_bag', label: 'Bagwise Rate' },
-  { value: 'per_kg', label: 'Rs per kg' },
-]
 
 /** monday's Buyer / Supplier Commission Type labels and the master's codes. */
 const COMMISSION_TYPES: { value: string; label: string }[] = [
@@ -104,9 +99,9 @@ const toLocal = (iso: string | null | undefined): string => {
 
 const blank = (type: Side): FormState => ({
   name: '', record_at: nowLocal(), type, email: '', office_phone: '', address: '', mill_address: '', state: '', gst: '',
-  company_id: '', default_commission: 'pct', category: '', messenger_id: '', pan: '',
+  company_id: '', default_commission: '', category: '', messenger_id: '', pan: '',
   c1_name: '', c1_phone: '', c1_email: '', c2_name: '', c2_phone: '', c2_email: '', c3_name: '', c3_phone: '', c3_email: '',
-  commission_type: 'pct', commission_value: '', remark_1: '', remark_2: '',
+  commission_type: '', commission_value: '', remark_1: '', remark_2: '',
   fabric_producing: '', no_of_looms: '', reed_pick: '', width: '', machine_type: '', counts_supplying: '',
   spindles: '', monthly_production: '', qty_bags: '', qty_kgs: '',
 })
@@ -120,7 +115,7 @@ function fromRow(side: Side, r: BuyerMaster | SupplierMaster): FormState {
     record_at: toLocal(r.record_at ?? r.created_at),
     type: side,
     email: r.email ?? '',
-    office_phone: r.office_phone ? joinPhone({ code: '+91', number: r.office_phone }) : '',
+    office_phone: r.office_phone ? joinPhone(splitStored(r.office_phone)) : '',
     address: r.address ?? '',
     mill_address: r.mill_address ?? '',
     state: r.state ?? '',
@@ -139,7 +134,7 @@ function fromRow(side: Side, r: BuyerMaster | SupplierMaster): FormState {
     c3_name: r.contact_3_name ?? '',
     c3_phone: withCode(r.contact_3_mobile),
     c3_email: r.contact_3_email ?? '',
-    commission_type: r.commission_basis ?? 'pct',
+    commission_type: r.commission_basis ?? '',
     commission_value: r.commission_value === null ? '' : String(r.commission_value),
     remark_1: r.notes ?? '',
     remark_2: r.remarks_2 ?? '',
@@ -157,7 +152,6 @@ function fromRow(side: Side, r: BuyerMaster | SupplierMaster): FormState {
 }
 
 const orNull = (v: string) => v.trim() || null
-const isEmail = (v: string) => v.trim().indexOf('@') > 0
 
 /** Digits the database stores: an Indian number as its 10 digits, another
  *  country's as code plus number (the office phone column takes 6 to 15). */
@@ -175,34 +169,78 @@ function mobileProblem(value: string): string | null {
   return phoneProblem(value)
 }
 
-export function problemsOf(f: FormState, countIds: string[]): string[] {
-  const out: string[] = []
-  if (!f.name.trim()) out.push('Name')
-  if (!f.office_phone.trim() || splitPhone(f.office_phone).number === '' || phoneProblem(f.office_phone)) out.push('Office Phone')
-  if (!f.address.trim()) out.push('Office Address')
-  if (!isGst(f.gst)) out.push('GST No. (15 characters, e.g. 33AHFPK5121I1Z5)')
-  if (!f.company_id) out.push('Business Unit')
-  if (!f.default_commission) out.push('Default Commision Percentage')
-  if (countIds.length === 0) out.push('Counts')
-  if (f.pan.trim() && f.pan.trim().length !== 10) out.push('IT Pan (10 characters, or leave blank)')
-  if (f.email.trim() && !isEmail(f.email)) out.push('Email (needs an @, or leave blank)')
-  for (const [label, phone, email] of [
-    ['Contact Person 1', f.c1_phone, f.c1_email],
-    ['Contact Person 2', f.c2_phone, f.c2_email],
-    ['Contact Person 3', f.c3_phone, f.c3_email],
-  ] as const) {
-    if (mobileProblem(phone)) out.push(`${label} Phone (10 digits, or leave blank)`)
-    if (email.trim() && !isEmail(email)) out.push(`${label} Email (needs an @, or leave blank)`)
-  }
-  if (f.commission_value.trim() && numOrNull(f.commission_value) === null) out.push('Commission Value (a number)')
-  for (const [label, v] of [
-    ['No. of Looms', f.no_of_looms], ['Counts Supplying', f.counts_supplying], ['Supplier No. of Roters & Spindles', f.spindles],
-    ['Monthly Production Quantity', f.monthly_production], ['Qty(Bags/month)', f.qty_bags], ['Qty(Kgs/month)', f.qty_kgs],
-  ] as const) {
-    if (v.trim() && numOrNull(v) === null) out.push(`${label} (a number, or leave blank)`)
-  }
-  return out
+interface RuleCtx {
+  buyers: readonly BuyerMaster[]
+  suppliers: readonly SupplierMaster[]
+  /** The record being updated, so it does not count as its own duplicate. */
+  selfId?: string | null
 }
+
+const upText = (v: string | null | undefined) => (v ?? '').trim().toUpperCase()
+
+/** Field id -> message, in the order the fields appear. */
+export function errorsOf(f: FormState, countIds: string[], ctx: RuleCtx): FieldErrors {
+  const er: FieldErrors = {}
+  const list: readonly (BuyerMaster | SupplierMaster)[] = f.type === 'buyer' ? ctx.buyers : ctx.suppliers
+  const kind = f.type === 'buyer' ? 'buyer' : 'supplier'
+  const codeOf = (r: BuyerMaster | SupplierMaster) => ('buyer_code' in r ? r.buyer_code : r.supplier_code)
+
+  requireText(er, 'bs-name', f.name, 'Name is required.')
+  if (!er['bs-name']) {
+    const dup = findDuplicate(list, ctx.selfId, (r) => r.name, f.name, nameKey)
+    if (dup) er['bs-name'] = `A ${kind} called "${dup.name}" already exists (${codeOf(dup)}).`
+  }
+  if (f.email.trim() && !isEmail(f.email)) er['bs-email'] = 'Enter a valid email, like name@company.com.'
+  if (!f.office_phone.trim() || splitPhone(f.office_phone).number === '') er['bs-ophone'] = 'Office Phone is required.'
+  else {
+    const problem = phoneProblem(f.office_phone)
+    if (problem) er['bs-ophone'] = problem
+    else if (storedPhone(f.office_phone)!.length > 15 || storedPhone(f.office_phone)!.length < 6) er['bs-ophone'] = 'The number with its country code must be 6 to 15 digits.'
+  }
+  requireText(er, 'bs-address', f.address, 'Office Address is required.')
+  const gst = upText(f.gst)
+  if (!gst) er['bs-gst'] = 'GST No. is required.'
+  else if (!isGst(gst)) er['bs-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPK5121I1Z5).'
+  else {
+    const dup = findDuplicate(list, ctx.selfId, (r) => r.gst, gst, upText)
+    if (dup) er['bs-gst'] = `This GST number is already used by ${kind} "${dup.name}" (${codeOf(dup)}).`
+  }
+  if (!f.company_id) er['bs-company'] = 'Business Unit is required.'
+  if (!f.default_commission) er['bs-defcomm'] = 'Default Commision Percentage is required.'
+  if (f.pan.trim() && f.pan.trim().length !== 10) er['bs-pan'] = 'IT Pan must be 10 characters.'
+  ;([
+    [1, f.c1_phone, f.c1_email], [2, f.c2_phone, f.c2_email], [3, f.c3_phone, f.c3_email],
+  ] as const).forEach(([n, phone, email]) => {
+    const problem = mobileProblem(phone)
+    if (problem) er[`bs-c${n}p`] = problem
+    if (email.trim() && !isEmail(email)) er[`bs-c${n}e`] = 'Enter a valid email, like name@company.com.'
+  })
+  if (countIds.length === 0) er['bs-counts'] = 'Counts is required: choose at least one.'
+  if (f.commission_value.trim()) {
+    const n = numOrNull(f.commission_value)
+    if (n === null || n < 0) er['bs-cval'] = 'Commission value must be a number, 0 or more.'
+  }
+  const whole = (id: string, label: string, v: string) => {
+    if (v.trim() && !/^[0-9]+$/.test(v.trim())) er[id] = `${label} must be a whole number, 0 or more.`
+  }
+  const amount = (id: string, label: string, v: string) => {
+    const n = numOrNull(v)
+    if (v.trim() && (n === null || n < 0)) er[id] = `${label} must be a number, 0 or more.`
+  }
+  if (f.type === 'buyer') {
+    whole('bs-looms', 'No. of Looms', f.no_of_looms)
+  } else {
+    whole('bs-csup', 'Counts Supplying', f.counts_supplying)
+    whole('bs-spindles', 'Supplier No. of Roters & Spindles', f.spindles)
+    amount('bs-mprod', 'Monthly Production Quantity', f.monthly_production)
+  }
+  amount('bs-qbags', 'Qty(Bags/month)', f.qty_bags)
+  amount('bs-qkgs', 'Qty(Kgs/month)', f.qty_kgs)
+  return er
+}
+
+/** The same rules as plain sentences. */
+export const problemsOf = (f: FormState, countIds: string[], ctx: RuleCtx): string[] => Object.values(errorsOf(f, countIds, ctx))
 
 function payloadOf(f: FormState) {
   const state = isGst(f.gst) ? f.gst.slice(0, 2) : null
@@ -265,7 +303,9 @@ export function BuyerSupplierForm({
   canSupplier,
   onClose,
   onDone,
+  onDocsChanged,
 }: {
+  onDocsChanged?: () => void
   companies: CompanyOption[]
   suppliers: SupplierMaster[]
   buyers: BuyerMaster[]
@@ -283,6 +323,7 @@ export function BuyerSupplierForm({
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [submitted, setSubmitted] = useState(false)
   const [linksReady, setLinksReady] = useState(true)
 
   const people = useProfileNames()
@@ -356,9 +397,20 @@ export function BuyerSupplierForm({
     }
   }
 
-  const problems = problemsOf(form, countIds)
+  const errors = errorsOf(form, countIds, { buyers, suppliers, selfId: current?.row.id })
+  const typed: Record<string, string> = {
+    'bs-name': form.name, 'bs-email': form.email, 'bs-ophone': form.office_phone, 'bs-address': form.address, 'bs-gst': form.gst,
+    'bs-company': form.company_id, 'bs-defcomm': form.default_commission, 'bs-pan': form.pan, 'bs-c1p': form.c1_phone,
+    'bs-c1e': form.c1_email, 'bs-c2p': form.c2_phone, 'bs-c2e': form.c2_email, 'bs-c3p': form.c3_phone, 'bs-c3e': form.c3_email,
+    'bs-counts': countIds.join(','), 'bs-cval': form.commission_value, 'bs-looms': form.no_of_looms, 'bs-csup': form.counts_supplying,
+    'bs-spindles': form.spindles, 'bs-mprod': form.monthly_production, 'bs-qbags': form.qty_bags, 'bs-qkgs': form.qty_kgs,
+  }
+  // A missing required value is reported after the first Save click; a wrong or duplicate one shows as it is typed.
+  const visibleErrors: Record<string, string> = Object.fromEntries(
+    Object.entries(errors).filter(([id]) => submitted || (typed[id] ?? '').trim() !== ''),
+  )
   const updatingNothing = action === 'update' && !current
-  const canSave = problems.length === 0 && !updatingNothing && linksReady && allowed(form.type)
+  const canSave = !updatingNothing && linksReady && allowed(form.type)
 
   async function uploadFiles(owner: Side, ownerId: string): Promise<string[]> {
     const failed: string[] = []
@@ -388,8 +440,13 @@ export function BuyerSupplierForm({
   }
 
   async function save() {
-    setBusy(true)
+    setSubmitted(true)
     setError(null)
+    if (Object.keys(errors).length > 0) {
+      focusFirstError(errors)
+      return
+    }
+    setBusy(true)
     const table = form.type === 'buyer' ? 'buyer_master' : 'supplier_master'
     const payload: Record<string, unknown> = payloadOf(form)
     let ownerId: string
@@ -438,11 +495,7 @@ export function BuyerSupplierForm({
 
   return (
     <Drawer title="Buyers & Suppliers creation form" onClose={onClose}>
-      {error && (
-        <div className="alert" role="alert">
-          {error}
-        </div>
-      )}
+      <ErrorBanner message={error} />
 
       <ActionChoice
         label="Select Action"
@@ -470,6 +523,7 @@ export function BuyerSupplierForm({
         </FormSection>
       )}
 
+      <FieldErrorsProvider value={visibleErrors}>
       <fieldset disabled={updatingNothing} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <FormSection title="Buyer & Supplier Details" count={14}>
           <Field id="bs-name" label="Name" required>
@@ -590,7 +644,7 @@ export function BuyerSupplierForm({
               <Field id={`bs-${k}n`} label={`Contact Person ${n}`}>
                 <input id={`bs-${k}n`} value={form[`${k}_name`]} onChange={(e) => set(`${k}_name`, e.target.value)} placeholder={`Enter Contact Person ${n}`} />
               </Field>
-              <PhoneField id={`bs-${k}p`} label={`Contact Person ${n} Phone`} value={form[`${k}_phone`]} onChange={(v) => set(`${k}_phone`, v)} />
+              <PhoneField id={`bs-${k}p`} indianOnly label={`Contact Person ${n} Phone`} value={form[`${k}_phone`]} onChange={(v) => set(`${k}_phone`, v)} />
               <Field id={`bs-${k}e`} label={`Contact Person ${n} Email`}>
                 <input id={`bs-${k}e`} type="email" value={form[`${k}_email`]} onChange={(e) => set(`${k}_email`, e.target.value)} placeholder={`Enter Contact Person ${n} Email`} />
               </Field>
@@ -610,6 +664,7 @@ export function BuyerSupplierForm({
           />
           <Field id="bs-ctype" label={`${form.type === 'buyer' ? 'Buyer' : 'Supplier'} Commission Type`}>
             <select id="bs-ctype" value={form.commission_type} onChange={(e) => set('commission_type', e.target.value)}>
+              <option value="">-- Select {form.type === 'buyer' ? 'Buyer' : 'Supplier'} Commission Type --</option>
               {COMMISSION_TYPES.map((c) => (
                 <option key={c.value} value={c.value}>
                   {c.label}
@@ -684,15 +739,15 @@ export function BuyerSupplierForm({
         <FormSection title="Documents" count={1}>
           <FullWidth>
             {action === 'update' && current ? (
-              <DocumentsPanel partyType={current.side} partyId={current.row.id} canEdit />
+              <DocumentsPanel partyType={current.side} partyId={current.row.id} canEdit onChanged={onDocsChanged} />
             ) : (
               <PendingDocuments files={files} onChange={setFiles} disabled={busy} />
             )}
           </FullWidth>
         </FormSection>
       </fieldset>
+      </FieldErrorsProvider>
 
-      {problems.length > 0 && !updatingNothing && <p className="field-hint">Still needed: {problems.join(', ')}.</p>}
       <div className="drawer-actions">
         <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || !canSave}>
           {busy ? 'Saving…' : action === 'create' ? '✓ Create Item' : '✓ Update Item'}

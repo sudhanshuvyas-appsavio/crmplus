@@ -112,12 +112,15 @@ export function DocumentList({
   async function upload(files: FileList) {
     const room = DOCUMENT_LIMIT - (docs?.length ?? 0)
     const list = Array.from(files).slice(0, Math.max(room, 0))
-    setMsg(files.length > room ? `Only ${Math.max(room, 0)} more file${room === 1 ? '' : 's'} can be added (at most ${DOCUMENT_LIMIT} per ${store.noun}).` : null)
+    const said: string[] = []
+    if (files.length > room) said.push(`Only ${Math.max(room, 0)} more file${room === 1 ? '' : 's'} can be added (at most ${DOCUMENT_LIMIT} per ${store.noun}); the rest were not uploaded.`)
+    setMsg(said.join(' ') || null)
     setBusy(true)
     for (const file of list) {
       const problem = await uploadDocument(store, parentId, file)
-      if (problem) setMsg(problem)
+      if (problem) said.push(problem)
     }
+    if (said.length > 0) setMsg(said.join(' '))
     setBusy(false)
     await load()
     onChanged?.()

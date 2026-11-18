@@ -8,14 +8,13 @@
  * the app's own branding and the deal reference-number prefix, enforced by
  * a partial unique index in the database, not just client-side care. */
 
-import { CompanyContacts } from '../components/CompanyContacts'
 import { CompanyDocuments, COMPANY_DOC_LIMIT, companyDocStore } from '../components/CompanyDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Drawer } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Field } from '../components/PartyForms'
-import { ActionChoice, FormSection, FullWidth } from '../components/FormKit'
+import { ActionChoice, ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { uploadDocuments } from '../components/documents/DocumentList'
 import { PhoneField } from '../components/PhoneField'
@@ -25,12 +24,14 @@ import { COMPANY_CSV_COLUMNS } from '../api/types'
 import type { Company } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
+import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
 import { downloadCSV, parseCSV, toCSV } from '../lib/csv'
 import { formatDateTime } from '../lib/format'
-import { GST_STATES, isGst, isMobile } from '../lib/party'
+import { GST_STATES, errMessage, isGst } from '../lib/party'
+import { companyErrors } from '../lib/companyRules'
+import { focusFirstError } from '../lib/validate'
 import { todayIST } from '../lib/tasks'
-import { formatPhone, joinPhone, phoneProblem, splitPhone } from '../lib/phone'
+import { compactPhone, formatPhone } from '../lib/phone'
 
 type Editing = { mode: 'create' } | { mode: 'edit'; company: Company } | null
 
@@ -40,11 +41,9 @@ type FormState = {
   trade_name: string
   legal_name: string
   short_name: string
-  brand_name: string
   currency: string
   ref_prefix: string
   address: string
-  phone_numbers: string
   phone_1: string
   phone_2: string
   phone_3: string
@@ -58,8 +57,6 @@ type FormState = {
   bank_account_1: string
   bank_account_2: string
   is_home: boolean
-  is_buyer: boolean
-  is_supplier: boolean
   is_active: boolean
 }
 
@@ -69,11 +66,9 @@ const BLANK_FORM: FormState = {
   trade_name: '',
   legal_name: '',
   short_name: '',
-  brand_name: '',
-  currency: 'USD',
+  currency: 'INR',
   ref_prefix: '',
   address: '',
-  phone_numbers: '',
   phone_1: '',
   phone_2: '',
   phone_3: '',
@@ -87,8 +82,6 @@ const BLANK_FORM: FormState = {
   bank_account_1: '',
   bank_account_2: '',
   is_home: false,
-  is_buyer: false,
-  is_supplier: false,
   is_active: true,
 }
 
@@ -99,11 +92,9 @@ function toForm(company: Company): FormState {
     trade_name: company.trade_name ?? '',
     legal_name: company.legal_name ?? '',
     short_name: company.short_name,
-    brand_name: company.brand_name ?? '',
     currency: company.currency,
     ref_prefix: company.ref_prefix,
     address: company.address ?? '',
-    phone_numbers: (company.phone_numbers ?? []).join(', '),
     phone_1: company.phone_1 ?? '',
     phone_2: company.phone_2 ?? '',
     phone_3: company.phone_3 ?? '',
@@ -117,8 +108,6 @@ function toForm(company: Company): FormState {
     bank_account_1: company.bank_account_1 ?? '',
     bank_account_2: company.bank_account_2 ?? '',
     is_home: company.is_home,
-    is_buyer: company.is_buyer,
-    is_supplier: company.is_supplier,
     is_active: company.is_active,
   }
 }
@@ -155,7 +144,7 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
 }
 
 export default function Companies() {
-  const { can } = useAuth()
+  const { can, refresh } = useAuth()
   const [companies, setCompanies] = useState<Company[] | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Editing>(null)
@@ -165,6 +154,9 @@ export default function Companies() {
   const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
+  const [stateFilter, setStateFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [delError, setDelError] = useState<string | null>(null)
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
   const [docCounts, setDocCounts] = useState<Map<string, number>>(new Map())
@@ -183,7 +175,7 @@ export default function Companies() {
       setDocCounts(counts)
       setSelected((prev) => new Set([...prev].filter((id) => rows.some((r) => r.id === id))))
     } catch (caught) {
-      setBanner({ kind: 'bad', text: caught instanceof Error ? caught.message : 'Could not load companies' })
+      setBanner({ kind: 'bad', text: errMessage(caught, 'Could not load business units') })
     }
   }, [])
 
@@ -191,17 +183,29 @@ export default function Companies() {
     void load()
   }, [load])
 
+  const stateOptions = useMemo(
+    () => [...new Set((companies ?? []).map((c) => c.state).filter((s): s is string => Boolean(s?.trim())))].sort((x, y) => x.localeCompare(y)),
+    [companies],
+  )
+  const filterDefs: FilterDef[] = [
+    { name: 'state', label: 'State', allLabel: 'All states', options: stateOptions.map((s) => ({ value: s, label: s })) },
+    { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
+  ]
+
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return (companies ?? []).filter(
-      (c) =>
-        !q ||
-        [c.name, c.legal_name, c.brand_name, c.tax_id, c.state, c.short_name, c.ref_prefix].some((v) =>
-          (v ?? '').toLowerCase().includes(q),
-        ),
-    )
-  }, [companies, search])
-  const paging = usePaging(shown, search)
+    return (companies ?? []).filter((c) => {
+      if (stateFilter && c.state !== stateFilter) return false
+      if (statusFilter && (statusFilter === 'active') !== c.is_active) return false
+      if (!q) return true
+      // Every column the grid shows.
+      return [
+        c.name, c.trade_name, c.legal_name, c.record_date, c.tax_id, c.email, c.state, c.address, c.fax, c.mobile,
+        c.phone_1, c.phone_2, c.phone_3, c.pan_number, c.bank_account_1, c.bank_account_2, c.short_name, c.ref_prefix,
+      ].some((v) => (v ?? '').toLowerCase().includes(q))
+    })
+  }, [companies, search, stateFilter, statusFilter])
+  const paging = usePaging(shown, [search, stateFilter, statusFilter].join('|'))
 
   const allSelected = shown.length > 0 && shown.every((c) => selected.has(c.id))
 
@@ -227,8 +231,11 @@ export default function Companies() {
       setEditing(null)
       setBanner({ kind: 'ok', text: `${company.name} deleted.` })
       await load()
+      void refresh()
     } catch (caught) {
-      setBanner({ kind: 'bad', text: caught instanceof Error ? caught.message : 'Could not delete the company' })
+      const text = errMessage(caught, 'Could not delete the business unit')
+      setDelError(text)
+      setBanner({ kind: 'bad', text })
     } finally {
       setBusy(false)
     }
@@ -243,10 +250,11 @@ export default function Companies() {
       if (error) throw error
       setConfirmingBulkDelete(false)
       setSelected(new Set())
-      setBanner({ kind: 'ok', text: `${ids.length} compan${ids.length === 1 ? 'y' : 'ies'} deleted.` })
+      setBanner({ kind: 'ok', text: `${ids.length} business unit${ids.length === 1 ? '' : 's'} deleted.` })
       await load()
+      void refresh()
     } catch (caught) {
-      setBanner({ kind: 'bad', text: caught instanceof Error ? caught.message : 'Could not delete the selected companies' })
+      setBanner({ kind: 'bad', text: errMessage(caught, 'Could not delete the selected business units') })
     } finally {
       setBusy(false)
     }
@@ -273,6 +281,7 @@ export default function Companies() {
       const header = (parsed[0] ?? []).map((h) => h.trim().toLowerCase())
       const dataRows = parsed.slice(1)
       const results: CsvRowResult[] = []
+      const created: Company[] = []
       // Sequential, not Promise.all: a row that sets is_home needs the
       // previous home cleared first, and we want row N+1 to see row N's
       // write rather than racing it.
@@ -284,45 +293,45 @@ export default function Companies() {
           return idx === -1 ? undefined : cells[idx]
         }
         const name = (get('name') ?? '').trim()
-        const shortName = (get('short_name') ?? '').trim()
-        const refPrefix = (get('ref_prefix') ?? '').trim()
         const rowNum = i + 2 // account for the header row, 1-indexed for humans
-        if (!name || !shortName || !refPrefix || !(get('bank_account_1') ?? '').trim()) {
-          results.push({
-            row: rowNum,
-            name: name || '(blank)',
-            status: 'error',
-            detail: 'name, short_name, ref_prefix and bank_account_1 are required',
-          })
+        const text = (col: string) => (get(col) ?? '').trim()
+        const optional = (col: string) => text(col) || null
+        const taxId = text('tax_id').replace(/\s+/g, '').toUpperCase()
+        const pan = text('pan_number').toUpperCase()
+        const gstState = isGst(taxId) ? taxId.slice(0, 2) : ''
+        const stateCode = text('state_code') || gstState
+        const currency = text('currency').toUpperCase() || 'INR'
+        // Rows created earlier in this file count as existing, so duplicates inside the file are caught too.
+        const known = [...(companies ?? []), ...created]
+        const problems = Object.values(
+          companyErrors(
+            {
+              name, email: text('email'), mobile: text('mobile'), phone_1: text('phone_1'), phone_2: text('phone_2'),
+              phone_3: text('phone_3'), address: text('address'), tax_id: taxId, bank_account_1: text('bank_account_1'),
+              pan_number: pan, short_name: text('short_name'), ref_prefix: text('ref_prefix'), currency,
+            },
+            known,
+            null,
+          ),
+        )
+        if (problems.length > 0) {
+          results.push({ row: rowNum, name: name || '(blank)', status: 'error', detail: problems.join(' ') })
           continue
         }
         try {
           const wantsHome = parseBool(get('is_home'), false)
           if (wantsHome) await clearExistingHome()
-          const phones = (get('phone_numbers') ?? '')
-            .split(';')
-            .map((p) => p.trim())
-            .filter(Boolean)
-          const pan = (get('pan_number') ?? '').trim().toUpperCase()
-          const taxId = (get('tax_id') ?? '').trim().toUpperCase()
-          // A valid GSTIN carries its own state: its first two digits are the
-          // state code, so a row that leaves state blank still gets it.
-          const gstState = isGst(taxId) ? taxId.slice(0, 2) : ''
-          const stateCode = (get('state_code') ?? '').trim() || gstState
-          const optional = (col: string) => (get(col) ?? '').trim() || null
           const { error } = await supabase.from('companies').insert({
             name,
             trade_name: optional('trade_name'),
             legal_name: optional('legal_name'),
-            short_name: shortName,
-            brand_name: optional('brand_name'),
-            currency: (get('currency') ?? '').trim() || 'USD',
-            ref_prefix: refPrefix,
+            short_name: text('short_name'),
+            currency,
+            ref_prefix: text('ref_prefix'),
             address: optional('address'),
-            phone_numbers: phones.length ? phones : null,
-            phone_1: joinPhone(splitPhone(get('phone_1'))) || null,
-            phone_2: joinPhone(splitPhone(get('phone_2'))) || null,
-            phone_3: joinPhone(splitPhone(get('phone_3'))) || null,
+            phone_1: compactPhone(get('phone_1')) || null,
+            phone_2: compactPhone(get('phone_2')) || null,
+            phone_3: compactPhone(get('phone_3')) || null,
             mobile: optional('mobile'),
             fax: optional('fax'),
             email: optional('email'),
@@ -333,33 +342,28 @@ export default function Companies() {
             bank_account_1: optional('bank_account_1'),
             bank_account_2: optional('bank_account_2'),
             is_home: wantsHome,
-            is_buyer: parseBool(get('is_buyer'), false),
-            is_supplier: parseBool(get('is_supplier'), false),
             is_active: parseBool(get('is_active'), true),
           })
           if (error) throw error
+          created.push({ id: `row-${rowNum}`, name, tax_id: taxId || null, pan_number: pan || null, ref_prefix: text('ref_prefix') } as Company)
           results.push({ row: rowNum, name, status: 'created' })
         } catch (caught) {
-          results.push({
-            row: rowNum,
-            name,
-            status: 'error',
-            detail: caught instanceof Error ? caught.message : 'Could not create this row',
-          })
+          results.push({ row: rowNum, name, status: 'error', detail: errMessage(caught, 'Could not create this row') })
         }
       }
       setImportResults(results)
-      const created = results.filter((r) => r.status === 'created').length
-      const failed = results.length - created
+      const createdCount = results.filter((r) => r.status === 'created').length
+      const failed = results.length - createdCount
       setBanner({
         kind: failed === 0 ? 'ok' : 'bad',
-        text: `Imported ${created} of ${results.length} row${results.length === 1 ? '' : 's'}.${
+        text: `Imported ${createdCount} of ${results.length} row${results.length === 1 ? '' : 's'}.${
           failed ? ` ${failed} failed -- see the details below.` : ''
         }`,
       })
       await load()
+      void refresh()
     } catch (caught) {
-      setBanner({ kind: 'bad', text: caught instanceof Error ? caught.message : 'Could not read that file' })
+      setBanner({ kind: 'bad', text: errMessage(caught, 'Could not read that file') })
     } finally {
       setBusy(false)
     }
@@ -380,7 +384,9 @@ export default function Companies() {
             setBanner({ kind: 'ok', text: message })
             setEditing(null)
             await load()
+            void refresh()
           }}
+          onDocsChanged={() => void load()}
           onError={(message) => setBanner({ kind: 'bad', text: message })}
         />
       )}
@@ -401,8 +407,12 @@ export default function Companies() {
         <ConfirmDialog
           title="Delete business unit"
           busy={busy}
-          onConfirm={() => void deleteOne(deleting).then(() => setDeleting(null))}
-          onClose={() => setDeleting(null)}
+          error={delError}
+          onConfirm={() => {
+            setDelError(null)
+            void deleteOne(deleting).then(() => setDelError((cur) => { if (!cur) setDeleting(null); return cur }))
+          }}
+          onClose={() => { setDeleting(null); setDelError(null) }}
         >
           Delete <strong>{deleting.name}</strong>? This cannot be undone.
         </ConfirmDialog>
@@ -425,6 +435,14 @@ export default function Companies() {
         plural="business units"
         query={search}
         onQuery={setSearch}
+        searchPlaceholder="Search name, trade name, GST, PAN, email, state, phone, address or bank"
+        filters={filterDefs}
+        values={{ state: stateFilter, status: statusFilter }}
+        onFilter={(name, value) => (name === 'state' ? setStateFilter(value) : setStatusFilter(value))}
+        onClear={() => {
+          setStateFilter('')
+          setStatusFilter('')
+        }}
       >
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
@@ -577,6 +595,7 @@ export default function Companies() {
                 <td className="left md-sticky">
                   <strong>{company.name}</strong>
                   {company.is_home && <span className="chip brand" style={{ marginLeft: 8 }}>Home</span>}
+                  {!company.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                 </td>
                 <td className="small">{company.trade_name || '—'}</td>
                 <td className="small">{company.legal_name || '—'}</td>
@@ -631,6 +650,8 @@ interface DrawerProps {
   onDelete: (company: Company) => Promise<void>
   onSaved: (message: string) => void | Promise<void>
   onError: (message: string) => void
+  /** After a document upload or delete inside the drawer, so the Documents column can refresh. */
+  onDocsChanged?: () => void
   readOnly?: boolean
 }
 
@@ -640,7 +661,7 @@ const suggestShort = (name: string) => name.trim().split(/\s+/)[0]?.toUpperCase(
 const suggestPrefix = (name: string) =>
   name.trim().split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
 
-function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError, readOnly = false }: DrawerProps) {
+function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsChanged, readOnly = false }: DrawerProps) {
   const existing = editing.mode === 'edit' ? editing.company : null
   // monday's form opens with "Select Action": create a new record, or update an existing one.
   const [action, setAction] = useState<'create' | 'update'>('create')
@@ -655,6 +676,28 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
   const [form, setForm] = useState<FormState>(existing ? toForm(existing) : { ...BLANK_FORM, record_date: todayIST() })
   const [busy, setBusy] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
+  const errors = useMemo(
+    () =>
+      companyErrors(
+        {
+          name: form.name, email: form.email, mobile: form.mobile, phone_1: form.phone_1, phone_2: form.phone_2,
+          phone_3: form.phone_3, address: form.address, tax_id: form.tax_id, bank_account_1: form.bank_account_1,
+          pan_number: form.pan_number, short_name: form.short_name, ref_prefix: form.ref_prefix, currency: form.currency,
+        },
+        companies,
+        target?.id,
+      ),
+    [form, companies, target],
+  )
+  // A missing required value is reported after the first Save click; a wrong format shows as it is typed.
+  const fieldValue: Record<string, string> = {
+    'c-name': form.name, 'c-email': form.email, 'c-mobile': form.mobile, 'c-phone1': form.phone_1, 'c-phone2': form.phone_2,
+    'c-phone3': form.phone_3, 'c-address': form.address, 'c-tax': form.tax_id, 'c-bank1': form.bank_account_1,
+    'c-pan': form.pan_number, 'c-short': form.short_name, 'c-ref': form.ref_prefix, 'c-currency': form.currency,
+  }
+  const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -683,6 +726,12 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
   }
 
   async function save() {
+    setSubmitted(true)
+    setServerError(null)
+    if (Object.keys(errors).length > 0) {
+      focusFirstError(errors)
+      return
+    }
     setBusy(true)
     try {
       const payload = {
@@ -691,29 +740,22 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
         trade_name: form.trade_name.trim() || null,
         legal_name: form.legal_name.trim() || null,
         short_name: form.short_name.trim(),
-        brand_name: form.brand_name.trim() || null,
-        currency: form.currency.trim() || 'USD',
+        currency: form.currency.trim().toUpperCase(),
         ref_prefix: form.ref_prefix.trim(),
         address: form.address.trim() || null,
-        phone_numbers: form.phone_numbers
-          .split(',')
-          .map((n) => n.trim())
-          .filter(Boolean),
-        phone_1: joinPhone(splitPhone(form.phone_1)) || null,
-        phone_2: joinPhone(splitPhone(form.phone_2)) || null,
-        phone_3: joinPhone(splitPhone(form.phone_3)) || null,
+        phone_1: compactPhone(form.phone_1) || null,
+        phone_2: compactPhone(form.phone_2) || null,
+        phone_3: compactPhone(form.phone_3) || null,
         mobile: form.mobile.trim() || null,
         fax: form.fax.trim() || null,
         email: form.email.trim() || null,
-        tax_id: form.tax_id.trim() || null,
+        tax_id: form.tax_id.trim().toUpperCase() || null,
         pan_number: form.pan_number.trim().toUpperCase() || null,
         state: form.state.trim() || null,
         state_code: form.state_code.trim() || null,
         bank_account_1: form.bank_account_1.trim() || null,
         bank_account_2: form.bank_account_2.trim() || null,
         is_home: form.is_home,
-        is_buyer: form.is_buyer,
-        is_supplier: form.is_supplier,
         is_active: form.is_active,
       }
 
@@ -738,7 +780,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
         await onSaved(`${payload.name} updated.`)
       }
     } catch (caught) {
-      onError(caught instanceof Error ? caught.message : 'Could not save this company')
+      setServerError(errMessage(caught, 'Could not save this business unit'))
     } finally {
       setBusy(false)
     }
@@ -746,6 +788,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
 
   return (
     <Drawer title={creating ? 'Add a company' : existing?.name ?? 'Edit company'} onClose={onClose} readOnly={readOnly}>
+      <ErrorBanner message={serverError} />
       {creating && !readOnly && !existing && (
         <ActionChoice
           label="Select Action"
@@ -777,7 +820,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
       {(existing || action === 'create' || picked) && (
         <>
           <FormSection title="Board Information" count={11}>
-            <Field id="c-name" label="Name" required>
+            <Field id="c-name" label="Name" required error={show('c-name')}>
               <input id="c-name" value={form.name} placeholder="Enter Name" onChange={(e) => setName(e.target.value)} autoFocus />
             </Field>
             <Field id="c-trade" label="Trade Name" hint="The name the business trades under, if it differs from the legal name.">
@@ -786,7 +829,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
             <Field id="c-legal" label="Legal Name" hint="As registered, and as it appears on the GST certificate.">
               <input id="c-legal" value={form.legal_name} placeholder="Enter Legal Name" onChange={(e) => set('legal_name', e.target.value)} />
             </Field>
-            <Field id="c-email" label="Email" required>
+            <Field id="c-email" label="Email" required error={show('c-email')}>
               <input id="c-email" type="email" value={form.email} placeholder="Enter Email" onChange={(e) => set('email', e.target.value)} />
             </Field>
             <Field id="c-state" label="State" hint="Filled from the GST Number, or choose it here.">
@@ -809,22 +852,16 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
                 ))}
               </select>
             </Field>
-            <div className="field">
-              <label htmlFor="c-mobile">Mobile</label>
+            <Field id="c-mobile" label="Mobile" error={show('c-mobile')} hint="Primary contact mobile, separate from the office lines.">
               <input id="c-mobile" inputMode="numeric" value={form.mobile} placeholder="Mobile number" onChange={(e) => set('mobile', e.target.value)} />
-              {form.mobile.trim() !== '' && !isMobile(form.mobile) ? (
-                <p className="field-warn">Mobile numbers are 10 digits, without +91 or a leading 0.</p>
-              ) : (
-                <p className="field-hint">Primary contact mobile, separate from the office lines.</p>
-              )}
-            </div>
-            <PhoneField id="c-phone1" label="Phone 1" value={form.phone_1} onChange={(v) => set('phone_1', v)} />
-            <PhoneField id="c-phone2" label="Phone 2" value={form.phone_2} onChange={(v) => set('phone_2', v)} />
-            <PhoneField id="c-phone3" label="Phone 3" value={form.phone_3} onChange={(v) => set('phone_3', v)} />
-            <Field id="c-address" label="Address" required>
+            </Field>
+            <PhoneField id="c-phone1" label="Phone 1" value={form.phone_1} onChange={(v) => set('phone_1', v)} validate={() => null} error={show('c-phone1') ?? null} />
+            <PhoneField id="c-phone2" label="Phone 2" value={form.phone_2} onChange={(v) => set('phone_2', v)} validate={() => null} error={show('c-phone2') ?? null} />
+            <PhoneField id="c-phone3" label="Phone 3" value={form.phone_3} onChange={(v) => set('phone_3', v)} validate={() => null} error={show('c-phone3') ?? null} />
+            <Field id="c-address" label="Address" required error={show('c-address')}>
               <textarea id="c-address" rows={3} value={form.address} placeholder="Enter Address" onChange={(e) => set('address', e.target.value)} />
             </Field>
-            <Field id="c-tax" label="GST Number">
+            <Field id="c-tax" label="GST Number" error={show('c-tax')} hint="Filling this in sets the state.">
               <input
                 id="c-tax"
                 className="mono"
@@ -842,22 +879,17 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
                 }}
                 maxLength={15}
               />
-              {form.tax_id.trim() !== '' && !isGst(form.tax_id) ? (
-                <p className="field-warn">Not a complete GST number yet (15 characters, e.g. 33AHFPK5121I1Z5).</p>
-              ) : (
-                <p className="field-hint">Filling this in sets the state.</p>
-              )}
             </Field>
           </FormSection>
 
           <FormSection title="Account Details" count={3}>
-            <Field id="c-bank1" label="Bank Account Details 1" required hint="Bank, branch, account number and IFSC.">
+            <Field id="c-bank1" label="Bank Account Details 1" required error={show('c-bank1')} hint="Bank, branch, account number and IFSC.">
               <textarea id="c-bank1" rows={3} value={form.bank_account_1} placeholder="Enter Bank Account Details 1" onChange={(ev) => set('bank_account_1', ev.target.value)} />
             </Field>
             <Field id="c-bank2" label="Bank Account Details 2">
               <textarea id="c-bank2" rows={3} value={form.bank_account_2} placeholder="Enter Bank Account Details 2" onChange={(ev) => set('bank_account_2', ev.target.value)} />
             </Field>
-            <Field id="c-pan" label="PAN Number" hint="As it appears on the PAN card.">
+            <Field id="c-pan" label="PAN Number" error={show('c-pan')} hint="As it appears on the PAN card, like AHFPS5121G.">
               <input id="c-pan" className="mono" value={form.pan_number} placeholder="Enter PAN Number" maxLength={10} onChange={(ev) => set('pan_number', ev.target.value.toUpperCase())} />
             </Field>
           </FormSection>
@@ -874,7 +906,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
             <Field id="c-date" label="Date" hint="Set to today for a new business unit; change it if the record belongs to another day.">
               <input id="c-date" type="date" value={form.record_date} onChange={(e) => set('record_date', e.target.value)} />
             </Field>
-            <Field id="c-short" label="Short name" required hint="Suggested from the name.">
+            <Field id="c-short" label="Short name" required error={show('c-short')} hint="Suggested from the name; you can change it.">
               <input
                 id="c-short"
                 value={form.short_name}
@@ -884,7 +916,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
                 }}
               />
             </Field>
-            <Field id="c-ref" label="Reference number prefix" required hint="Starts every reference number for this company. Suggested from the name.">
+            <Field id="c-ref" label="Reference number prefix" required error={show('c-ref')} hint="Starts every reference number for this company. Suggested from the name; must be unique.">
               <input
                 id="c-ref"
                 value={form.ref_prefix}
@@ -894,33 +926,13 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
                 }}
               />
             </Field>
-            <Field id="c-brand" label="Brand / group name" hint="Give the same value to every legal company that bills under one brand.">
-              <input id="c-brand" value={form.brand_name} onChange={(e) => set('brand_name', e.target.value)} />
-            </Field>
             <Field id="c-fax" label="Fax No.">
               <input id="c-fax" value={form.fax} onChange={(ev) => set('fax', ev.target.value)} />
             </Field>
-            <Field id="c-currency" label="Currency">
+            <Field id="c-currency" label="Currency" error={show('c-currency')} hint="3-letter code, for example INR.">
               <input id="c-currency" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
             </Field>
-            <Field id="c-phones" label="Other phone numbers" hint="Comma-separated if there's more than one.">
-              <input id="c-phones" value={form.phone_numbers} onChange={(e) => set('phone_numbers', e.target.value)} />
-            </Field>
             <FullWidth>
-              <label className="check">
-                <input type="checkbox" checked={form.is_buyer} onChange={(e) => set('is_buyer', e.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Buyer</span>
-                  <span className="check-hint">This company buys from us. A party can be a buyer, a supplier, or both.</span>
-                </span>
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={form.is_supplier} onChange={(e) => set('is_supplier', e.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Supplier</span>
-                  <span className="check-hint">This company supplies to us.</span>
-                </span>
-              </label>
               <label className="check">
                 <input type="checkbox" checked={form.is_home} onChange={(e) => set('is_home', e.target.checked)} />
                 <span className="check-body">
@@ -948,7 +960,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
           className="btn primary"
           type="button"
           onClick={() => void save()}
-          disabled={busy || (!existing && action === 'update' && !picked) || (creating && (!form.email.trim() || !form.address.trim())) || !form.name.trim() || !form.short_name.trim() || !form.ref_prefix.trim() || !form.bank_account_1.trim() || [form.phone_1, form.phone_2, form.phone_3].some((v) => phoneProblem(v) !== null)}
+          disabled={busy || (!existing && action === 'update' && !picked)}
         >
           {busy ? 'Saving…' : creating ? 'Create the company' : 'Save changes'}
         </button>
@@ -975,8 +987,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onError
           </>
         )}
       </div>
-      {target && !readOnly && <CompanyDocuments companyId={target.id} canEdit />}
-      {target && <CompanyContacts companyId={target.id} />}
+      {target && !readOnly && <CompanyDocuments companyId={target.id} canEdit onChanged={onDocsChanged} />}
     </Drawer>
   )
 }

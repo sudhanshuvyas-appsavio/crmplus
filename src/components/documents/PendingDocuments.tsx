@@ -1,6 +1,7 @@
 /** The Documents question of a creation form: pick files now, and they are
  *  uploaded once the record has been saved (it has no id before that). */
 
+import { useState } from 'react'
 import { DOCUMENT_LIMIT } from './DocumentList'
 
 const MAX_BYTES = 20 * 1048576
@@ -15,17 +16,21 @@ export function PendingDocuments({
   onChange: (files: File[]) => void
   disabled?: boolean
 }) {
+  const [notes, setNotes] = useState<string[]>([])
+
   function add(list: FileList | null) {
     if (!list) return
     const next = [...files]
+    const said: string[] = []
     for (const f of Array.from(list)) {
-      if (next.length >= DOCUMENT_LIMIT || f.size > MAX_BYTES) continue
-      if (next.some((x) => x.name === f.name && x.size === f.size)) continue
-      next.push(f)
+      if (f.size > MAX_BYTES) said.push(`${f.name} is larger than 20 MB and was not added.`)
+      else if (next.some((x) => x.name === f.name && x.size === f.size)) said.push(`${f.name} is already in the list.`)
+      else if (next.length >= DOCUMENT_LIMIT) said.push(`Only ${DOCUMENT_LIMIT} files can be attached; ${f.name} was not added.`)
+      else next.push(f)
     }
+    setNotes(said)
     onChange(next)
   }
-  const tooBig = files.some((f) => f.size > MAX_BYTES)
   return (
     <div className="fs-upload">
       <label className="fs-drop">
@@ -46,7 +51,11 @@ export function PendingDocuments({
           ))}
         </ul>
       )}
-      {tooBig && <p className="field-warn">A file is larger than 20 MB.</p>}
+      {notes.map((n) => (
+        <p key={n} className="field-warn">
+          {n}
+        </p>
+      ))}
     </div>
   )
 }

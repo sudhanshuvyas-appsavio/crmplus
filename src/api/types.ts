@@ -188,11 +188,9 @@ export const COMPANY_CSV_COLUMNS = [
   'trade_name',
   'legal_name',
   'short_name',
-  'brand_name',
   'currency',
   'ref_prefix',
   'address',
-  'phone_numbers',
   'phone_1',
   'phone_2',
   'phone_3',
@@ -206,8 +204,6 @@ export const COMPANY_CSV_COLUMNS = [
   'bank_account_1',
   'bank_account_2',
   'is_home',
-  'is_buyer',
-  'is_supplier',
   'is_active',
 ] as const
 

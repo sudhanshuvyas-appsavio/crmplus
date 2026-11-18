@@ -56,3 +56,33 @@ export function phoneProblem(value: string): string | null {
   if (code === '+91') return /^[0-9]{10}$/.test(number) ? null : 'Indian numbers are 10 digits, without 0 or +91.'
   return number.length >= 4 && number.length <= 14 ? null : 'Enter 4 to 14 digits.'
 }
+
+/** The stored form the database's phone checks accept for `companies`: "+919876543210",
+ *  a plus, the code and the digits with no space. Empty when there is no number. */
+export function compactPhone(value: string | null | undefined): string {
+  const { code, number } = splitPhone(value)
+  return number ? `${code}${number}` : ''
+}
+
+/** Reads a value saved as bare digits (the buyer, supplier and office-phone columns):
+ *  up to 10 digits is an Indian number; longer is a known country code followed by the
+ *  number. Anything else is read as +91, as before. */
+export function splitStored(value: string | null | undefined): PhoneParts {
+  const digits = (value ?? '').replace(/\D/g, '')
+  if (!digits) return { code: DEFAULT_COUNTRY_CODE, number: '' }
+  if (digits.length > 10) {
+    const known = [...COUNTRY_CODES]
+      .sort((a, b) => b.code.length - a.code.length)
+      .find((c) => digits.startsWith(c.code.slice(1)) && digits.length - (c.code.length - 1) >= 6)
+    if (known) return { code: known.code, number: digits.slice(known.code.length - 1) }
+  }
+  return { code: DEFAULT_COUNTRY_CODE, number: digits }
+}
+
+/** Digits after the country code that the `companies` phone check allows. */
+export function companyPhoneProblem(value: string): string | null {
+  const { code, number } = splitPhone(value)
+  if (!number) return null
+  if (code === '+91') return /^[0-9]{10}$/.test(number) ? null : 'Indian numbers are 10 digits, without 0 or +91.'
+  return number.length >= 6 && number.length <= 12 ? null : 'Enter 6 to 12 digits.'
+}
