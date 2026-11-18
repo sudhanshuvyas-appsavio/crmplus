@@ -20,10 +20,7 @@ import MailingList from './pages/MailingList'
 import PendingCommissionBills from './pages/PendingCommissionBills'
 import PendingTransporterInvoices from './pages/PendingTransporterInvoices'
 import StaffEfficiency from './pages/StaffEfficiency'
-import CollectionTasks from './pages/CollectionTasks'
 import StaffPerformance from './pages/StaffPerformance'
-import ChequeCollections from './pages/ChequeCollections'
-import ChequeDeposits from './pages/ChequeDeposits'
 import CollectionActivity from './pages/CollectionActivity'
 import OfficeActivity from './pages/OfficeActivity'
 import TransporterPayments from './pages/TransporterPayments'
@@ -33,6 +30,8 @@ import SalesDashboard from './pages/SalesDashboard'
 import BillingDashboard from './pages/BillingDashboard'
 import CollectionDashboard from './pages/CollectionDashboard'
 import Leads from './pages/Leads'
+import MyTasks from './pages/MyTasks'
+import Tasks from './pages/Tasks'
 import ResetPassword from './pages/ResetPassword'
 import Users from './pages/Users'
 
@@ -42,6 +41,11 @@ import Users from './pages/Users'
 function ToRegister({ to }: { to: string }) {
   const { search } = useLocation()
   return <Navigate to={`/master-data/${to}${search}`} replace />
+}
+
+/** The old collection-task and cheque screens now live inside the Tasks module. */
+function ToTasks({ view }: { view: string }) {
+  return <Navigate to={`/tasks?view=${view}`} replace />
 }
 
 /** The forced password change sits outside the shell: a user who has to set a
@@ -98,8 +102,8 @@ export default function App() {
           <Route element={<RequirePermission permission="report.view" />}>
             <Route path="/staff-performance" element={<StaffPerformance />} />
           </Route>
-          <Route path="/cheque-collections" element={<ChequeCollections />} />
-          <Route path="/cheque-deposits" element={<ChequeDeposits />} />
+          <Route path="/cheque-collections" element={<ToTasks view="cheques" />} />
+          <Route path="/cheque-deposits" element={<ToTasks view="cheques" />} />
           <Route path="/collection-activity" element={<CollectionActivity />} />
           <Route path="/office-activity" element={<OfficeActivity />} />
           <Route path="/transporter-payments" element={<TransporterPayments />} />
@@ -108,7 +112,9 @@ export default function App() {
           <Route path="/sales-dashboard" element={<SalesDashboard />} />
           <Route path="/billing-dashboard" element={<BillingDashboard />} />
           <Route path="/collection-dashboard" element={<CollectionDashboard />} />
-          <Route path="/collection-tasks" element={<CollectionTasks />} />
+          <Route path="/collection-tasks" element={<ToTasks view="payments" />} />
+          <Route path="/tasks" element={<Tasks />} />
+          <Route path="/tasks/my" element={<MyTasks />} />
           <Route path="/pending-transporter-invoices" element={<PendingTransporterInvoices />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/transportation" element={<ToRegister to="transport" />} />

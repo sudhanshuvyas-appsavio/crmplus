@@ -11,6 +11,9 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { useAuth } from '../auth/AuthProvider'
 import { supabase } from '../lib/supabase'
 import { BrandMark } from './BrandMark'
+import NotificationBell from './NotificationBell'
+import { ToastHost } from './Toast'
+import { REGISTERS } from '../pages/MasterData'
 
 interface NavItem {
   to: string
@@ -57,6 +60,17 @@ const ORDER = ['order.read', 'order.manage']
 
 const NAV: NavSection[] = [
   {
+    id: 'mdm',
+    heading: 'Master data',
+    // the seven MDM registers, each one a link of its own
+    items: REGISTERS.map((r) => ({
+      to: `/master-data/${r.key}`,
+      label: r.label,
+      icon: I.grid,
+      ...(r.anyOf.length > 0 ? { anyOf: r.anyOf } : {}),
+    })),
+  },
+  {
     id: 'crm',
     heading: 'CRM',
     items: [
@@ -75,15 +89,6 @@ const NAV: NavSection[] = [
       { to: '/billing-dashboard', label: 'Billing & dispatch', icon: I.bill, anyOf: ORDER },
       { to: '/collection-dashboard', label: 'Collection', icon: I.cash, anyOf: ORDER },
       { to: '/staff-performance', label: 'Staff performance', icon: I.chart, permission: 'report.view' },
-    ],
-  },
-  {
-    id: 'mdm',
-    heading: 'Master data',
-    items: [
-      // one hub for every MDM register (parties, business units, counts, transport, locations, delivery addresses, payment terms)
-      { to: '/master-data', label: 'Master data', icon: 'M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2zM4 6v6c0 1.1 3.6 2 8 2s8-.9 8-2V6M4 12v6c0 1.1 3.6 2 8 2s8-.9 8-2v-6' },
-      { to: '/mailing-list', label: 'Mailing list', icon: I.mail, anyOf: ['buyer.manage', 'mill.manage'] },
     ],
   },
   {
@@ -126,11 +131,27 @@ function readOpen(): Record<string, boolean> {
   }
 }
 
+const RAIL_KEY = 'nav.collapsed'
+
 export function AppShell() {
   const { me, meta, can, canAny, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [open, setOpen] = useState<Record<string, boolean>>(() => readOpen())
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed])
   useEffect(() => {
     try {
       localStorage.setItem('nav.open', JSON.stringify(open))
@@ -148,10 +169,11 @@ export function AppShell() {
   const isHere = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to))
 
   return (
-    <div className="shell">
+    <div className={collapsed ? 'shell rail-collapsed' : 'shell'}>
       <aside className="rail">
-        <div className="rail-brand">
+        <div className="rail-brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <BrandMark org={meta?.org} />
+          <NotificationBell />
         </div>
         <nav className="nav" aria-label="Main">
           {NAV.map((section) => {
@@ -192,9 +214,20 @@ export function AppShell() {
       </aside>
       <div className="main">
         <header className="topbar">
+          <button
+            type="button"
+            className="btn ghost rail-toggle"
+            aria-label={collapsed ? 'Show the sidebar' : 'Hide the sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Show the sidebar' : 'Hide the sidebar'}
+            onClick={() => setCollapsed((c) => !c)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
           <GlobalSearch />
           <span className="push" />
-          <NotificationBell />
           <UserMenu
             name={me?.name ?? ''}
             sub={me?.is_admin ? 'Administrator' : me?.job_title || `${me?.permissions.length ?? 0} permissions`}
@@ -205,6 +238,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <ToastHost />
     </div>
   )
 }
@@ -227,68 +261,6 @@ function UserMenu({ name, sub, onSignOut }: { name: string; sub: string; onSignO
           </div>
           <Link role="menuitem" className="pop-item" to="/account" onClick={() => setOpen(false)}>My account</Link>
           <button role="menuitem" type="button" className="pop-item" onClick={onSignOut}>Sign out</button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-type Note = { id: string; title: string; body: string | null; link: string | null; created_at: string; read_at: string | null }
-
-/** In-app notifications (monday "send notification" automations): a deal sent for
- *  Manager Approval tells the manager, a deal sent to Reconsider tells its owner. */
-function NotificationBell() {
-  const { me } = useAuth()
-  const navigate = useNavigate()
-  const [notes, setNotes] = useState<Note[]>([])
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useOutside(ref, open, () => setOpen(false))
-
-  useEffect(() => {
-    if (!me) return
-    let alive = true
-    const load = async () => {
-      const { data } = await supabase.from('notifications').select('id,title,body,link,created_at,read_at').order('created_at', { ascending: false }).limit(20)
-      if (alive && data) setNotes(data as Note[])
-    }
-    void load()
-    const t = setInterval(() => void load(), 60000)
-    return () => { alive = false; clearInterval(t) }
-  }, [me])
-
-  const unread = notes.filter((n) => !n.read_at).length
-  async function openNote(n: Note) {
-    setOpen(false)
-    if (!n.read_at) {
-      setNotes((p) => p.map((x) => (x.id === n.id ? { ...x, read_at: new Date().toISOString() } : x)))
-      await supabase.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', n.id)
-    }
-    if (n.link) navigate(n.link)
-  }
-  async function readAll() {
-    const now = new Date().toISOString()
-    setNotes((p) => p.map((x) => (x.read_at ? x : { ...x, read_at: now })))
-    await supabase.from('notifications').update({ read_at: now }).is('read_at', null)
-  }
-  return (
-    <div className="menu-anchor" ref={ref}>
-      <button type="button" className="bell" aria-haspopup="menu" aria-expanded={open} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} onClick={() => setOpen((o) => !o)}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 6 2 7 2 7H4s2-1 2-7zM10 20a2 2 0 0 0 4 0" /></svg>
-        {unread > 0 && <span className="bell-count">{unread > 9 ? '9+' : unread}</span>}
-      </button>
-      {open && (
-        <div className="pop-menu right notes-menu" role="menu">
-          <div className="pop-head">
-            <strong>Notifications</strong>
-            {unread > 0 && <button type="button" className="btn ghost sm" onClick={() => void readAll()}>Mark all read</button>}
-          </div>
-          {notes.length === 0 && <p className="pop-empty muted small">Nothing yet.</p>}
-          {notes.map((n) => (
-            <button key={n.id} role="menuitem" type="button" className={n.read_at ? 'pop-item' : 'pop-item unread'} onClick={() => void openNote(n)}>
-              <span className="note-text"><strong>{n.title}</strong><span className="small muted">{n.body}</span></span>
-            </button>
-          ))}
         </div>
       )}
     </div>

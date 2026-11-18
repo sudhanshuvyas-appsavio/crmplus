@@ -1,0 +1,9 @@
+/* Cheque Collection board: group header rows and cell helpers. */
+.group-row td {
+  background: var(--surface-3);
+  font-weight: 700;
+  text-align: left;
+}
+.group-row .group-count { margin-left: 8px; font-weight: 500; color: var(--ink-3); }
+.cq-sub { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-3); font-weight: 400; }
+.cq-link { color: var(--accent, inherit); text-decoration: underline; }

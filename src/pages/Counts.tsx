@@ -1,21 +1,22 @@
-/** Count Master (T-002).
+/** Count Master (T-002), the yarn recipe as on the monday.com Counts board.
  *
- *  A count is a yarn specification: count number (6s-120s), machine,
- *  composition, ratio, blend, yarn type, process, certification and ply.
- *  The display name ("10 S RING SPUN 100% COTTON CONE COMBED COMPACT") is
- *  built by a database trigger, and a unique index on it stops the same
- *  specification being created twice. Gated by `article.manage`. */
+ *  A count is Yarn 1 with its percentage and, while Yarn 1 is below 100%, a
+ *  Yarn 2 for the remaining percentage: entering 45 opens Yarn 2 at 55, and
+ *  entering 100 closes it (src/lib/counts.ts holds those rules). The name is
+ *  built from the recipe like monday's Summary formula, by the database
+ *  trigger. A count whose recipe already exists is saved flagged as a
+ *  duplicate, as monday does, and listed under the "Record Validations"
+ *  filter. Gated by `article.manage`. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
-  COUNT_BLENDS, COUNT_CERTIFICATIONS, COUNT_COMMON_RATIOS, COUNT_COMPOSITIONS, COUNT_MACHINES,
-  COUNT_PLIES, COUNT_PROCESSES, COUNT_YARN_TYPES,
+  COUNT_CERTIFICATIONS, COUNT_MACHINES, COUNT_PLIES, COUNT_PROCESSES, COUNT_YARN_TYPES, COUNT_YARNS,
 } from '../api/types'
 import type { CountRow } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
+import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
@@ -24,83 +25,56 @@ import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
 import { formatDateTime } from '../lib/format'
+import {
+  buildName, countLabel, fmtPct, normaliseRecipe, parsePct, recipeKey, recipeProblems, recipeState, YARNS,
+  type CountRecipe,
+} from '../lib/counts'
 
 const COUNT_CSV_COLUMNS = [
-  'display_name', 'count_no', 'machine', 'composition', 'ratio', 'blended', 'yarn_type',
-  'process', 'certification', 'ply', 'is_active',
+  'item_no', 'name', 'display_name', 'count_no', 'machine', 'yarn_1', 'yarn_1_pct', 'yarn_2', 'yarn_2_pct',
+  'overall_composition', 'overall_yarn', 'ply', 'process', 'certification', 'yarn_type',
+  'is_duplicate', 'is_active',
 ] as const
 
 type Editing = { mode: 'create' } | { mode: 'edit'; row: CountRow } | null
 
-type FormState = {
-  count_no: string
-  machine: string
-  composition: string
-  ratio: string
-  blended: string
-  yarn_type: string
-  process: string
-  certification: string
-  ply: string
-  is_active: boolean
-}
+type FormState = CountRecipe & { name: string; is_active: boolean }
 
 const BLANK: FormState = {
-  count_no: '', machine: '', composition: '', ratio: '', blended: '', yarn_type: '',
-  process: '', certification: '', ply: '', is_active: true,
+  name: '', count_no: '', machine: '', yarn_1: '', yarn_1_pct: '', yarn_2: '', ply: '', process: '',
+  certification: '', yarn_type: '', is_active: true,
 }
 
 function toForm(row: CountRow): FormState {
   return {
+    name: row.name ?? '',
     count_no: String(row.count_no),
     machine: row.machine,
-    composition: row.composition,
-    ratio: row.ratio,
-    blended: row.blended ?? '',
-    yarn_type: row.yarn_type,
+    yarn_1: row.yarn_1,
+    yarn_1_pct: fmtPct(Number(row.yarn_1_pct)),
+    yarn_2: row.yarn_2 ?? '',
+    ply: row.ply ?? '',
     process: row.process ?? '',
     certification: row.certification ?? '',
-    ply: row.ply ?? '',
+    yarn_type: row.yarn_type,
     is_active: row.is_active,
   }
 }
 
-/** "COTTON/POLYESTER" shown as "Cotton / Polyester"; the stored value is unchanged. */
-function blendLabel(value: string): string {
-  return value
-    .split('/')
-    .map((y) => y.charAt(0) + y.slice(1).toLowerCase())
-    .join(' / ')
+/** monday's "Overall Yarn Composition" and "Overall Yarn" for a saved count. */
+function overallOf(row: CountRow): { composition: string; yarn: string } {
+  const total = Number(row.yarn_1_pct) + Number(row.yarn_2_pct ?? 0)
+  return { composition: `${fmtPct(total)}%`, yarn: Number(row.yarn_1_pct) < 100 ? 'Blended' : countLabel(row.yarn_1) }
 }
 
-/** Mirrors the database trigger so the form can preview the name. */
-function previewName(f: FormState): string {
-  if (!f.count_no && !f.machine && !f.composition) return '—'
-  return [
-    f.count_no ? `${f.count_no} S` : '',
-    f.machine,
-    f.ratio,
-    f.composition === 'BLENDED' ? f.blended : f.composition,
-    f.yarn_type,
-    f.process,
-    f.certification,
-    f.ply,
-  ]
-    .filter(Boolean)
-    .join(' ')
-}
-
-function problems(f: FormState): string[] {
-  const out: string[] = []
-  const n = Number(f.count_no)
-  if (!f.count_no || !Number.isInteger(n) || n < 6 || n > 120) out.push('Count (a whole number from 6 to 120)')
-  if (!f.machine) out.push('Machine')
-  if (!f.composition) out.push('Composition')
-  if (!/^[0-9]{1,3}(%|(\/[0-9]{1,3})+)$/.test(f.ratio.trim())) out.push('Ratio (like 100% or 60/40)')
-  if (f.composition === 'BLENDED' && !f.blended) out.push('Blended (a pair of two different yarns)')
-  if (!f.yarn_type) out.push('Type (cheese or cone)')
-  return out
-}
+const FILTERS: FilterDef[] = [
+  {
+    name: 'dup',
+    label: 'Record validations',
+    allLabel: 'All counts',
+    options: [{ value: 'dup', label: 'Duplicates only' }],
+  },
+]
 
 export default function Counts() {
   const { can } = useAuth()
@@ -108,6 +82,7 @@ export default function Counts() {
   const [rows, setRows] = useState<CountRow[] | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
   const [search, setSearch] = useState('')
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
@@ -128,10 +103,14 @@ export default function Counts() {
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return (rows ?? []).filter((r) => !q || r.display_name.toLowerCase().includes(q))
-  }, [rows, search])
+    return (rows ?? []).filter((r) => {
+      if (filterValues.dup === 'dup' && !r.is_duplicate) return false
+      if (!q) return true
+      return [r.name ?? '', String(r.item_no), r.display_name, r.yarn_1, r.yarn_2 ?? '', r.machine, r.process ?? '', r.certification ?? ''].join(' ').toLowerCase().includes(q)
+    })
+  }, [rows, search, filterValues])
 
-  const paging = usePaging(shown, search)
+  const paging = usePaging(shown, `${search}|${filterValues.dup ?? ''}`)
   const selection = useSelection(useMemo(() => shown.map((r) => r.id), [shown]))
 
   async function deleteSelected() {
@@ -147,7 +126,58 @@ export default function Counts() {
 
   function exportCSV() {
     const list = selection.chosen.length > 0 ? shown.filter((r) => selection.isSelected(r.id)) : shown
-    downloadCSV(`counts-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(COUNT_CSV_COLUMNS, list))
+    const out = list.map((r) => {
+      const o = overallOf(r)
+      return { ...r, overall_composition: o.composition, overall_yarn: o.yarn }
+    })
+    downloadCSV(`counts-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(COUNT_CSV_COLUMNS, out))
+  }
+
+  /** Reads one CSV row into a recipe. The new columns are the recipe; the old
+   *  composition / ratio / blended columns are still understood. */
+  function recipeFromCsv(r: { get: (c: string) => string }): FormState {
+    let yarn_1 = r.get('yarn_1') ? pickOne('Yarn 1', r.get('yarn_1'), YARNS, true) : ''
+    let yarn_1_pct = r.get('yarn_1_pct').trim()
+    let yarn_2 = r.get('yarn_2') ? pickOne('Yarn 2', r.get('yarn_2'), YARNS) : ''
+
+    if (!yarn_1 && r.get('composition')) {
+      const composition = r.get('composition').trim().toUpperCase()
+      const ratio = r.get('ratio').replace(/\s+/g, '')
+      if (composition === 'BLENDED') {
+        const pair = r.get('blended').replace(/\s*\/\s*/g, '/').toUpperCase().split('/')
+        const [a, b] = pair
+        if (!a || !b) throw new Error('Blended is required for a blended count')
+        yarn_1 = pickOne('Yarn 1', a, YARNS, true)
+        yarn_2 = pickOne('Yarn 2', b, YARNS, true)
+        const first = ratio.split('/')[0] ?? ''
+        yarn_1_pct = first === '' ? '' : first
+      } else {
+        yarn_1 = pickOne('Composition', composition, YARNS, true)
+        yarn_1_pct = ratio.endsWith('%') ? ratio.slice(0, -1) : '100'
+      }
+    }
+    // Yarn 1 alone means 100%.
+    if (yarn_1_pct === '' && yarn_2 === '') yarn_1_pct = '100'
+
+    const form: FormState = {
+      name: r.get('name').trim(),
+      count_no: r.get('count_no'),
+      machine: pickOne('Machine', r.get('machine'), COUNT_MACHINES, true),
+      yarn_1,
+      yarn_1_pct,
+      yarn_2,
+      ply: pickOne('Single / double', r.get('ply'), COUNT_PLIES),
+      process: pickOne('Process', r.get('process'), COUNT_PROCESSES),
+      certification: pickOne('Certification', r.get('certification'), COUNT_CERTIFICATIONS),
+      yarn_type: pickOne('Type', r.get('yarn_type'), COUNT_YARN_TYPES, true),
+      is_active: parseBool(r.get('is_active'), true),
+    }
+    const given2 = r.get('yarn_2_pct').trim()
+    const state = recipeState(form)
+    if (given2 !== '' && state.remainder !== null && parsePct(given2) !== state.remainder) {
+      throw new Error(`Yarn 2 % must be ${fmtPct(state.remainder)} (100 minus Yarn 1 %)`)
+    }
+    return normaliseRecipe(form)
   }
 
   async function importCSV(file: File) {
@@ -156,38 +186,12 @@ export default function Counts() {
     setImportResults(null)
     const outcome = await importCsvFile(
       file,
-      (r) => [r.get('count_no'), r.get('machine'), r.get('composition')].filter(Boolean).join(' '),
+      (r) => r.get('display_name') || [r.get('count_no'), r.get('machine'), r.get('yarn_1') || r.get('composition')].filter(Boolean).join(' '),
       async (r) => {
-        const composition = pickOne('Composition', r.get('composition'), COUNT_COMPOSITIONS, true)
-        const form: FormState = {
-          count_no: r.get('count_no'),
-          machine: pickOne('Machine', r.get('machine'), COUNT_MACHINES, true),
-          composition,
-          ratio: r.get('ratio').replace(/\s+/g, '').toUpperCase(),
-          blended:
-            composition === 'BLENDED'
-              ? pickOne('Blended', r.get('blended').replace(/\s*\/\s*/g, '/'), COUNT_BLENDS, true)
-              : '',
-          yarn_type: pickOne('Type', r.get('yarn_type'), COUNT_YARN_TYPES, true),
-          process: pickOne('Process', r.get('process'), COUNT_PROCESSES),
-          certification: pickOne('Certification', r.get('certification'), COUNT_CERTIFICATIONS),
-          ply: pickOne('Single / double', r.get('ply'), COUNT_PLIES),
-          is_active: parseBool(r.get('is_active'), true),
-        }
-        const missing = problems(form)
+        const form = recipeFromCsv(r)
+        const missing = recipeProblems(form)
         if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
-        const { error } = await supabase.from('count_master').insert({
-          count_no: Number(form.count_no),
-          machine: form.machine,
-          composition: form.composition,
-          ratio: form.ratio,
-          blended: form.blended || null,
-          yarn_type: form.yarn_type,
-          process: form.process || null,
-          certification: form.certification || null,
-          ply: form.ply || null,
-          is_active: form.is_active,
-        })
+        const { error } = await supabase.from('count_master').insert(payloadOf(form))
         if (error) throw error
       },
     )
@@ -202,15 +206,18 @@ export default function Counts() {
 
   if (!rows) return <Loading label="Loading counts" />
 
+  const duplicateCount = rows.filter((r) => r.is_duplicate).length
+
   return (
     <>
       {editing && canManage && (
         <CountDrawer
           key={editing.mode === 'edit' ? editing.row.id : 'create'}
           editing={editing}
+          rows={rows}
           onClose={() => setEditing(null)}
-          onDone={async (text) => {
-            setBanner({ kind: 'ok', text })
+          onDone={async (text, kind = 'ok') => {
+            setBanner({ kind, text })
             setEditing(null)
             await load()
           }}
@@ -220,12 +227,17 @@ export default function Counts() {
 
       <GridToolbar
         title="Counts"
+        subtitle={duplicateCount > 0 ? `${rows.length} counts · ${duplicateCount} flagged as duplicates` : undefined}
         total={rows.length}
         singular="count"
         plural="counts"
         query={search}
         onQuery={setSearch}
         searchPlaceholder="Search counts, e.g. ring spun cotton"
+        filters={FILTERS}
+        values={filterValues}
+        onFilter={(name, value) => setFilterValues((v) => ({ ...v, [name]: value }))}
+        onClear={() => setFilterValues({})}
       >
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
@@ -272,41 +284,64 @@ export default function Counts() {
                   <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all counts" />
                 </th>
               )}
-              <th className="left">Count</th>
+              <th>Item ID</th>
+              <th className="left">Name</th>
+              <th className="left">Summary</th>
+              <th>Thread count</th>
               <th>Machine</th>
-              <th>Composition</th>
-              <th>Type</th>
+              <th>Yarn 1</th>
+              <th>Yarn 2</th>
+              <th>Overall yarn composition</th>
+              <th>Overall yarn</th>
+              <th>Yarn</th>
               <th>Process</th>
               <th>Certification</th>
+              <th>Type</th>
               <th>Status</th>
-              <th>Updated</th>
+              <th>Created date</th>
             </tr>
           </thead>
           <tbody>
-            {paging.visible.map((r) => (
-              <tr key={r.id} className={canManage ? 'clickable' : ''} onClick={() => canManage && setEditing({ mode: 'edit', row: r })}>
-                {canManage && (
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selection.isSelected(r.id)} onChange={() => selection.toggle(r.id)} aria-label={`Select ${r.display_name}`} />
+            {paging.visible.map((r) => {
+              const overall = overallOf(r)
+              return (
+                <tr key={r.id} className={canManage ? 'clickable' : ''} onClick={() => canManage && setEditing({ mode: 'edit', row: r })}>
+                  {canManage && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selection.isSelected(r.id)} onChange={() => selection.toggle(r.id)} aria-label={`Select ${r.display_name}`} />
+                    </td>
+                  )}
+                  <td className="mono small">{r.item_no}</td>
+                  <td className="left">
+                    <strong>{r.name || r.display_name}</strong>
+                    {r.is_duplicate && (
+                      <div>
+                        <span className="chip warn" title={r.duplicate_error ?? undefined}>
+                          Duplicate
+                        </span>
+                        {r.duplicate_error && <div className="small muted">{r.duplicate_error}</div>}
+                      </div>
+                    )}
                   </td>
-                )}
-                <td className="left">
-                  <strong>{r.display_name}</strong>
-                </td>
-                <td className="small">{r.machine}</td>
-                <td className="small">
-                  {r.ratio} {r.blended ?? r.composition}
-                </td>
-                <td className="small">{r.yarn_type}</td>
-                <td className="small muted">{r.process ?? '—'}</td>
-                <td className="small muted">{r.certification ?? '—'}</td>
-                <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
-                <td className="mono small">{formatDateTime(r.updated_at)}</td>
-              </tr>
-            ))}
+                  <td className="left small">{r.display_name}</td>
+                  <td className="mono small">{r.count_no}</td>
+                  <td className="small">{r.machine}</td>
+                  <td className="small">{fmtPct(Number(r.yarn_1_pct))}% {r.yarn_1}</td>
+                  <td className="small">{r.yarn_2 ? `${fmtPct(Number(r.yarn_2_pct))}% ${r.yarn_2}` : <span className="muted">—</span>}</td>
+                  <td className="small">{overall.composition}</td>
+                  <td className="small">{overall.yarn}</td>
+                  <td className="small muted">{r.ply ?? '—'}</td>
+                  <td className="small muted">{r.process ?? '—'}</td>
+                  <td className="small muted">{r.certification ?? '—'}</td>
+                  <td className="small">{r.yarn_type}</td>
+                  <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
+                  <td className="mono small">{formatDateTime(r.created_at)}</td>
+                </tr>
+              )
+            })}
             {shown.length === 0 && (
               <tr>
-                <td className="empty" colSpan={canManage ? 9 : 8}>
+                <td className="empty" colSpan={canManage ? 16 : 15}>
                   {rows.length === 0 ? 'No counts yet.' : 'No count matches that search.'}
                   {rows.length === 0 && canManage ? ' Add the first one.' : ''}
                 </td>
@@ -320,15 +355,37 @@ export default function Counts() {
   )
 }
 
+/** What is saved: the recipe. The database derives the name, composition,
+ *  ratio, blend, key and duplicate flag from it. */
+function payloadOf(form: FormState) {
+  const state = recipeState(form)
+  return {
+    name: form.name.trim() || null,
+    count_no: Number(form.count_no),
+    machine: form.machine,
+    yarn_1: form.yarn_1,
+    yarn_1_pct: state.pct1,
+    yarn_2: state.pct2 !== null ? form.yarn_2 : null,
+    yarn_2_pct: state.pct2,
+    yarn_type: form.yarn_type,
+    process: form.process || null,
+    certification: form.certification || null,
+    ply: form.ply || null,
+    is_active: form.is_active,
+  }
+}
+
 function CountDrawer({
   editing,
+  rows,
   onClose,
   onDone,
   onError,
 }: {
   editing: NonNullable<Editing>
+  rows: CountRow[]
   onClose: () => void
-  onDone: (message: string) => void | Promise<void>
+  onDone: (message: string, kind?: 'ok' | 'bad') => void | Promise<void>
   onError: (message: string) => void
 }) {
   const existing = editing.mode === 'edit' ? editing.row : null
@@ -336,41 +393,35 @@ function CountDrawer({
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
+  /** Every change goes through the recipe rules: 100% closes Yarn 2, and Yarn 2 cannot repeat Yarn 1. */
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value }
-      // the blend only means something for a BLENDED composition
-      if (key === 'composition' && value !== 'BLENDED') next.blended = ''
-      return next
-    })
+    setForm((prev) => normaliseRecipe({ ...prev, [key]: value }))
   }
 
-  const missing = problems(form)
+  const state = recipeState(form)
+  const missing = recipeProblems(form)
+  const twin = useMemo(() => {
+    if (missing.length > 0) return null
+    const key = recipeKey(form)
+    return rows.find((r) => r.id !== existing?.id && r.recipe_key === key) ?? null
+  }, [form, missing.length, rows, existing])
 
   async function save() {
     setBusy(true)
     setFormError(null)
-    const payload = {
-      count_no: Number(form.count_no),
-      machine: form.machine,
-      composition: form.composition,
-      ratio: form.ratio.trim().toUpperCase(),
-      blended: form.composition === 'BLENDED' ? form.blended : null,
-      yarn_type: form.yarn_type,
-      process: form.process || null,
-      certification: form.certification || null,
-      ply: form.ply || null,
-      is_active: form.is_active,
-    }
-    const { error } = existing
-      ? await supabase.from('count_master').update(payload).eq('id', existing.id)
-      : await supabase.from('count_master').insert(payload)
+    const payload = payloadOf(form)
+    const res = existing
+      ? await supabase.from('count_master').update(payload).eq('id', existing.id).select('is_duplicate,duplicate_error').single()
+      : await supabase.from('count_master').insert(payload).select('is_duplicate,duplicate_error').single()
     setBusy(false)
-    if (error) {
-      setFormError(errMessage(error, 'Could not save this count'))
+    if (res.error) {
+      setFormError(errMessage(res.error, 'Could not save this count'))
       return
     }
-    await onDone(existing ? 'Count updated.' : 'Count added.')
+    const saved = res.data as { is_duplicate: boolean; duplicate_error: string | null } | null
+    const done = existing ? 'Count updated.' : 'Count added.'
+    if (saved?.is_duplicate) await onDone(`${done} It is flagged as a duplicate: ${saved.duplicate_error ?? ''}`, 'bad')
+    else await onDone(done)
   }
 
   async function remove() {
@@ -392,23 +443,31 @@ function CountDrawer({
     options: readonly string[],
     onChange: (v: string) => void,
     blank = '—',
-    label: (v: string) => string = (v) => v,
+    disabled = false,
   ) => (
-    <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+    <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
       <option value="">{blank}</option>
       {options.map((o) => (
         <option key={o} value={o}>
-          {label(o)}
+          {o}
         </option>
       ))}
     </select>
   )
 
+  const name = buildName(form)
+  const readOnlyStyle = { background: 'var(--surface-3)' }
+
   return (
     <Drawer title={existing ? existing.display_name : 'Add a count'} onClose={onClose}>
       <div className="notice small">
-        <strong>{previewName(form)}</strong>
+        Summary: <strong>{name || '—'}</strong>
       </div>
+      {twin && (
+        <div className="alert warn" role="status">
+          A count with this recipe already exists (“{twin.name || twin.display_name}”, item ID {twin.item_no}). It can still be saved, but it will be flagged as a duplicate.
+        </div>
+      )}
       {formError && (
         <div className="alert" role="alert">
           {formError}
@@ -416,30 +475,59 @@ function CountDrawer({
       )}
       <p className="muted small">Fields marked * are required.</p>
       <div className="form-grid">
-        <Field id="ct-no" label="Count" required hint="Between 6s and 120s.">
-          <input id="ct-no" inputMode="numeric" className="mono" value={form.count_no} onChange={(e) => set('count_no', e.target.value.replace(/\D/g, ''))} autoFocus />
+        <Field id="ct-name" label="Name" hint={existing ? undefined : 'Your own label for the count. Left blank, it follows the summary.'}>
+          <input id="ct-name" value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
+        </Field>
+        {existing && (
+          <Field id="ct-item" label="Item ID" hint="Assigned automatically.">
+            <input id="ct-item" className="mono" readOnly style={readOnlyStyle} value={existing.item_no} />
+          </Field>
+        )}
+        <Field id="ct-no" label="Thread count" required hint="Between 6s and 120s.">
+          <input id="ct-no" inputMode="numeric" className="mono" value={form.count_no} onChange={(e) => set('count_no', e.target.value.replace(/\D/g, ''))} />
         </Field>
         <Field id="ct-machine" label="Machine" required>
           {select('ct-machine', form.machine, COUNT_MACHINES, (v) => set('machine', v), 'Choose…')}
         </Field>
-        <Field id="ct-comp" label="Composition" required>
-          {select('ct-comp', form.composition, COUNT_COMPOSITIONS, (v) => set('composition', v), 'Choose…')}
+        <Field id="ct-y1" label="Yarn 1" required>
+          {select('ct-y1', form.yarn_1, COUNT_YARNS, (v) => set('yarn_1', v), 'Choose…')}
         </Field>
-        <Field id="ct-ratio" label="Ratio" required hint="100% for a pure yarn; 50/50, 60/40, 70/30 … for a blend.">
-          <input id="ct-ratio" list="ct-ratios" className="mono" value={form.ratio} onChange={(e) => set('ratio', e.target.value.replace(/\s+/g, ''))} />
-          <datalist id="ct-ratios">
-            {COUNT_COMMON_RATIOS.map((r) => (
-              <option key={r} value={r} />
-            ))}
-          </datalist>
+        <Field id="ct-p1" label="Yarn 1 (percentage)" required hint="Up to 100. Below 100, a second yarn takes the rest.">
+          <input id="ct-p1" inputMode="decimal" className="mono" value={form.yarn_1_pct} onChange={(e) => set('yarn_1_pct', e.target.value.replace(/[^0-9.]/g, ''))} />
         </Field>
-        {form.composition === 'BLENDED' && (
-          <Field id="ct-blend" label="Blended" required>
-            {select('ct-blend', form.blended, COUNT_BLENDS, (v) => set('blended', v), 'Choose…', blendLabel)}
-          </Field>
-        )}
-        <Field id="ct-type" label="Type" required>
-          {select('ct-type', form.yarn_type, COUNT_YARN_TYPES, (v) => set('yarn_type', v), 'Choose…')}
+        <Field
+          id="ct-y2"
+          label="Yarn 2"
+          required={state.yarn2Enabled}
+          hint={state.yarn2Reason ?? `Takes the remaining ${fmtPct(state.remainder ?? 0)}%.`}
+        >
+          {select(
+            'ct-y2',
+            form.yarn_2,
+            COUNT_YARNS.filter((y) => y !== form.yarn_1),
+            (v) => set('yarn_2', v),
+            state.yarn2Enabled ? 'Choose…' : '—',
+            !state.yarn2Enabled,
+          )}
+        </Field>
+        <Field id="ct-p2" label="Yarn 2 (percentage)" hint="Always the remainder of Yarn 1; it cannot be edited.">
+          <input
+            id="ct-p2"
+            className="mono"
+            readOnly
+            style={readOnlyStyle}
+            value={state.remainder !== null && form.yarn_2 !== '' ? fmtPct(state.remainder) : ''}
+            placeholder={state.remainder !== null ? `${fmtPct(state.remainder)} remaining` : ''}
+          />
+        </Field>
+        <Field id="ct-overall" label="Overall yarn composition">
+          <input id="ct-overall" className="mono" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallComposition} />
+        </Field>
+        <Field id="ct-overall-yarn" label="Overall yarn">
+          <input id="ct-overall-yarn" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallYarn} />
+        </Field>
+        <Field id="ct-ply" label="Single / double yarn">
+          {select('ct-ply', form.ply, COUNT_PLIES, (v) => set('ply', v))}
         </Field>
         <Field id="ct-process" label="Process">
           {select('ct-process', form.process, COUNT_PROCESSES, (v) => set('process', v))}
@@ -447,8 +535,8 @@ function CountDrawer({
         <Field id="ct-cert" label="Certification">
           {select('ct-cert', form.certification, COUNT_CERTIFICATIONS, (v) => set('certification', v))}
         </Field>
-        <Field id="ct-ply" label="Single / double yarn">
-          {select('ct-ply', form.ply, COUNT_PLIES, (v) => set('ply', v))}
+        <Field id="ct-type" label="Type" required>
+          {select('ct-type', form.yarn_type, COUNT_YARN_TYPES, (v) => set('yarn_type', v), 'Choose…')}
         </Field>
       </div>
       <div className="switch-row">

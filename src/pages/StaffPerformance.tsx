@@ -5,7 +5,7 @@
  *     the range, how many are Done.
  *   - Entries posted: records the person created in the range.
  *   - Cheques collected / Invoices delivered / Payments deposited: Done tasks of that
- *     type (Collection tasks screen) completed in the range, with amounts for cheques
+ *     type (Tasks module) completed in the range, with amounts for cheques
  *     and deposits.
  *  Who is collection or office staff is set per user here by an administrator. */
 

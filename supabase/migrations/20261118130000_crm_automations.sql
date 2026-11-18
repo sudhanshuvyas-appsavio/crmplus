@@ -1,6 +1,7 @@
 -- The enabled monday CRM automations the app did not have yet (read from the monday
 -- boards Deals, Sales Confirmation and Dispatch and Billing):
---   1. Deals: moving to Manager Approval notifies the manager; Reconsider notifies the owner.
+--   1. Deals: moving to Manager Approval notifies the manager; Reconsider notifies the owner
+--      (uses notify_user and the notifications table from the Tasks module).
 --   2. Sales Confirmation: reaching "Send with Delivery Info" creates its Dispatch and
 --      Billing items by itself when it has none.
 --   3. Dispatch and Billing: duplicate Invoice No. check (flag + message).
@@ -11,48 +12,29 @@
 begin;
 
 -- =====================================================================
--- 1. In-app notifications
+-- 1. Deal notifications (through the existing notify_user / notifications table of the Tasks module)
 -- =====================================================================
-create table if not exists public.notifications (
-  id         uuid primary key default gen_random_uuid(),
-  user_id    uuid not null references public.profiles(id) on delete cascade,
-  title      text not null,
-  body       text,
-  link       text,
-  created_at timestamptz not null default now(),
-  read_at    timestamptz
-);
-create index if not exists notifications_user_idx on public.notifications(user_id, created_at desc);
-
-alter table public.notifications enable row level security;
-drop policy if exists notifications_sel on public.notifications;
-create policy notifications_sel on public.notifications for select to authenticated using (user_id = auth.uid());
-drop policy if exists notifications_upd on public.notifications;
-create policy notifications_upd on public.notifications for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-revoke all on public.notifications from anon;
-revoke insert, update, delete on public.notifications from authenticated;
-grant select on public.notifications to authenticated;
-grant update (read_at) on public.notifications to authenticated;
-grant all on public.notifications to service_role;
-
 -- monday: "When status changes to Manager Approval, notify Manager: 'Please Review this Deal'".
 -- With no manager on the deal, everyone who can approve deals is told. Moving to Reconsider
 -- tells the deal's owner to revise it (monday addresses the greeting to the owner).
 create or replace function public.crm_deals_notify() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare r record; key text := 'deal:' || new.id || ':' || new.status || ':' || coalesce(new.status_changed_at::text, now()::text);
 begin
   if new.status = 'manager_approval' and old.status is distinct from 'manager_approval' then
-    insert into notifications(user_id, title, body, link)
-    select u, 'Deal - ' || new.deal_no, 'Please review this deal - ' || new.deal_no, '/deals?open=' || new.id
-    from (
+    for r in
       select new.manager_id as u where new.manager_id is not null
       union
       select up.user_id from user_permissions up where up.permission = 'deal.approve' and new.manager_id is null
-    ) t
-    where u is not null and u is distinct from auth.uid();
+    loop
+      if r.u is distinct from auth.uid() then
+        perform notify_user(r.u, 'deal', 'info', 'Deal - ' || new.deal_no, 'Please review this deal - ' || new.deal_no,
+                            '/deals?open=' || new.id, null, key);
+      end if;
+    end loop;
   elsif new.status = 'reconsider' and old.status is distinct from 'reconsider' and new.owner_id is not null and new.owner_id is distinct from auth.uid() then
-    insert into notifications(user_id, title, body, link)
-    values (new.owner_id, 'Revised deal - ' || new.deal_no, 'Please revise this deal - ' || new.deal_no, '/deals?open=' || new.id);
+    perform notify_user(new.owner_id, 'deal', 'warning', 'Revised deal - ' || new.deal_no, 'Please revise this deal - ' || new.deal_no,
+                        '/deals?open=' || new.id, null, key);
   end if;
   return null;
 end $$;

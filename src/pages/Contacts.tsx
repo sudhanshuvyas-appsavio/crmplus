@@ -12,7 +12,7 @@
  *  a side asks for that side's required fields. Changing a buyer record needs
  *  "Add and edit buyers", a supplier record needs "Add and edit supplier mills". */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { BuyerMaster, SupplierMaster } from '../api/types'
@@ -27,6 +27,7 @@ import {
   type BuyerForm, type FullPartyForm, type SupplierForm,
 } from '../components/PartyForms'
 import { PartyExtras, useProfileNames } from '../components/PartyExtras'
+import { BuyerSupplierForm } from '../components/BuyerSupplierForm'
 import { loadLinkIds, syncLinks } from '../lib/links'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
@@ -35,6 +36,7 @@ import type { BulkDeleteResult, CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, isGst, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
+import '../styles/cheque-board.css'
 
 export type Role = 'buyer' | 'supplier' | 'both'
 const ROLES: { value: Role; label: string }[] = [
@@ -99,10 +101,10 @@ function makeContact(supplier: SupplierMaster | null, buyer: BuyerMaster | null)
 /* ---- the form: the union of the two masters' fields --------------------------- */
 
 type ContactForm = FullPartyForm & { role: Role; company_id: string }
-type CompanyOption = { id: string; name: string; is_active: boolean }
+type CompanyOption = { id: string; name: string; is_active: boolean; mobile?: string | null; phone_1?: string | null }
 
 function formFromContact(c: Contact | null): ContactForm {
-  if (!c) return { ...blankSupplier(), ...blankBuyerOnly(), spindlage_capacity: '', role: 'buyer', company_id: '' }
+  if (!c) return { ...blankSupplier(), ...blankBuyerOnly(), spindlage_capacity: '', role: 'buyer', company_id: '', commission_basis: 'pct' }
   const s = c.supplier
   const b = c.buyer
   const pick = (a: string | null | undefined, z: string | null | undefined) => (a ?? '').trim() || (z ?? '') || ''
@@ -236,6 +238,7 @@ export default function Contacts() {
   const [suppliers, setSuppliers] = useState<SupplierMaster[] | null>(null)
   const [buyers, setBuyers] = useState<BuyerMaster[] | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
+  const [creationForm, setCreationForm] = useState(false)
   const [params] = useSearchParams()
   const [companies, setCompanies] = useState<CompanyOption[]>([])
   const [companyFilter, setCompanyFilter] = useState('')
@@ -248,15 +251,21 @@ export default function Contacts() {
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
+  const [partyCounts, setPartyCounts] = useState<{ party_type: string; party_id: string; count_id: string }[]>([])
+  const [countNos, setCountNos] = useState<Map<string, number>>(new Map())
   const profileNames = useProfileNames()
 
   const load = useCallback(async () => {
-    const [s, b, co] = await Promise.all([
+    const [s, b, co, pc, cm] = await Promise.all([
       supabase.from('supplier_master').select('*').order('name'),
       supabase.from('buyer_master').select('*').order('name'),
-      supabase.from('companies').select('id,name,is_active').order('name'),
+      supabase.from('companies').select('id,name,is_active,mobile,phone_1').order('name'),
+      supabase.from('party_counts').select('party_type,party_id,count_id'),
+      supabase.from('count_master').select('id,count_no'),
     ])
     setCompanies((co.data ?? []) as CompanyOption[])
+    setPartyCounts((pc.data ?? []) as { party_type: string; party_id: string; count_id: string }[])
+    setCountNos(new Map(((cm.data ?? []) as { id: string; count_no: number }[]).map((c) => [c.id, c.count_no])))
     const err = s.error ?? b.error
     if (err) setBanner({ kind: 'bad', text: errMessage(err, 'Could not load contacts') })
     setSuppliers((s.data ?? []) as SupplierMaster[])
@@ -298,6 +307,29 @@ export default function Contacts() {
   }, [contacts, search, roleFilter, statusFilter, companyFilter, catFilter, rangeSearch, spinSearch])
 
   const paging = usePaging(shown, [search, roleFilter, statusFilter, companyFilter, catFilter, rangeSearch, spinSearch].join('|'))
+
+  /** monday's mirror columns: the business unit's phone and the thread counts linked to the contact. */
+  const companyOf = (c: Contact) => companies.find((x) => x.id === (c.supplier?.company_id ?? c.buyer?.company_id))
+  const threadCountsOf = (c: Contact): string => {
+    const ids = new Set<string>()
+    for (const l of partyCounts) {
+      if ((l.party_type === 'supplier' && l.party_id === c.supplier?.id) || (l.party_type === 'buyer' && l.party_id === c.buyer?.id)) ids.add(l.count_id)
+    }
+    const nos = [...ids].map((id) => countNos.get(id)).filter((n): n is number => n !== undefined)
+    return [...new Set(nos)].sort((a, z) => a - z).map((n) => `${n}S`).join(', ')
+  }
+  // The board is grouped Buyer / Supplier; a contact that is both appears under each heading.
+  const groups = (['buyer', 'supplier'] as const)
+    .map((g) => {
+      const has = g === 'buyer' ? hasBuyer : hasSupplier
+      return {
+        key: g,
+        label: g === 'buyer' ? 'Buyer' : 'Supplier',
+        total: shown.filter((c) => has(c.role)).length,
+        rows: paging.visible.filter((c) => has(c.role)),
+      }
+    })
+    .filter((g) => g.rows.length > 0)
 
   const filterDefs: FilterDef[] = [
     { name: 'role', label: 'Role', allLabel: 'All roles', options: ROLES },
@@ -484,8 +516,8 @@ export default function Contacts() {
         onClear={clearFilters}
       >
         {canCreateAny && (
-          <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
-            New contact
+          <button className="btn primary" type="button" onClick={() => setCreationForm(true)}>
+            New buyer / supplier
           </button>
         )}
       </GridToolbar>
@@ -536,7 +568,9 @@ export default function Contacts() {
               <th>Customer code</th>
               <th className="left">Contact</th>
               <th>Role</th>
-              <th>Company</th>
+              <th>Business unit</th>
+              <th>Business phone</th>
+              <th>Thread counts</th>
               <th>Person</th>
               <th>GST</th>
               <th>State</th>
@@ -549,16 +583,24 @@ export default function Contacts() {
           <tbody>
             {shown.length === 0 ? (
               <tr>
-                <td className="empty" colSpan={canCreateAny ? 13 : 12}>
+                <td className="empty" colSpan={canCreateAny ? 15 : 14}>
                   {contacts.length === 0 ? 'No contacts yet.' : 'No contact matches those filters.'}
                   {contacts.length === 0 && canCreateAny ? ' Add the first one.' : ''}
                 </td>
               </tr>
             ) : (
-              paging.visible.map((c) => {
+              groups.map((grp) => (
+                <Fragment key={grp.key}>
+                  <tr className="group-row">
+                    <td colSpan={canCreateAny ? 15 : 14}>
+                      {grp.label}
+                      <span className="group-count">{grp.total}</span>
+                    </td>
+                  </tr>
+                  {grp.rows.map((c) => {
                 const base = c.supplier ?? c.buyer!
                 return (
-                  <tr key={c.key} className="clickable" onClick={() => setEditing({ mode: 'edit', contact: c })}>
+                  <tr key={`${grp.key}:${c.key}`} className="clickable" onClick={() => setEditing({ mode: 'edit', contact: c })}>
                     {canCreateAny && (
                       <td onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={selection.isSelected(c.key)} onChange={() => selection.toggle(c.key)} aria-label={`Select ${c.name}`} />
@@ -579,7 +621,9 @@ export default function Contacts() {
                     <td>
                       <span className={c.role === 'both' ? 'chip brand' : 'chip'}>{roleLabel(c.role)}</span>
                     </td>
-                    <td className="small">{companies.find((x) => x.id === (c.supplier?.company_id ?? c.buyer?.company_id))?.name ?? '—'}</td>
+                    <td className="small">{companyOf(c)?.name ?? '—'}</td>
+                    <td className="mono small">{companyOf(c)?.mobile || companyOf(c)?.phone_1 || '—'}</td>
+                    <td className="small">{threadCountsOf(c) || '—'}</td>
                     <td className="small">
                       {base.contact_person}
                       <div className="mono muted">{base.mobile}</div>
@@ -599,11 +643,29 @@ export default function Contacts() {
                     <td className="mono small">{formatDateTime(c.updated)}</td>
                   </tr>
                 )
-              })
+                  })}
+                </Fragment>
+              ))
             )}
           </tbody>
         </table>
       </div>
+
+      {creationForm && (
+        <BuyerSupplierForm
+          companies={companies}
+          suppliers={suppliers ?? []}
+          buyers={buyers ?? []}
+          canBuyer={canBuyer}
+          canSupplier={canSupplier}
+          onClose={() => setCreationForm(false)}
+          onDone={async (text, kind = 'ok') => {
+            setBanner({ kind, text })
+            setCreationForm(false)
+            await load()
+          }}
+        />
+      )}
 
       {editing && (
         <ContactDrawer
