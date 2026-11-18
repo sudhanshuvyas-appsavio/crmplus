@@ -21,6 +21,8 @@ import { Loading } from '../components/Loading'
 import { Drawer } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { OrderExecution } from '../components/OrderExecution'
+import { BoardTabs } from '../components/board/BoardTabs'
+import { DnbCreationForm } from '../components/DnbCreationForm'
 import { Avatar, Board, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { cell } from '../components/board/mirrors'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -55,6 +57,7 @@ export default function DispatchAndBilling() {
   const [people, setPeople] = useState<Named[]>([])
   const [scs, setScs] = useState<Map<string, string>>(new Map())
   const [editing, setEditing] = useState<Order | null>(null)
+  const [tab, setTab] = useState<'table' | 'form' | 'duplicates'>('table')
   const [search, setSearch] = useState('')
   const [view, setView] = useStoredState<'table' | 'kanban'>('dnb.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
@@ -194,6 +197,16 @@ export default function DispatchAndBilling() {
         </div>
       </header>
 
+      <BoardTabs
+        tabs={[
+          { key: 'table', label: 'Main table' },
+          ...(canManage ? [{ key: 'form', label: 'Dispatch & Billing Creation Form' }] : []),
+          { key: 'duplicates', label: `Duplicate Checks${rows.some((x) => x.is_duplicate) ? ` (${rows.filter((x) => x.is_duplicate).length})` : ''}` },
+        ]}
+        active={tab}
+        onChange={(k) => setTab(k as 'table' | 'form' | 'duplicates')}
+      />
+
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
           {banner.text}{' '}
@@ -201,6 +214,23 @@ export default function DispatchAndBilling() {
         </div>
       )}
 
+      {tab === 'form' && (
+        <DnbCreationForm
+          canCreate={canManage}
+          buyerName={buyerName}
+          supplierName={supplierName}
+          countName={countName}
+          onCreated={async (orderId, text) => {
+            setBanner({ kind: 'ok', text })
+            await load()
+            const { data } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle()
+            setTab('table')
+            if (data) setEditing(data as Order)
+          }}
+        />
+      )}
+
+      {tab !== 'form' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search" placeholder="Search item, invoice, SC, buyer, supplier, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -211,14 +241,14 @@ export default function DispatchAndBilling() {
       </div>
 
       <Board
-        rows={shown}
+        rows={tab === 'duplicates' ? shown.filter((x) => x.is_duplicate) : shown}
         groups={DNB_GROUPS}
         groupOf={dnbGroup}
         columns={columns}
         rowKey={(x) => x.id}
         onOpen={(x) => setEditing(x)}
         view={view}
-        emptyText={rows.length === 0 ? 'Nothing yet. Open a complete Sales Confirmation and choose “Create Dispatch and Billing”.' : 'No item matches.'}
+        emptyText={tab === 'duplicates' ? 'No duplicate invoice numbers.' : rows.length === 0 ? 'Nothing yet. Open a complete Sales Confirmation and choose “Create Dispatch and Billing”.' : 'No item matches.'}
         card={(x) => (
           <>
             <span className="kcard-top">
@@ -235,6 +265,7 @@ export default function DispatchAndBilling() {
           </>
         )}
       />
+      </>)}
 
       {editing && (
         <ItemPanel

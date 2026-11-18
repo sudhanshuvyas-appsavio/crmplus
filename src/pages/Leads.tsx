@@ -22,7 +22,8 @@ import { useNavigate } from 'react-router-dom'
 import { ActivityPanel } from '../components/PartyExtras'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { Drawer, DeleteControl } from '../components/Drawer'
+import { Drawer, DeleteControl, InlineForm } from '../components/Drawer'
+import { BoardTabs } from '../components/board/BoardTabs'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, pickOne } from '../lib/bulk'
@@ -67,6 +68,8 @@ export default function Leads() {
   const [stations, setStations] = useState<Station[]>([])
   const [staff, setStaff] = useState<StaffOption[]>([])
   const [editing, setEditing] = useState<Editing>(null)
+  const [tab, setTab] = useState<'table' | 'form'>('table')
+  const [formKey, setFormKey] = useState(0)
   const [qualifying, setQualifying] = useState<Lead | null>(null)
   const [dealPrompt, setDealPrompt] = useState<{ id: string; lead_no: string } | null>(null)
   const [dealBusy, setDealBusy] = useState(false)
@@ -277,6 +280,28 @@ export default function Leads() {
 
   if (!leads) return <Loading label="Loading leads" />
 
+  /** The lead form: shown in the drawer, or inline in the Lead Creation Form tab. */
+  const renderDrawer = (
+    ed: NonNullable<Editing>,
+    h: { key: string; onClose: () => void; onQualify: (lead: Lead) => void; onDone: (text: string) => void | Promise<void> },
+  ) => (
+    <LeadDrawer
+      key={h.key}
+      editing={ed}
+      counts={counts}
+      staff={staff}
+      stations={stations}
+      ensureStation={ensureStation}
+      onRefresh={load}
+      defaultStaffId={me?.id ?? null}
+      canQualify={canQualify}
+      onClose={h.onClose}
+      onQualify={h.onQualify}
+      onDone={h.onDone}
+      onError={(text) => setBanner({ kind: 'bad', text })}
+    />
+  )
+
   return (
     <>
       <header className="page-head">
@@ -288,11 +313,17 @@ export default function Leads() {
           </p>
         </div>
         {canManage && (
-          <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
+          <button className="btn primary" type="button" onClick={() => { setTab('table'); setEditing({ mode: 'create' }) }}>
             Add a lead
           </button>
         )}
       </header>
+
+      <BoardTabs
+        tabs={[{ key: 'table', label: 'Main table' }, ...(canManage ? [{ key: 'form', label: 'Lead Creation Form' }] : [])]}
+        active={tab}
+        onChange={(k) => setTab(k as 'table' | 'form')}
+      />
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -303,6 +334,23 @@ export default function Leads() {
         </div>
       )}
 
+      {tab === 'form' && canManage && (
+        <InlineForm>
+          {renderDrawer({ mode: 'create' }, {
+            key: `form-${formKey}`,
+            onClose: () => setTab('table'),
+            onQualify: () => undefined,
+            onDone: async (text) => {
+              setBanner({ kind: 'ok', text })
+              await load()
+              setFormKey((n) => n + 1)
+              setTab('table')
+            },
+          })}
+        </InlineForm>
+      )}
+
+      {tab === 'table' && (<>
       <ListTools
         plural="leads"
         canImport={canManage}
@@ -425,31 +473,21 @@ export default function Leads() {
           </table>
         </div>
       )}
+      </>)}
 
-      {editing && canManage && (
-        <LeadDrawer
-          key={editing.mode === 'edit' ? editing.lead.id : 'create'}
-          editing={editing}
-          counts={counts}
-          staff={staff}
-          stations={stations}
-          ensureStation={ensureStation}
-          onRefresh={load}
-          defaultStaffId={me?.id ?? null}
-          canQualify={canQualify}
-          onClose={() => setEditing(null)}
-          onQualify={(lead) => {
-            setEditing(null)
-            setQualifying(lead)
-          }}
-          onDone={async (text) => {
-            setBanner({ kind: 'ok', text })
-            setEditing(null)
-            await load()
-          }}
-          onError={(text) => setBanner({ kind: 'bad', text })}
-        />
-      )}
+      {tab === 'table' && editing && canManage && renderDrawer(editing, {
+        key: editing.mode === 'edit' ? editing.lead.id : 'create',
+        onClose: () => setEditing(null),
+        onQualify: (lead) => {
+          setEditing(null)
+          setQualifying(lead)
+        },
+        onDone: async (text) => {
+          setBanner({ kind: 'ok', text })
+          setEditing(null)
+          await load()
+        },
+      })}
 
       {dealPrompt && (
         <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center', zIndex: 1000 }}>

@@ -1,4 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+
+/** Inside <InlineForm> a Drawer renders as a card on the page (a board's creation-form tab)
+ *  instead of sliding in over it. */
+const InlineFormContext = createContext(false)
+export function InlineForm({ children }: { children: ReactNode }) {
+  return <InlineFormContext.Provider value={true}>{children}</InlineFormContext.Provider>
+}
 
 /** The slide-in panel used for create/edit forms (same markup the Companies
  *  screen uses, shared so the new screens do not each carry a copy). */
@@ -11,14 +18,24 @@ export function Drawer({
   onClose: () => void
   children: ReactNode
 }) {
+  const inline = useContext(InlineFormContext)
   useEffect(() => {
+    if (inline) return
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, inline])
 
+  if (inline) {
+    return (
+      <section className="inline-form" aria-label={title}>
+        <header className="inline-form-head"><h2>{title}</h2></header>
+        <div className="inline-form-body">{children}</div>
+      </section>
+    )
+  }
   return (
     <>
       <button className="scrim" type="button" aria-label="Close" onClick={onClose} />
