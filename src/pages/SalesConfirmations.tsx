@@ -349,6 +349,7 @@ export default function SalesConfirmations() {
       {bulk && (
         <BulkSendDrawer
           rows={(rows ?? []).filter((x) => selection.isSelected(x.id))}
+          lineRows={scLines}
           suppliers={suppliers}
           buyers={buyers}
           companies={companies}

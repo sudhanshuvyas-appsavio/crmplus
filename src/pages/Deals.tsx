@@ -347,11 +347,6 @@ type Form = {
   supplier_id: string
   company_id: string
   payment_term_id: string
-  count_id: string
-  quantity: string
-  uom: string
-  bag_weight: string
-  final_rate: string
   price_basis: 'ex_mill' | 'net'
   freight: 'included' | 'excluded'
   buyer_comm_basis: string
@@ -372,11 +367,6 @@ function toForm(d: Deal | null, companies: Company[], meId: string | undefined):
     supplier_id: d?.supplier_id ?? '',
     company_id: d?.company_id ?? home?.id ?? '',
     payment_term_id: d?.payment_term_id ?? '',
-    count_id: d?.count_id ?? '',
-    quantity: d ? String(d.quantity) : '',
-    uom: d?.uom ?? 'KG',
-    bag_weight: str(d?.bag_weight),
-    final_rate: str(d?.final_rate),
     price_basis: d?.price_basis ?? 'ex_mill',
     freight: d?.freight ?? 'excluded',
     buyer_comm_basis: d?.buyer_comm_basis ?? '',
@@ -482,6 +472,8 @@ function DealPanel({
   const supplier = suppliers.find((x) => x.id === f.supplier_id)
 
   const missing: string[] = lineProblems(lines)
+  // sending for approval also needs the weight per unit on every count not sold by KG or TONS
+  const approvalMissing: string[] = lineProblems(lines, true)
 
   async function save(thenStatus?: string) {
     setBusy(true)
@@ -685,6 +677,7 @@ function DealPanel({
       </fieldset>
 
       {missing.length > 0 && editable && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
+      {missing.length === 0 && approvalMissing.length > 0 && editable && <p className="field-hint">Needed before it can be sent for approval: {approvalMissing.join(', ')}.</p>}
 
       <div className="drawer-actions">
         {deal && canChange && !editMode && (
@@ -699,12 +692,12 @@ function DealPanel({
           <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(deal, companies, me?.id)); setLines(origLines); setErr(null); setEditMode(false) }}>Cancel editing</button>
         )}
         {canEdit && deal && ['new_deal', 'reconsider'].includes(deal.status) && (
-          <button className="btn primary" type="button" disabled={busy || missing.length > 0} onClick={() => void (dirty ? save('manager_approval') : move('manager_approval'))}>
+          <button className="btn primary" type="button" disabled={busy || approvalMissing.length > 0} onClick={() => void (dirty ? save('manager_approval') : move('manager_approval'))}>
             {dirty ? 'Save and send for approval' : 'Send for approval'}
           </button>
         )}
         {canEdit && !deal && (
-          <button className="btn" type="button" disabled={busy || missing.length > 0} onClick={() => void save('manager_approval')}>
+          <button className="btn" type="button" disabled={busy || approvalMissing.length > 0} onClick={() => void save('manager_approval')}>
             Create and send for approval
           </button>
         )}

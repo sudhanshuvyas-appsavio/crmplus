@@ -21,13 +21,7 @@ type Form = {
   supplier_company_id: string
   buyer_id: string
   buyer_company_id: string
-  count_id: string
-  uom: string
-  quantity: string
-  net_quantity: string
   freight: 'included' | 'excluded'
-  bag_weight: string
-  rate: string
   payment_term_id: string
   remarks: string
   price_basis: '' | 'ex_mill' | 'net'
@@ -53,13 +47,7 @@ function toForm(sc: ScRow | null): Form {
     supplier_company_id: sc?.supplier_company_id ?? '',
     buyer_id: sc?.buyer_id ?? '',
     buyer_company_id: sc?.buyer_company_id ?? '',
-    count_id: sc?.count_id ?? '',
-    uom: sc?.uom ?? 'KG',
-    quantity: str(sc?.quantity),
-    net_quantity: str(sc?.net_quantity),
     freight: sc?.freight ?? 'excluded',
-    bag_weight: str(sc?.bag_weight),
-    rate: str(sc?.rate),
     payment_term_id: sc?.payment_term_id ?? '',
     remarks: sc?.remarks ?? '',
     price_basis: sc?.price_basis ?? '',
@@ -140,7 +128,7 @@ export function ConfirmationDrawer({
   if (f.supplier_id && !f.supplier_company_id) problems.push('Supplier Business Unit (set it on the supplier in Buyers & Suppliers)')
   if (!f.buyer_id) problems.push('Buyer')
   if (f.buyer_id && !f.buyer_company_id) problems.push('Buyer Business Unit (set it on the buyer in Buyers & Suppliers)')
-  problems.push(...lineProblems(lines))
+  problems.push(...lineProblems(lines, true))
   if (f.driver_phone && !/^[0-9+ -]{6,20}$/.test(f.driver_phone.trim())) problems.push('Driver phone (digits only)')
   const locked = !!sc?.deal_id
 
@@ -316,8 +304,7 @@ export function ConfirmationDrawer({
       )}
       {locked && items.length === 0 && (
         <div className="notice small">
-          Created from a deal: parties, count, quantity, rate, payment terms and commission are locked. Freight, ex-mill / net, bag weight,
-          type, delivery and transport details, schedule and instructions can change.
+          Created from a deal: parties, counts, payment terms and commission are locked. Freight, delivery and transport details and remarks can change.
         </div>
       )}
 
@@ -431,11 +418,19 @@ export function ConfirmationDrawer({
         <div className="notice">
           <h3 className="section-title" style={{ marginTop: 0 }}>Dispatch and Billing</h3>
           {items.length > 0 ? (
-            <ul className="small" style={{ margin: 0 }}>
-              {items.map((it) => (
-                <li key={it.id}><Link to={`/orders?open=${it.id}`}><span className="mono">{it.order_no}</span></Link> · {dispatchStatus(it.dispatch_status).label}</li>
-              ))}
-            </ul>
+            <>
+              <ul className="small" style={{ margin: 0 }}>
+                {items.map((it) => (
+                  <li key={it.id}><Link to={`/orders?open=${it.id}`}><span className="mono">{it.order_no}</span></Link> · {dispatchStatus(it.dispatch_status).label}</li>
+                ))}
+              </ul>
+              {canOrder && sc.status === 'confirmed' && items.length < origLines.length && (
+                <p>
+                  <button className="btn" type="button" disabled={busy || dirty} onClick={() => void createItem()}>Create items for the other counts</button>{' '}
+                  <span className="small muted">{origLines.length - items.length} of {origLines.length} counts have no live item.</span>
+                </p>
+              )}
+            </>
           ) : sc.status !== 'confirmed' ? (
             <p className="small muted">Available once the confirmation is complete.</p>
           ) : canOrder ? (

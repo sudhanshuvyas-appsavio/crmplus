@@ -16,8 +16,10 @@ const s = (n: number | null | undefined) => (n === null || n === undefined ? '' 
 export const emptyLine = (): LineForm => ({ count_id: '', quantity: '', uom: 'KG', bag_weight: '', rate: '' })
 export const toLineForm = (r: LineRow): LineForm => ({ count_id: r.count_id, quantity: s(r.quantity), uom: r.uom, bag_weight: s(r.bag_weight), rate: s(r.rate) })
 
-/** What is still missing, with the row number when there are several rows. */
-export function lineProblems(lines: LineForm[]): string[] {
+/** What is still missing, with the row number when there are several rows.
+ *  `strictUnit`: every count not sold by KG or TONS also needs its weight per unit
+ *  (without it weight, value and commissions stay blank); needed before approval. */
+export function lineProblems(lines: LineForm[], strictUnit = false): string[] {
   const out: string[] = []
   if (lines.length === 0) out.push('At least one count')
   lines.forEach((l, i) => {
@@ -28,6 +30,7 @@ export function lineProblems(lines: LineForm[]): string[] {
     if (!l.count_id) out.push(`Count${at}`)
     if (q === null || q <= 0) out.push(`Quantity above zero${at}`)
     if (l.uom === 'BAGS' && (w === null || w <= 0)) out.push(`Bag weight${at}`)
+    else if (strictUnit && needsUnitWeight(l.uom) && (w === null || w <= 0)) out.push(`Weight per unit${at}`)
     if (l.bag_weight && (w === null || w <= 0)) out.push(`Bag weight a number above zero${at}`)
     if (l.rate && (r === null || r < 0)) out.push(`Final rate a number${at}`)
   })
