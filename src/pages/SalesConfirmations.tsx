@@ -25,7 +25,7 @@ import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
 import { formatDateTime } from '../lib/format'
-import { SC_STAGES, dispatchStatus, inr, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
+import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
 import { ConfirmationDrawer } from '../components/sc/ConfirmationDrawer'
 import { BulkSendDrawer } from '../components/sc/BulkSendDrawer'
 import type { Company, Party, ScRow } from '../components/sc/scShared'
@@ -288,7 +288,7 @@ export default function SalesConfirmations() {
 
       <Board
         rows={shown}
-        groups={SC_STAGES}
+        groups={SC_GROUPS}
         groupOf={scGroup}
         columns={columns}
         rowKey={(x) => x.id}

@@ -10,6 +10,8 @@ export interface BoardGroup {
   label: string
   /** Colour token name: blue, orange, green, purple, red, grey, teal, yellow. */
   tone: string
+  /** Shown only when it has items (groups monday does not have). monday's own groups always show, even empty. */
+  optional?: boolean
 }
 
 export interface BoardColumn<T> {
@@ -66,13 +68,14 @@ export function Board<T>({
     byGroup.get(g)!.push(row)
   }
 
-  if (rows.length === 0) return <div className="card pad empty">{emptyText}</div>
+  const empty = rows.length === 0 ? <p className="muted small">{emptyText}</p> : null
 
   if (view === 'kanban') {
     return (
       <div className="kanban">
         {groups.map((g) => {
           const list = byGroup.get(g.value) ?? []
+          if (list.length === 0 && g.optional) return null
           return (
             <section key={g.value} className={`kanban-col tone-${g.tone}`} aria-label={g.label}>
               <header className="kanban-head">
@@ -99,9 +102,10 @@ export function Board<T>({
 
   return (
     <div className="board-groups">
+      {empty}
       {groups.map((g) => {
         const list = byGroup.get(g.value) ?? []
-        if (list.length === 0) return null
+        if (list.length === 0 && g.optional) return null
         const closed = !!collapsed[g.value]
         const hasTotals = columns.some((c) => c.total)
         return (
@@ -134,6 +138,11 @@ export function Board<T>({
                     </tr>
                   </thead>
                   <tbody>
+                    {list.length === 0 && (
+                      <tr>
+                        <td colSpan={columns.length + (selection ? 1 : 0)} className="muted small bgroup-empty">No items in this group</td>
+                      </tr>
+                    )}
                     {list.map((row) => {
                       const id = rowKey(row)
                       return (

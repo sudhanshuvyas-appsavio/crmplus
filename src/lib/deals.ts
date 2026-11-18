@@ -87,6 +87,23 @@ export const DISPATCH_STATUSES: { value: string; label: string; tone: string }[]
   { value: 'returned', label: 'Return', tone: 'purple' },
   { value: 'cancelled', label: 'Cancel', tone: 'red' },
 ]
+/* Board groups, named as on the monday boards. A row's status decides its group. */
+export const DEAL_GROUPS = DEAL_STATUSES.map((g) => (g.value === 'new_deal' ? { ...g, label: 'New' } : g))
+export const SC_GROUPS = [
+  { value: 'draft', label: 'New', tone: 'grey' },
+  { value: 'send', label: 'Send', tone: 'blue' },
+  { value: 'send_delivery', label: 'Send with Delivery Info.', tone: 'green' },
+  { value: 'cancelled', label: 'Cancelled', tone: 'red', optional: true },
+]
+export const DNB_GROUPS = [
+  { value: 'draft', label: 'Draft', tone: 'grey' },
+  { value: 'in_progress', label: 'In Progress', tone: 'blue' },
+  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'green' },
+  { value: 'returned', label: 'Return', tone: 'purple', optional: true },
+  { value: 'cancelled', label: 'Cancel', tone: 'red', optional: true },
+]
+/** monday keeps partly dispatched items in its In Progress group. */
+export const dnbGroup = (o: { dispatch_status: string }) => (o.dispatch_status === 'partially_dispatched' ? 'in_progress' : o.dispatch_status)
 export const dispatchStatus = (v: string) => DISPATCH_STATUSES.find((x) => x.value === v) ?? { value: v, label: v, tone: 'grey' }
 
 export const TRANSPORT_TYPES = [

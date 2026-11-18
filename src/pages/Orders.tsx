@@ -27,7 +27,7 @@ import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DISPATCH_STATUSES, TRANSPORT_TYPES, commTerms, dispatchStatus, inr, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
+  COMM_BASES, DNB_GROUPS, TRANSPORT_TYPES, dnbGroup, commTerms, dispatchStatus, inr, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
 } from '../lib/deals'
 
 type Named = { id: string; name: string }
@@ -218,8 +218,8 @@ export default function DispatchAndBilling() {
 
       <Board
         rows={shown}
-        groups={DISPATCH_STATUSES}
-        groupOf={(x) => x.dispatch_status}
+        groups={DNB_GROUPS}
+        groupOf={dnbGroup}
         columns={columns}
         rowKey={(x) => x.id}
         onOpen={(x) => setEditing(x)}

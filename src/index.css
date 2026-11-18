@@ -1122,3 +1122,4 @@ tr.clickable { cursor: pointer; }
 
 /* monday-style wide board tables: long text (addresses, remarks) is clipped, full value on hover */
 .cell-clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.bgroup-empty { padding: 12px 14px; }

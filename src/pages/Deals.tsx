@@ -25,7 +25,7 @@ import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DEAL_STATUSES, UOMS, commTerms, dealStatus, inr, needsUnitWeight, uomLabel,
+  COMM_BASES, DEAL_GROUPS, UOMS, commTerms, dealStatus, inr, needsUnitWeight, uomLabel,
 } from '../lib/deals'
 
 type Party = MirrorParty
@@ -184,7 +184,7 @@ export default function Deals() {
 
   if (!deals) return <Loading label="Loading deals" />
 
-  const groups: BoardGroup[] = DEAL_STATUSES
+  const groups: BoardGroup[] = DEAL_GROUPS
   const buyerById = new Map(buyers.map((x) => [x.id, x]))
   const supplierById = new Map(suppliers.map((x) => [x.id, x]))
   const ctx = { people: personName, companies: new Map(companies.map((c) => [c.id, c])) }
