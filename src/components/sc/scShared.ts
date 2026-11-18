@@ -42,6 +42,8 @@ export type Names = {
   supplierCompany: string
   buyerCompany: string
   count: string
+  /** One text per count row; when there are several, the message lists them all. */
+  lines?: string[]
   term: string
   transporter?: string
   deliveryTo?: string
@@ -58,14 +60,16 @@ export function messageFor(who: 'supplier' | 'buyer', sc: ScRow, n: Names): { su
     `Date and time: ${formatDateTime(sc.confirmed_at)}`,
     `Supplier: ${n.supplier}${n.supplierCompany ? ` (${n.supplierCompany})` : ''}`,
     `Buyer: ${n.buyer}${n.buyerCompany ? ` (${n.buyerCompany})` : ''}`,
-    `Count: ${n.count}`,
-    `Ex-mill quantity: ${num(sc.quantity)} ${sc.uom}`,
-    `Net quantity: ${num(sc.net_quantity)} ${sc.uom}`,
   ]
-  if (sc.bag_weight) lines.push(`Bag weight: ${num(sc.bag_weight)} kg`)
+  if (n.lines && n.lines.length > 1) {
+    lines.push('Counts:', ...n.lines.map((t, i) => `${i + 1}. ${t}`))
+  } else {
+    lines.push(`Count: ${n.count}`, `Quantity: ${num(sc.quantity)} ${sc.uom}`)
+    if (sc.bag_weight) lines.push(`Bag weight: ${num(sc.bag_weight)} kg`)
+  }
   lines.push(`Freight: ${sc.freight === 'included' ? 'Included' : 'Excluded'}`)
   if (sc.price_basis) lines.push(`Basis: ${sc.price_basis === 'net' ? 'Net' : 'Ex-mill'}`)
-  if (sc.rate !== null) lines.push(`Rate: ${num(sc.rate)} per kg`)
+  if (sc.rate !== null && !(n.lines && n.lines.length > 1)) lines.push(`Rate: ${num(sc.rate)} per kg`)
   if (n.term) lines.push(`Payment terms: ${n.term}`)
   if (n.deliveryTo) lines.push(`Deliver to: ${n.deliveryTo}`)
   if (sc.delivery_schedule) lines.push(`Delivery schedule: ${sc.delivery_schedule}`)

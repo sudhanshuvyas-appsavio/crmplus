@@ -194,11 +194,6 @@ export function AppShell() {
         <header className="topbar">
           <GlobalSearch />
           <span className="push" />
-          {can('deal.create') && (
-            <Link className="btn primary sm" to="/deals?new=1">
-              + New deal
-            </Link>
-          )}
           <UserMenu
             name={me?.name ?? ''}
             sub={me?.is_admin ? 'Administrator' : me?.job_title || `${me?.permissions.length ?? 0} permissions`}

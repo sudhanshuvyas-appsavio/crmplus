@@ -8,12 +8,13 @@ import { StatusPicker } from '../board/Board'
 import { errMessage, numOrNull } from '../../lib/party'
 import { formatDateTime } from '../../lib/format'
 import {
-  SC_STAGES, UOMS, dispatchStatus, inr, scGroup, scStage, totalWeight,
+  SC_STAGES, dispatchStatus, inr, scGroup, scStage,
 } from '../../lib/deals'
 import { CancelControl, NotificationLog } from './NotificationLog'
 import { SendPanel } from './SendPanel'
 import { ScDocuments } from './ScDocuments'
 import type { Company, Names, Party, ScRow } from './scShared'
+import { CountLinesEditor, emptyLine, lineFigures, linesPayload, linesText, lineProblems, toLineForm, type LineForm } from '../CountLines'
 
 type Form = {
   supplier_id: string
@@ -78,13 +79,13 @@ function toForm(sc: ScRow | null): Form {
 }
 
 export function ConfirmationDrawer({
-  sc, canManage, canOrder, item, suppliers, buyers, companies, counts, terms, transporters, jobs, onClose, onDone,
+  sc, canManage, canOrder, items, suppliers, buyers, companies, counts, terms, transporters, jobs, onClose, onDone,
 }: {
   sc: ScRow | null
   canManage: boolean
   canOrder: boolean
-  /** Its Dispatch and Billing item, if one exists. */
-  item: { id: string; order_no: string; dispatch_status: string } | null
+  /** Its Dispatch and Billing items (one per count). */
+  items: { id: string; order_no: string; dispatch_status: string }[]
   suppliers: Party[]
   buyers: Party[]
   companies: Company[]
@@ -106,25 +107,40 @@ export function ConfirmationDrawer({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
+  // count rows; until they load, the confirmation's own (first) count stands in
+  const firstLine: LineForm[] = sc?.count_id && sc.quantity !== null
+    ? [toLineForm({ count_id: sc.count_id, quantity: sc.quantity, uom: sc.uom, bag_weight: sc.bag_weight, rate: sc.rate })]
+    : [emptyLine()]
+  const [lines, setLines] = useState<LineForm[]>(firstLine)
+  const [origLines, setOrigLines] = useState<LineForm[]>(firstLine)
+  useEffect(() => {
+    if (!sc) return
+    let alive = true
+    void supabase.from('sc_lines').select('count_id,quantity,uom,bag_weight,rate').eq('sc_id', sc.id).order('line_no')
+      .then(({ data }) => {
+        const rows = (data ?? []) as { count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }[]
+        if (!alive || rows.length === 0) return
+        const loaded = rows.map(toLineForm)
+        setLines(loaded)
+        setOrigLines(loaded)
+      })
+    return () => { alive = false }
+  }, [sc])
+  const linesDirty = JSON.stringify(lines) !== JSON.stringify(origLines)
 
-  const qty = numOrNull(f.quantity)
-  const net = numOrNull(f.net_quantity)
-  const bag = numOrNull(f.bag_weight)
-  const rate = numOrNull(f.rate)
   const bVal = numOrNull(f.buyer_comm_value)
   const sVal = numOrNull(f.supplier_comm_value)
-  const weight = totalWeight(f.uom, qty, bag)
+  const buyerTerms = { basis: f.buyer_comm_basis || null, value: bVal }
+  const supplierTerms = { basis: f.supplier_comm_basis || null, value: sVal }
+  const figs = lines.map((l) => lineFigures(l, buyerTerms, supplierTerms))
+  const weight = figs.some((x) => x.weight !== null) ? figs.reduce((a, x) => a + (x.weight ?? 0), 0) : null
 
   const problems: string[] = []
   if (!f.supplier_id) problems.push('Supplier')
   if (f.supplier_id && !f.supplier_company_id) problems.push('Supplier Business Unit (set it on the supplier in Buyers & Suppliers)')
   if (!f.buyer_id) problems.push('Buyer')
   if (f.buyer_id && !f.buyer_company_id) problems.push('Buyer Business Unit (set it on the buyer in Buyers & Suppliers)')
-  if (!f.count_id) problems.push('Count')
-  if (qty === null || qty <= 0) problems.push('Ex-mill quantity (above zero)')
-  if (f.uom === 'BAGS' && (bag === null || bag <= 0)) problems.push('Bag weight (needed for BAGS)')
-  if (f.bag_weight && (bag === null || bag <= 0)) problems.push('Bag weight (a number above zero)')
-  if (f.rate && (rate === null || rate < 0)) problems.push('Rate (a number)')
+  problems.push(...lineProblems(lines))
   if (f.driver_phone && !/^[0-9+ -]{6,20}$/.test(f.driver_phone.trim())) problems.push('Driver phone (digits only)')
   const locked = !!sc?.deal_id
 
@@ -150,10 +166,8 @@ export function ConfirmationDrawer({
     setBusy(true)
     setErr(null)
     const editable: Record<string, unknown> = {
-      net_quantity: net ?? qty,
       freight: f.freight,
       price_basis: f.price_basis || null,
-      bag_weight: bag,
       delivery_schedule: f.delivery_schedule.trim() || null,
       special_instructions: f.special_instructions.trim() || null,
       remarks: f.remarks.trim() || null,
@@ -170,22 +184,40 @@ export function ConfirmationDrawer({
       supplier_company_id: f.supplier_company_id || null,
       buyer_id: f.buyer_id || null,
       buyer_company_id: f.buyer_company_id || null,
-      count_id: f.count_id || null,
-      uom: f.uom,
-      quantity: qty,
-      rate,
       payment_term_id: f.payment_term_id || null,
       // blank on a new manual confirmation: the database takes each party's master terms
       ...(sc || f.buyer_comm_basis ? { buyer_comm_basis: f.buyer_comm_basis || null, buyer_comm_value: f.buyer_comm_basis ? bVal : null } : {}),
       ...(sc || f.supplier_comm_basis ? { supplier_comm_basis: f.supplier_comm_basis || null, supplier_comm_value: f.supplier_comm_basis ? sVal : null } : {}),
     }
+    if (!sc) {
+      // a new confirmation starts from its first row; save_sc_lines then stores every row
+      const [first] = linesPayload(lines.slice(0, 1), 'rate')
+      Object.assign(payload, first, { net_quantity: first?.quantity ?? null })
+    }
     const { data, error } = sc
       ? await supabase.from('sales_confirmations').update(payload).eq('id', sc.id).select('id, sc_no, status')
       : await supabase.from('sales_confirmations').insert(payload).select('id, sc_no, status')
-    setBusy(false)
-    if (error) return setErr(errMessage(error, 'Could not save this confirmation'))
+    if (error) {
+      setBusy(false)
+      return setErr(errMessage(error, 'Could not save this confirmation'))
+    }
     const row = data?.[0] as { id: string; sc_no: string; status: string } | undefined
-    if (!row) return setErr('Your account cannot change this confirmation.')
+    if (!row) {
+      setBusy(false)
+      return setErr('Your account cannot change this confirmation.')
+    }
+    if (!locked && (!sc || linesDirty)) {
+      const ln = await supabase.rpc('save_sc_lines', { p_sc: row.id, p_lines: linesPayload(lines, 'rate') })
+      if (ln.error) {
+        setBusy(false)
+        setErr(errMessage(ln.error, 'Saved, but the counts could not be saved'))
+        return onDone(`${row.sc_no} saved without its counts.`, row.id)
+      }
+      setOrigLines(lines)
+      const again = await supabase.from('sales_confirmations').select('status').eq('id', row.id).maybeSingle()
+      if (again.data) row.status = (again.data as { status: string }).status
+    }
+    setBusy(false)
     const ready = row.status === 'confirmed'
     setEditMode(false)
     await onDone(
@@ -240,17 +272,19 @@ export function ConfirmationDrawer({
     buyer: buyers.find((x) => x.id === f.buyer_id)?.name ?? '',
     supplierCompany: companies.find((x) => x.id === f.supplier_company_id)?.name ?? '',
     buyerCompany: companies.find((x) => x.id === f.buyer_company_id)?.name ?? '',
-    count: counts.find((x) => x.id === f.count_id)?.display_name ?? '',
+    count: counts.find((x) => x.id === lines[0]?.count_id)?.display_name ?? '',
+    lines: linesText(lines.filter((l) => l.count_id).map((l) => ({ count_id: l.count_id, quantity: numOrNull(l.quantity) ?? 0, uom: l.uom, bag_weight: numOrNull(l.bag_weight), rate: numOrNull(l.rate) })),
+      (id) => counts.find((x) => x.id === id)?.display_name ?? ''),
     term: terms.find((x) => x.id === f.payment_term_id)?.name ?? '',
     transporter: transporter?.name ?? '',
     deliveryTo: [jobs.find((j) => j.id === f.job_process_id)?.name, f.delivery_address.trim()].filter(Boolean).join(', '),
   }
-  const dirty = sc ? JSON.stringify(f) !== JSON.stringify(toForm(sc)) : true
+  const dirty = sc ? linesDirty || JSON.stringify(f) !== JSON.stringify(toForm(sc)) : true
   const complete = sc !== null && sc.status === 'confirmed' && problems.length === 0
   const hasDelivery = !!(sc?.transporter_id || sc?.vehicle_no)
   const cancelled = sc?.status === 'cancelled'
   // Editable until it is converted into a Dispatch and Billing item.
-  const canChange = canManage && !cancelled && !item
+  const canChange = canManage && !cancelled && items.length === 0
   const editable = canChange && editMode
 
   const stageOptions = !sc || !canManage || cancelled ? [] : SC_STAGES
@@ -277,10 +311,10 @@ export function ConfirmationDrawer({
       {err && <div className="alert">{err}</div>}
       {!canManage && <div className="notice small">You can view this confirmation; changing or sending it needs the “Create, edit and send sales confirmations” permission.</div>}
       {sc && sc.status === 'draft' && !cancelled && <div className="notice small">Incomplete: fill in the required fields before it can be sent.</div>}
-      {item && (
-        <div className="notice small">Converted to Dispatch and Billing item <span className="mono">{item.order_no}</span>; this confirmation can no longer be edited.</div>
+      {items.length > 0 && (
+        <div className="notice small">Converted to Dispatch and Billing ({items.map((i) => i.order_no).join(', ')}); this confirmation can no longer be edited.</div>
       )}
-      {locked && !item && (
+      {locked && items.length === 0 && (
         <div className="notice small">
           Created from a deal: parties, count, quantity, rate, payment terms and commission are locked. Freight, ex-mill / net, bag weight,
           type, delivery and transport details, schedule and instructions can change.
@@ -318,25 +352,9 @@ export function ConfirmationDrawer({
           </div>
         )}
 
-        <h3 className="section-title">Goods, rate and terms</h3>
+        <h3 className="section-title">Counts</h3>
+        <CountLinesEditor lines={lines} onChange={setLines} counts={counts} disabled={!editable || locked} buyer={buyerTerms} supplier={supplierTerms} />
         <div className="form-grid">
-          <Field id="sc-count" label="Count" required>
-            <select id="sc-count" value={f.count_id} onChange={(e) => set('count_id', e.target.value)}>
-              <option value="">Choose…</option>
-              {counts.filter((c) => c.is_active || c.id === f.count_id).map((c) => (<option key={c.id} value={c.id}>{c.display_name}</option>))}
-            </select>
-          </Field>
-          <Field id="sc-qty" label="Quantity" required>
-            <input id="sc-qty" inputMode="decimal" className="mono" value={f.quantity} onChange={(e) => set('quantity', e.target.value)} />
-          </Field>
-          <Field id="sc-uom" label="UOM" required>
-            <select id="sc-uom" value={f.uom} onChange={(e) => set('uom', e.target.value)}>
-              {UOMS.map((u) => (<option key={u.value} value={u.value}>{u.label}</option>))}
-            </select>
-          </Field>
-          <Field id="sc-rate" label="Final rate (₹ per kg)">
-            <input id="sc-rate" inputMode="decimal" className="mono" value={f.rate} onChange={(e) => set('rate', e.target.value)} />
-          </Field>
           <Field id="sc-term" label="Payment terms">
             <select id="sc-term" value={f.payment_term_id} onChange={(e) => set('payment_term_id', e.target.value)}>
               <option value="">—</option>
@@ -353,9 +371,6 @@ export function ConfirmationDrawer({
               <option value="excluded">Excluded</option>
               <option value="included">Included</option>
             </select>
-          </Field>
-          <Field id="sc-bag" label="Bag weight (kg)" required={f.uom === 'BAGS'}>
-            <input id="sc-bag" inputMode="decimal" className="mono" value={f.bag_weight} onChange={(e) => set('bag_weight', e.target.value)} />
           </Field>
         </div>
         <div className="figures">
@@ -404,10 +419,10 @@ export function ConfirmationDrawer({
             </button>
           )}
           {sc && editable && (
-            <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(sc)); setErr(null); setEditMode(false) }}>Cancel editing</button>
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(sc)); setLines(origLines); setErr(null); setEditMode(false) }}>Cancel editing</button>
           )}
           {sc && sc.status === 'draft' && <DeleteControl label="Delete" name={sc.sc_no} busy={busy} onConfirm={() => void remove()} />}
-          {sc && sc.status === 'confirmed' && !item && <CancelControl busy={busy} onConfirm={() => void cancelSc()} />}
+          {sc && sc.status === 'confirmed' && items.length === 0 && <CancelControl busy={busy} onConfirm={() => void cancelSc()} />}
         </div>
       )}
       {sc && dirty && complete && <p className="field-hint">Save your changes before sending.</p>}
@@ -415,16 +430,18 @@ export function ConfirmationDrawer({
       {sc && !cancelled && (
         <div className="notice">
           <h3 className="section-title" style={{ marginTop: 0 }}>Dispatch and Billing</h3>
-          {item ? (
-            <p className="small">
-              <Link to={`/orders?open=${item.id}`}><span className="mono">{item.order_no}</span></Link> · {dispatchStatus(item.dispatch_status).label}
-            </p>
+          {items.length > 0 ? (
+            <ul className="small" style={{ margin: 0 }}>
+              {items.map((it) => (
+                <li key={it.id}><Link to={`/orders?open=${it.id}`}><span className="mono">{it.order_no}</span></Link> · {dispatchStatus(it.dispatch_status).label}</li>
+              ))}
+            </ul>
           ) : sc.status !== 'confirmed' ? (
             <p className="small muted">Available once the confirmation is complete.</p>
           ) : canOrder ? (
             <p>
               <button className="btn primary" type="button" disabled={busy || dirty} onClick={() => void createItem()}>Create Dispatch and Billing</button>{' '}
-              <span className="small muted">Copies the parties, goods, rate, commission and delivery details.</span>
+              <span className="small muted">One item per count, with the parties, rate, commission and delivery details.</span>
             </p>
           ) : (
             <p className="small muted">Creating it needs the “Create and manage orders” permission.</p>

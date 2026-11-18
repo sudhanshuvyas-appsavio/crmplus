@@ -12,7 +12,7 @@
  *  connected yet, so a send opens the prefilled WhatsApp chat / email and the
  *  screen records it (see lib/integrations.ts). */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { CountRow, JobProcess, PaymentTerm, Transporter } from '../api/types'
@@ -36,6 +36,7 @@ const CSV_COLUMNS = [
 ] as const
 
 export type ScItem = { id: string; order_no: string; dispatch_status: string; sales_confirmation_id: string }
+type ScLineRow = { sc_id: string; line_no: number; count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }
 
 export default function SalesConfirmations() {
   const { can } = useAuth()
@@ -51,7 +52,8 @@ export default function SalesConfirmations() {
   const [terms, setTerms] = useState<PaymentTerm[]>([])
   const [transporters, setTransporters] = useState<Transporter[]>([])
   const [jobs, setJobs] = useState<JobProcess[]>([])
-  const [items, setItems] = useState<Map<string, ScItem>>(new Map())
+  const [items, setItems] = useState<Map<string, ScItem[]>>(new Map())
+  const [scLines, setScLines] = useState<Map<string, ScLineRow[]>>(new Map())
   const [editing, setEditing] = useState<ScRow | 'new' | null>(null)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useStoredState('sc.type', '')
@@ -64,7 +66,7 @@ export default function SalesConfirmations() {
   const [dealNos, setDealNos] = useState<Map<string, string>>(new Map())
 
   const load = useCallback(async () => {
-    const [r, s, b, c, k, t, ex, tr, jp, o, dl] = await Promise.all([
+    const [r, s, b, c, k, t, ex, tr, jp, o, dl, ln] = await Promise.all([
       supabase.from('sales_confirmations').select('*').order('confirmed_at', { ascending: false }),
       supabase.from('supplier_master').select(MIRROR_PARTY_COLS).order('name'),
       supabase.from('buyer_master').select(MIRROR_PARTY_COLS).order('name'),
@@ -76,6 +78,7 @@ export default function SalesConfirmations() {
       supabase.from('job_processes').select('*').order('name'),
       supabase.from('orders').select('id,order_no,dispatch_status,sales_confirmation_id').neq('status', 'cancelled'),
       supabase.from('crm_deals').select('id,deal_no'),
+      supabase.from('sc_lines').select('sc_id,line_no,count_id,quantity,uom,bag_weight,rate').order('line_no'),
     ])
     setDealNos(new Map(((dl.data ?? []) as { id: string; deal_no: string }[]).map((x) => [x.id, x.deal_no])))
     setExec(new Map(((ex.data ?? []) as { sc_id: string; exec_status: string; dispatched_qty: number }[]).map((x) => [x.sc_id, x])))
@@ -88,7 +91,12 @@ export default function SalesConfirmations() {
     setTerms((t.data ?? []) as PaymentTerm[])
     setTransporters((tr.data ?? []) as Transporter[])
     setJobs((jp.data ?? []) as JobProcess[])
-    setItems(new Map(((o.data ?? []) as ScItem[]).map((x) => [x.sales_confirmation_id, x])))
+    const bySc = new Map<string, ScItem[]>()
+    for (const x of (o.data ?? []) as ScItem[]) bySc.set(x.sales_confirmation_id, [...(bySc.get(x.sales_confirmation_id) ?? []), x])
+    setItems(bySc)
+    const lineMap = new Map<string, ScLineRow[]>()
+    for (const r of (ln.data ?? []) as ScLineRow[]) lineMap.set(r.sc_id, [...(lineMap.get(r.sc_id) ?? []), r])
+    setScLines(lineMap)
   }, [])
   useEffect(() => {
     void load()
@@ -164,7 +172,7 @@ export default function SalesConfirmations() {
       delivery_to: x.job_process_id ? jobName.get(x.job_process_id) ?? '' : x.delivery_address ?? '',
       transporter: x.transporter_id ? transporterName.get(x.transporter_id) ?? '' : '',
       execution_status: exec.get(x.id)?.exec_status ?? '',
-      dispatch_billing: items.get(x.id)?.order_no ?? '',
+      dispatch_billing: (items.get(x.id) ?? []).map((i) => i.order_no).join(' '),
     }))
     downloadCSV(`sales-confirmations-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(CSV_COLUMNS, list))
   }
@@ -177,11 +185,17 @@ export default function SalesConfirmations() {
     const opts = SC_STAGES.filter((s) => s.value !== x.stage && s.value !== 'cancelled')
       .filter((s) => s.value === 'draft' || x.status === 'confirmed')
       .filter((s) => s.value !== 'send_delivery' || !!(x.transporter_id || x.vehicle_no))
-    const canCancel = !items.has(x.id) && !(exec.get(x.id)?.dispatched_qty)
+    const canCancel = !(items.get(x.id)?.length) && !(exec.get(x.id)?.dispatched_qty)
     return canCancel && x.status !== 'draft' ? [...opts, scStage('cancelled')] : opts
   }
 
   const termName = new Map(terms.map((t) => [t.id, t.name]))
+  const rowsOf = (x: ScRow): ScLineRow[] => scLines.get(x.id)
+    ?? (x.count_id && x.quantity !== null ? [{ sc_id: x.id, line_no: 1, count_id: x.count_id, quantity: x.quantity, uom: x.uom, bag_weight: x.bag_weight, rate: x.rate }] : [])
+  const perLine = (x: ScRow, show: (r: ScLineRow) => ReactNode) => {
+    const rows = rowsOf(x)
+    return rows.length === 0 ? cell(null) : <span className="lines-list">{rows.map((r) => <span key={r.line_no}>{show(r)}</span>)}</span>
+  }
   const sentCell = (at: string | null) => (at ? <span className="chip good small">Sent {formatDateTime(at)}</span> : <span className="muted small">Not sent</span>)
   // Columns: the confirmation fields in the lead's "Changes needed" document.
   const columns: BoardColumn<ScRow>[] = [
@@ -197,11 +211,11 @@ export default function SalesConfirmations() {
     },
     { key: 'supplier', label: 'Supplier', render: (x) => <strong>{x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : '—'}</strong> },
     { key: 'buyer', label: 'Buyer', render: (x) => (x.buyer_id ? buyerName.get(x.buyer_id) ?? '—' : '—') },
-    { key: 'count', label: 'Count', render: (x) => cell(x.count_id ? countName.get(x.count_id) : null) },
-    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => cell(x.quantity, { mono: true }) },
-    { key: 'uom', label: 'Unit', render: (x) => cell(uomLabel(x.uom)) },
-    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => <span className="mono">{inr(x.rate)}</span> },
+    { key: 'count', label: 'Count', render: (x) => perLine(x, (r) => cell(countName.get(r.count_id))) },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => cell(r.quantity, { mono: true })) },
+    { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
+    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.rate)}</span>) },
     { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
     { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
     { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.delivery_address, { clip: true }) },
@@ -213,10 +227,13 @@ export default function SalesConfirmations() {
     {
       key: 'dnb', label: 'Dispatch and Billing', interactive: true,
       render: (x) => {
-        const it = items.get(x.id)
-        if (!it) return <span className="muted small">{exec.get(x.id)?.exec_status ?? '—'}</span>
-        const st = dispatchStatus(it.dispatch_status)
-        return <Link className="small" to={`/orders?open=${it.id}`}>{it.order_no} · {st.label}</Link>
+        const list = items.get(x.id) ?? []
+        if (list.length === 0) return <span className="muted small">{exec.get(x.id)?.exec_status ?? '—'}</span>
+        return (
+          <span className="lines-list">
+            {list.map((it) => <Link key={it.id} className="small" to={`/orders?open=${it.id}`}>{it.order_no} · {dispatchStatus(it.dispatch_status).label}</Link>)}
+          </span>
+        )
       },
     },
   ]
@@ -305,7 +322,7 @@ export default function SalesConfirmations() {
           sc={editing === 'new' ? null : editing}
           canManage={canManage}
           canOrder={canOrder}
-          item={editing === 'new' ? null : items.get(editing.id) ?? null}
+          items={editing === 'new' ? [] : items.get(editing.id) ?? []}
           suppliers={suppliers}
           buyers={buyers}
           companies={companies}

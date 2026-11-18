@@ -1123,3 +1123,9 @@ tr.clickable { cursor: pointer; }
 /* monday-style wide board tables: long text (addresses, remarks) is clipped, full value on hover */
 .cell-clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .bgroup-empty { padding: 12px 14px; }
+/* count lines editor (deal / Sales Confirmation) */
+.lines-wrap { margin-bottom: 12px; }
+.lines-table td { padding: 6px 8px; vertical-align: middle; }
+.lines-table select { min-width: 180px; max-width: 280px; }
+.lines-table .num-in { width: 90px; text-align: right; }
+.lines-list { display: grid; gap: 2px; }

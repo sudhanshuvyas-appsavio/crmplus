@@ -8,7 +8,7 @@
  *  previewed here with the same rules (lib/deals.ts). Once Approved, the terms
  *  lock and the Sales Confirmation can be created. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { CountRow, Deal, DealChange, PaymentTerm } from '../api/types'
@@ -20,18 +20,20 @@ import { useSelection } from '../components/ListTools'
 import { ActivityPanel, useProfileNames } from '../components/PartyExtras'
 import { Avatar, Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
+import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from '../components/CountLines'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DEAL_GROUPS, UOMS, commTerms, dealStatus, inr, needsUnitWeight, uomLabel,
+  COMM_BASES, DEAL_GROUPS, commTerms, dealStatus, inr, uomLabel,
 } from '../lib/deals'
 
 type Party = MirrorParty
 const PARTY_COLS = MIRROR_PARTY_COLS
 type Company = { id: string; name: string; is_home: boolean; is_active: boolean; phone_1?: string | null; mobile?: string | null }
 type Person = { id: string; name: string }
+type DealLineRow = { deal_id: string; line_no: number; count_id: string; quantity: number; uom: string; bag_weight: number | null; final_rate: number | null }
 
 const CSV_COLUMNS = [
   'deal_no', 'status', 'buyer', 'supplier', 'count', 'quantity', 'uom', 'bag_weight', 'final_rate', 'total_weight', 'deal_value',
@@ -74,6 +76,7 @@ export default function Deals() {
   const [people, setPeople] = useState<Person[]>([])
   const [scNos, setScNos] = useState<Map<string, string>>(new Map())
   const [leadNos, setLeadNos] = useState<Map<string, string>>(new Map())
+  const [dealLines, setDealLines] = useState<Map<string, DealLineRow[]>>(new Map())
   const [editing, setEditing] = useState<Deal | 'new' | null>(null)
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useStoredState('deals.owner', '')
@@ -83,7 +86,7 @@ export default function Deals() {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const load = useCallback(async () => {
-    const [d, b, s, c, t, co, p, sc, ld] = await Promise.all([
+    const [d, b, s, c, t, co, p, sc, ld, dl] = await Promise.all([
       supabase.from('crm_deals').select('*').order('created_at', { ascending: false }),
       supabase.from('buyer_master').select(PARTY_COLS).order('name'),
       supabase.from('supplier_master').select(PARTY_COLS).order('name'),
@@ -93,6 +96,7 @@ export default function Deals() {
       supabase.from('profiles').select('id,name').eq('is_active', true).order('name'),
       supabase.from('sales_confirmations').select('id,sc_no'),
       supabase.from('leads').select('id,lead_no'),
+      supabase.from('crm_deal_lines').select('deal_id,line_no,count_id,quantity,uom,bag_weight,final_rate').order('line_no'),
     ])
     if (d.error) setBanner({ kind: 'bad', text: errMessage(d.error, 'Could not load deals') })
     setDeals((d.data ?? []) as Deal[])
@@ -103,6 +107,9 @@ export default function Deals() {
     setCompanies((co.data ?? []) as Company[])
     setPeople((p.data ?? []) as Person[])
     setScNos(new Map(((sc.data ?? []) as { id: string; sc_no: string }[]).map((x) => [x.id, x.sc_no])))
+    const byDeal = new Map<string, DealLineRow[]>()
+    for (const r of (dl.data ?? []) as DealLineRow[]) byDeal.set(r.deal_id, [...(byDeal.get(r.deal_id) ?? []), r])
+    setDealLines(byDeal)
     setLeadNos(new Map(((ld.data ?? []) as { id: string; lead_no: string }[]).map((x) => [x.id, x.lead_no])))
   }, [])
   useEffect(() => {
@@ -189,6 +196,10 @@ export default function Deals() {
 
   const groups: BoardGroup[] = DEAL_GROUPS
   const termName = new Map(terms.map((t) => [t.id, t.name]))
+  // one entry per count row (a deal without rows yet shows its own count)
+  const rowsOf = (x: Deal): DealLineRow[] => dealLines.get(x.id)
+    ?? [{ deal_id: x.id, line_no: 1, count_id: x.count_id, quantity: x.quantity, uom: x.uom, bag_weight: x.bag_weight, final_rate: x.final_rate }]
+  const perLine = (x: Deal, show: (r: DealLineRow) => ReactNode) => <span className="lines-list">{rowsOf(x).map((r) => <span key={r.line_no}>{show(r)}</span>)}</span>
   // Columns: the deal fields in the lead's "Changes needed" document.
   const columns: BoardColumn<Deal>[] = [
     { key: 'deal', label: 'Deal No', width: 120, render: (x) => <span className="mono">{x.deal_no}</span> },
@@ -202,11 +213,11 @@ export default function Deals() {
     },
     { key: 'buyer', label: 'Buyer', render: (x) => x.buyer_id ? <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> : <span className="muted">not picked</span> },
     { key: 'supplier', label: 'Supplier', render: (x) => (x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : <span className="muted">not set</span>) },
-    { key: 'count', label: 'Count', render: (x) => cell(countName.get(x.count_id)) },
-    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => <span className="mono">{inr(x.quantity)}</span> },
-    { key: 'uom', label: 'Unit', render: (x) => cell(uomLabel(x.uom)) },
-    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => <span className="mono">{inr(x.final_rate)}</span> },
+    { key: 'count', label: 'Count', render: (x) => perLine(x, (r) => cell(countName.get(r.count_id))) },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.quantity)}</span>) },
+    { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
+    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.final_rate)}</span>) },
     { key: 'bcomm', label: 'Buyer Commission', render: (x) => cell(commTerms(x.buyer_comm_basis, x.buyer_comm_value)) },
     { key: 'scomm', label: 'Supplier Commission', render: (x) => cell(commTerms(x.supplier_comm_basis, x.supplier_comm_value)) },
     { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
@@ -409,6 +420,26 @@ function DealPanel({
   const [leadNo, setLeadNo] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(!deal)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
+  // count rows; until they load, the deal's own (first) count stands in
+  const firstLine: LineForm[] = deal
+    ? [toLineForm({ count_id: deal.count_id, quantity: deal.quantity, uom: deal.uom, bag_weight: deal.bag_weight, rate: deal.final_rate })]
+    : [emptyLine()]
+  const [lines, setLines] = useState<LineForm[]>(firstLine)
+  const [origLines, setOrigLines] = useState<LineForm[]>(firstLine)
+  useEffect(() => {
+    if (!deal) return
+    let alive = true
+    void supabase.from('crm_deal_lines').select('count_id,quantity,uom,bag_weight,final_rate').eq('deal_id', deal.id).order('line_no')
+      .then(({ data }) => {
+        const rows = (data ?? []) as { count_id: string; quantity: number; uom: string; bag_weight: number | null; final_rate: number | null }[]
+        if (!alive || rows.length === 0) return
+        const loaded = rows.map((r) => toLineForm({ ...r, rate: r.final_rate }))
+        setLines(loaded)
+        setOrigLines(loaded)
+      })
+    return () => { alive = false }
+  }, [deal])
+  const linesDirty = JSON.stringify(lines) !== JSON.stringify(origLines)
   useEffect(() => {
     if (!deal?.lead_id) return
     void supabase.from('leads').select('lead_no').eq('id', deal.lead_id).maybeSingle()
@@ -425,7 +456,7 @@ function DealPanel({
     if (deal.sales_confirmation_id) {
       void supabase.from('sales_confirmations').select('id, sc_no').eq('id', deal.sales_confirmation_id).maybeSingle()
         .then(({ data }) => { if (alive) setSc(data as { id: string; sc_no: string | null } | null) })
-      void supabase.from('orders').select('id').eq('sales_confirmation_id', deal.sales_confirmation_id).neq('status', 'cancelled').maybeSingle()
+      void supabase.from('orders').select('id').eq('sales_confirmation_id', deal.sales_confirmation_id).neq('status', 'cancelled').order('created_at').limit(1).maybeSingle()
         .then(({ data }) => { if (alive) setOrderId(data?.id ?? null) })
     } else if (deal.status === 'approved') {
       void supabase.rpc('deal_confirm_problems', { p_deal: deal.id })
@@ -444,22 +475,13 @@ function DealPanel({
     setF((p) => ({ ...p, supplier_id: id, supplier_comm_basis: s?.commission_basis ?? '', supplier_comm_value: str(s?.commission_value) }))
   }
 
-  const qty = numOrNull(f.quantity)
-  const rate = numOrNull(f.final_rate)
-  const unitW = numOrNull(f.bag_weight)
   const bVal = numOrNull(f.buyer_comm_value)
   const sVal = numOrNull(f.supplier_comm_value)
   const basisName = (b: string) => COMM_BASES.find((x) => x.value === b)?.label ?? '—'
-  const count = counts.find((c) => c.id === f.count_id)
   const buyer = buyers.find((x) => x.id === f.buyer_id)
   const supplier = suppliers.find((x) => x.id === f.supplier_id)
 
-  const missing: string[] = []
-
-  if (!f.count_id) missing.push('Count')
-  if (qty === null || qty <= 0) missing.push('Quantity (above zero)')
-  if (f.uom === 'BAGS' && (unitW === null || unitW <= 0)) missing.push('Bag weight')
-  if (f.final_rate && (rate === null || rate < 0)) missing.push('Final rate (a number)')
+  const missing: string[] = lineProblems(lines)
 
   async function save(thenStatus?: string) {
     setBusy(true)
@@ -469,11 +491,6 @@ function DealPanel({
       supplier_id: f.supplier_id || null,
       company_id: f.company_id || null,
       payment_term_id: f.payment_term_id || null,
-      count_id: f.count_id,
-      quantity: qty,
-      uom: f.uom,
-      bag_weight: unitW && unitW > 0 ? unitW : null,
-      final_rate: rate,
       price_basis: f.price_basis,
       freight: f.freight,
       buyer_comm_basis: f.buyer_comm_basis || null,
@@ -484,9 +501,10 @@ function DealPanel({
       manager_id: f.manager_id || null,
       notes: f.notes.trim() || null,
     }
-    if (locked) {
-      // approved: only the people and notes can change
-      for (const k of Object.keys(payload)) if (!['owner_id', 'manager_id', 'notes'].includes(k)) delete payload[k]
+    if (!deal) {
+      // a new deal starts from its first row; save_deal_lines then stores every row
+      const [first] = linesPayload(lines.slice(0, 1), 'final_rate')
+      Object.assign(payload, first)
     }
     const res = deal
       ? await supabase.from('crm_deals').update(payload).eq('id', deal.id).select('id, deal_no')
@@ -496,6 +514,15 @@ function DealPanel({
       return setErr(res.error ? errMessage(res.error, 'Could not save this deal') : 'Your account cannot change this deal.')
     }
     const saved = res.data[0] as { id: string; deal_no: string }
+    if (!deal || linesDirty) {
+      const ln = await supabase.rpc('save_deal_lines', { p_deal: saved.id, p_lines: linesPayload(lines, 'final_rate') })
+      if (ln.error) {
+        setBusy(false)
+        setErr(errMessage(ln.error, 'Saved, but the counts could not be saved'))
+        return onReload(saved.id)
+      }
+      setOrigLines(lines)
+    }
     if (thenStatus) {
       const st = await supabase.from('crm_deals').update({ status: thenStatus }).eq('id', saved.id).select('id')
       setBusy(false)
@@ -553,7 +580,7 @@ function DealPanel({
   // Editable until the deal is converted (Approved, which creates its Sales Confirmation).
   const canChange = canEdit && !locked
   const editable = canChange && editMode
-  const dirty = deal ? JSON.stringify(f) !== JSON.stringify(toForm(deal, companies, me?.id)) : true
+  const dirty = deal ? linesDirty || JSON.stringify(f) !== JSON.stringify(toForm(deal, companies, me?.id)) : true
 
   return (
     <Drawer title={deal ? deal.deal_no : 'New deal'} onClose={onClose}>
@@ -616,34 +643,12 @@ function DealPanel({
           <p className="small muted">From lead <Link className="mono" to="/leads">{leadNo ?? '…'}</Link>.</p>
         )}
 
-        <h3 className="section-title">Product</h3>
-        <div className="form-grid">
-          <Field id="d-count" label="Count" required>
-            <select id="d-count" value={f.count_id} onChange={(e) => set('count_id', e.target.value)}>
-              <option value="">—</option>
-              {counts.filter((c) => c.is_active || c.id === f.count_id).map((c) => (<option key={c.id} value={c.id}>{c.display_name}</option>))}
-            </select>
-          </Field>
-          <Field id="d-qty" label="Quantity" required>
-            <input id="d-qty" className="mono" inputMode="decimal" value={f.quantity} onChange={(e) => set('quantity', e.target.value)} />
-          </Field>
-          <Field id="d-uom" label="UOM">
-            <select id="d-uom" value={f.uom} onChange={(e) => set('uom', e.target.value)}>
-              {UOMS.map((u) => (<option key={u.value} value={u.value}>{u.label}</option>))}
-            </select>
-          </Field>
-          <Field id="d-bag" label={f.uom === 'BAGS' ? 'Bag weight (kg)' : 'Weight per unit (kg)'} required={f.uom === 'BAGS'}
-            hint={needsUnitWeight(f.uom) ? 'Used to work out total weight.' : 'Only needed for a per-bag commission.'}>
-            <input id="d-bag" className="mono" inputMode="decimal" value={f.bag_weight} onChange={(e) => set('bag_weight', e.target.value)} />
-          </Field>
-        </div>
-        {count && <p className="small muted">{count.display_name}</p>}
+        <h3 className="section-title">Counts</h3>
+        <CountLinesEditor lines={lines} onChange={setLines} counts={counts} disabled={!editable}
+          buyer={{ basis: f.buyer_comm_basis || null, value: bVal }} supplier={{ basis: f.supplier_comm_basis || null, value: sVal }} />
 
         <h3 className="section-title">Commercials</h3>
         <div className="form-grid">
-          <Field id="d-rate" label="Final rate (₹ per kg)">
-            <input id="d-rate" className="mono" inputMode="decimal" value={f.final_rate} onChange={(e) => set('final_rate', e.target.value)} />
-          </Field>
           <Field id="d-freight" label="Freight">
             <select id="d-freight" value={f.freight} onChange={(e) => set('freight', e.target.value as Form['freight'])}>
               <option value="excluded">Excluded</option>
@@ -691,7 +696,7 @@ function DealPanel({
           </button>
         )}
         {deal && editable && (
-          <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(deal, companies, me?.id)); setErr(null); setEditMode(false) }}>Cancel editing</button>
+          <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(deal, companies, me?.id)); setLines(origLines); setErr(null); setEditMode(false) }}>Cancel editing</button>
         )}
         {canEdit && deal && ['new_deal', 'reconsider'].includes(deal.status) && (
           <button className="btn primary" type="button" disabled={busy || missing.length > 0} onClick={() => void (dirty ? save('manager_approval') : move('manager_approval'))}>
@@ -751,7 +756,7 @@ function DealPanel({
             <Link className="mono" to={`/sales-confirmations?open=${deal.sales_confirmation_id}`}>{sc?.sc_no ?? '…'}</Link> · send it to the supplier and buyer from there.
           </p>
           {orderId ? (
-            <p className="small"><Link to={`/orders?open=${orderId}`}>Open its Dispatch and Billing item</Link></p>
+            <p className="small"><Link to={`/orders?open=${orderId}`}>Open its Dispatch and Billing items</Link></p>
           ) : (
             canOrder && <p><button className="btn" type="button" disabled={busy} onClick={() => void createOrder()}>Create Dispatch and Billing</button></p>
           )}
