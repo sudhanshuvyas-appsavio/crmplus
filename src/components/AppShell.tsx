@@ -4,11 +4,13 @@
  * on. The screens that are not built yet are listed with a "next" tag rather
  * than hidden, so the client can see the shape of what is coming. */
 
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 import { BrandMark } from './BrandMark'
 import NotificationBell from './NotificationBell'
 import { ToastHost } from './Toast'
+import { REGISTERS } from '../pages/MasterData'
 
 interface NavItem {
   to: string
@@ -55,6 +57,75 @@ const NAV: (NavItem | { heading: string })[] = [
   { to: '/account', label: 'My account', icon: 'M12 4.6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8M5 20c1.4-3.4 4-5 7-5s5.6 1.6 7 5' },
 ]
 
+const MD_OPEN_KEY = 'nav.masterData.open'
+
+/** "Master data" with its registers underneath, collapsible. It opens by itself
+ *  while one of the registers is on screen, and remembers the person's choice. */
+function MasterDataGroup({ icon }: { icon: string }) {
+  const { canAny } = useAuth()
+  const { pathname } = useLocation()
+  const inside = pathname.startsWith('/master-data')
+  const [open, setOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(MD_OPEN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    if (inside) setOpen(true)
+  }, [inside])
+
+  const visible = useMemo(() => REGISTERS.filter((r) => r.anyOf.length === 0 || canAny(...r.anyOf)), [canAny])
+  if (visible.length === 0) return null
+
+  function toggle() {
+    setOpen((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem(MD_OPEN_KEY, next ? '1' : '0')
+      } catch {
+        /* the choice just is not remembered */
+      }
+      return next
+    })
+  }
+
+  return (
+    <div className="nav-group">
+      <button
+        type="button"
+        className={inside ? 'nav-item nav-toggle active' : 'nav-item nav-toggle'}
+        aria-expanded={open}
+        aria-controls="nav-master-data"
+        onClick={toggle}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d={icon} />
+        </svg>
+        <span>Master data</span>
+        <svg className={open ? 'nav-chevron open' : 'nav-chevron'} viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </button>
+      {open && (
+        <div className="nav-sub" id="nav-master-data">
+          {visible.map((r) => (
+            <NavLink
+              key={r.key}
+              to={`/master-data/${r.key}`}
+              title={r.purpose}
+              className={({ isActive }) => (isActive ? 'nav-subitem active' : 'nav-subitem')}
+            >
+              {r.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AppShell() {
   const { me, meta, can, canAny, signOut } = useAuth()
   const navigate = useNavigate()
@@ -83,6 +154,7 @@ export function AppShell() {
             if ('heading' in item) return <p className="nav-heading" key={`h${index}`}>{item.heading}</p>
             if (item.permission && !can(item.permission)) return null
             if (item.anyOf && !canAny(...item.anyOf)) return null
+            if (item.to === '/master-data') return <MasterDataGroup key={item.to} icon={item.icon} />
             return (
               <NavLink
                 key={item.to}
