@@ -83,26 +83,35 @@ revoke execute on function public.mdm_documents_limit() from public, anon, authe
 -- 3. Row access: same permissions as the register itself
 -- ---------------------------------------------------------------------
 alter table public.transporter_documents enable row level security;
+drop policy if exists transporter_documents_sel on public.transporter_documents;
 create policy transporter_documents_sel on public.transporter_documents for select to authenticated
   using (has_permission('transport.read') or has_permission('transport.manage'));
+drop policy if exists transporter_documents_ins on public.transporter_documents;
 create policy transporter_documents_ins on public.transporter_documents for insert to authenticated
   with check (has_permission('transport.manage'));
+drop policy if exists transporter_documents_del on public.transporter_documents;
 create policy transporter_documents_del on public.transporter_documents for delete to authenticated
   using (has_permission('transport.manage'));
 
 alter table public.location_documents enable row level security;
+drop policy if exists location_documents_sel on public.location_documents;
 create policy location_documents_sel on public.location_documents for select to authenticated
   using (has_permission('lead.manage') or has_permission('lead.qualify') or has_permission('deal.read') or has_permission('settings.manage'));
+drop policy if exists location_documents_ins on public.location_documents;
 create policy location_documents_ins on public.location_documents for insert to authenticated
   with check (has_permission('settings.manage'));
+drop policy if exists location_documents_del on public.location_documents;
 create policy location_documents_del on public.location_documents for delete to authenticated
   using (has_permission('settings.manage'));
 
 alter table public.job_process_documents enable row level security;
+drop policy if exists job_process_documents_sel on public.job_process_documents;
 create policy job_process_documents_sel on public.job_process_documents for select to authenticated
   using (has_permission('jobprocess.read') or has_permission('jobprocess.manage'));
+drop policy if exists job_process_documents_ins on public.job_process_documents;
 create policy job_process_documents_ins on public.job_process_documents for insert to authenticated
   with check (has_permission('jobprocess.manage'));
+drop policy if exists job_process_documents_del on public.job_process_documents;
 create policy job_process_documents_del on public.job_process_documents for delete to authenticated
   using (has_permission('jobprocess.manage'));
 
