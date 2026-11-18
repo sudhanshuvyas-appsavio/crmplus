@@ -926,7 +926,6 @@ export default function Contacts() {
           canBuyer={canBuyer}
           canSupplier={canSupplier}
           onClose={() => setCreationForm(false)}
-          onDocsChanged={() => void load()}
           onDone={async (text, kind = 'ok') => {
             setBanner({ kind, text })
             setCreationForm(false)

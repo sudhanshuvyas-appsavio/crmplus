@@ -44,7 +44,7 @@ Images, PDFs and text files (txt, csv, json, log, md, xml) preview inside CRM+; 
 
 ## Creation forms (read from monday's "Creation Form" views on 2026-11-18)
 
-Every form opens with **Select Action** (Create New Record / Update Existing Record) and ends with Create Item. CRM+ shows the same sections, field order, labels and required marks (\*), as titled cards in a two-column grid. Required marks are enforced when creating; an existing record may lack some of them. Fields CRM+ needs that monday's form does not have sit in a final "Company settings" / "More details" card.
+Every form ends with Create Item. (monday's forms open with Select Action, Create New Record / Update Existing Record; CRM+ leaves out Update Existing Record, because Actions > Edit on the list does the same.) CRM+ shows the same sections, field order, labels and required marks (\*), as titled cards in a two-column grid. Required marks are enforced when creating; an existing record may lack some of them. Fields CRM+ needs that monday's form does not have sit in a final "Company settings" / "More details" card.
 
 | Register | monday sections (fields) and required fields |
 |---|---|

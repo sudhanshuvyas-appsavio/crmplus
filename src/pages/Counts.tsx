@@ -20,7 +20,7 @@ import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { ErrorBanner, FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
 import { focusFirstError, type FieldErrors } from '../lib/validate'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
@@ -460,26 +460,11 @@ function CountDrawer({
   onError: (message: string) => void
 }) {
   const opened = editing.mode === 'edit' ? editing.row : null
-  // monday's form opens with "Select Action": create a new record or update an existing one.
-  const [action, setAction] = useState<'create' | 'update'>('create')
-  const [pickedId, setPickedId] = useState('')
-  const picked = rows.find((r) => r.id === pickedId) ?? null
-  const existing = opened ?? (action === 'update' ? picked : null)
+  const existing = opened
   const [form, setForm] = useState<FormState>(opened ? toForm(opened) : BLANK)
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
-
-  function chooseAction(next: 'create' | 'update') {
-    setAction(next)
-    setPickedId('')
-    setForm(BLANK)
-  }
-  function pick(id: string) {
-    setPickedId(id)
-    const r = rows.find((x) => x.id === id)
-    setForm(r ? toForm(r) : BLANK)
-  }
 
   /** Every change goes through the recipe rules: 100% closes Yarn 2, and Yarn 2 cannot repeat Yarn 1. */
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -570,23 +555,10 @@ function CountDrawer({
   const name = buildName(form)
   const readOnlyStyle = { background: 'var(--surface-3)' }
 
-  const showForm = opened || action === 'create' || picked
-
   return (
     <Drawer title={opened ? opened.display_name : 'Counts Creation Form'} onClose={onClose} readOnly={readOnly}>
       <ErrorBanner message={formError} />
-      {!opened && !readOnly && (
-        <RecordAction
-          action={action}
-          onAction={chooseAction}
-          pickedId={pickedId}
-          onPick={pick}
-          records={rows.map((r) => ({ id: r.id, label: r.display_name }))}
-          noun="count"
-        />
-      )}
-      {showForm && (
-        <>
+      <>
           <div className="notice small">
             Summary: <strong>{name || '—'}</strong>
           </div>
@@ -674,11 +646,10 @@ function CountDrawer({
               </label>
             </FullWidth>
           </FormSection>
-        </>
-      )}
+      </>
 
       <div className="drawer-actions">
-        <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || (!opened && action === 'update' && !picked)}>
+        <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
           {busy ? 'Saving…' : existing ? '✓ Update Item' : '✓ Create Item'}
         </button>
         <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>

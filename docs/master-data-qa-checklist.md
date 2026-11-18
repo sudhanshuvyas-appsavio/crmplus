@@ -10,14 +10,13 @@ Before testing: run `supabase/manual/20261118_business_unit_test_data_cleanup.sq
 |---|---|---|
 | 1 | Open from the Master data menu; open the URL directly; refresh | The register opens, no 404 |
 | 2 | Columns | Monday's column names, in monday's order, then Actions. Clicking a row or cell opens nothing |
-| 3 | Create form | Opens with Select Action, then monday's sections and fields in monday's order |
+| 3 | Create form | Opens with monday's sections and fields in monday's order (no Select Action: changing a saved record is Actions > Edit only) |
 | 4 | Click Create with nothing entered | The button works; a message appears under **each** required field and the first one is focused; nothing is saved |
 | 5 | Required fields | Only the fields marked * are required (see the table below) |
 | 6 | Wrong formats | Email (`karthikaagency@`), phone/mobile (`98abc`, `123`), GST (`33ABC`), PAN (`12345ABCDE`), state code (`3`), numbers (`-1`) each show a message next to the field while typing; save is blocked |
 | 7 | Duplicates | Same name (also `  name  ` and different capitals), same GST, same customer code are refused with a message that says which field and which record clashes |
 | 8 | Server errors | Any error from the database is a sentence about the field, shown at the top of the form (the form scrolls to it), never "Could not save" alone |
 | 9 | Edit (Actions > Edit) | The saved values load; clearing a required field shows its message; Save works when valid |
-| 10 | Update Existing Record (from the create form) | The record picker loads the record; saving updates it, no new row |
 | 11 | View (Actions > View) | Every field is read-only; no Save, Delete or document upload; documents are seen through Actions > Documents |
 | 12 | Delete (Actions > Delete) | Confirmation dialog; a record in use says so in words |
 | 13 | Search | Typing a value from **any visible column** finds the row (name, address, GST, PAN, email, phone, state, contacts, bank, remarks, locations, counts, yarn, process...) |

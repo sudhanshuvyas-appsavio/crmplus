@@ -25,7 +25,7 @@ import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
-import { ErrorBanner, FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
 import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
@@ -547,12 +547,8 @@ function LocationDrawer({
   onDone: (message: string) => void | Promise<void>
   readOnly?: boolean
 }) {
-  // monday's form opens with "Select Action": create a new record or update an existing one.
-  const [action, setAction] = useState<'create' | 'update'>('create')
-  const [pickedId, setPickedId] = useState('')
   const [files, setFiles] = useState<File[]>([])
-  const picked = rows.find((r) => r.id === pickedId) ?? null
-  const row = existing ?? (action === 'update' ? picked : null)
+  const row = existing
   const [form, setForm] = useState<FormState>(existing ? toForm(existing) : BLANK)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -573,18 +569,6 @@ function LocationDrawer({
     'loc-acc-phone': form.accounts_phone, 'loc-address': form.address,
   }
   const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
-
-  function chooseAction(next: 'create' | 'update') {
-    setAction(next)
-    setPickedId('')
-    setFiles([])
-    setForm(BLANK)
-  }
-  function pick(id: string) {
-    setPickedId(id)
-    const r = rows.find((x) => x.id === id)
-    setForm(r ? toForm(r) : BLANK)
-  }
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -651,18 +635,7 @@ function LocationDrawer({
   return (
     <Drawer title={existing ? existing.name : 'Location Creation Form'} onClose={onClose} readOnly={readOnly}>
       <ErrorBanner message={err} />
-      {!existing && !readOnly && (
-        <RecordAction
-          action={action}
-          onAction={chooseAction}
-          pickedId={pickedId}
-          onPick={pick}
-          records={rows.map((r) => ({ id: r.id, label: r.name }))}
-          noun="location"
-        />
-      )}
-      {(existing || action === 'create' || picked) && (
-        <>
+      <>
           <FormSection title="Location Details" count={11}>
             <Field id="loc-name" label="Name" required error={show('loc-name')} hint="Must be unique; capitals and spacing are ignored when checking.">
               <input id="loc-name" value={form.name} placeholder="Enter Name" onChange={(e) => set('name', e.target.value)} autoFocus />
@@ -727,11 +700,10 @@ function LocationDrawer({
               </FullWidth>
             </FormSection>
           )}
-        </>
-      )}
+      </>
 
       <div className="drawer-actions">
-        <button className="btn primary" type="button" disabled={busy || (!existing && action === 'update' && !picked)} onClick={() => void save()}>
+        <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>
           {busy ? 'Saving…' : row ? '✓ Update Item' : '✓ Create Item'}
         </button>
         <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
