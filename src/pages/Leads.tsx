@@ -25,7 +25,7 @@ import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, useSelection } from '../components/ListTools'
-import { Board, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
+import { Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, pickOne } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -379,20 +379,6 @@ export default function Leads() {
             <option key={s.value} value={s.value}>{s.label}</option>
           ))}
         </select>
-        <span className="push" />
-        {canManage && selection.chosen.length > 0 && (
-          confirmDelete ? (
-            <span className="toolbar-confirm">
-              <span className="field-warn">Delete {selection.chosen.length} selected? This can’t be undone.</span>
-              <button className="btn danger sm" type="button" disabled={busy} onClick={async () => { await deleteSelected(); setConfirmDelete(false) }}>
-                {busy ? 'Deleting…' : 'Yes, delete'}
-              </button>
-              <button className="btn ghost sm" type="button" onClick={() => setConfirmDelete(false)}>No</button>
-            </span>
-          ) : (
-            <button className="btn danger sm" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Delete {selection.chosen.length} selected</button>
-          )
-        )}
         {canManage && (
           <>
             <input
@@ -410,8 +396,22 @@ export default function Leads() {
           </>
         )}
         <button className="btn sm" type="button" disabled={shown.length === 0 || busy} onClick={() => void exportCSV()}>
-          {`Export ${selection.chosen.length > 0 ? `${selection.chosen.length} selected` : shown.length === leads.length ? 'all' : `${shown.length} shown`}`}
+          <DownloadIcon />{`Export ${selection.chosen.length > 0 ? `${selection.chosen.length} selected` : shown.length === leads.length ? 'all' : `${shown.length} shown`}`}
         </button>
+        <span className="push" />
+        {canManage && selection.chosen.length > 0 && (
+          confirmDelete ? (
+            <span className="toolbar-confirm">
+              <span className="field-warn">Delete {selection.chosen.length} selected? This can’t be undone.</span>
+              <button className="btn danger sm" type="button" disabled={busy} onClick={async () => { await deleteSelected(); setConfirmDelete(false) }}>
+                {busy ? 'Deleting…' : 'Yes, delete'}
+              </button>
+              <button className="btn ghost sm" type="button" onClick={() => setConfirmDelete(false)}>No</button>
+            </span>
+          ) : (
+            <button className="btn danger sm" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Delete {selection.chosen.length} selected</button>
+          )
+        )}
       </div>
 
       <Board

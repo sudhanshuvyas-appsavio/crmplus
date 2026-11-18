@@ -19,7 +19,7 @@ import type { CountRow, JobProcess, PaymentTerm, Transporter } from '../api/type
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { useSelection } from '../components/ListTools'
-import { Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { Board, DownloadIcon, StatusPicker, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell } from '../components/board/mirrors'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -286,6 +286,9 @@ export default function SalesConfirmations() {
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search confirmations" placeholder="Search no., supplier, buyer, count, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
+          <DownloadIcon />Export {chosen > 0 ? `${chosen} selected` : shown.length === rows.length ? 'all' : `${shown.length} shown`}
+        </button>
         <span className="push" />
         {canManage && chosen > 0 && (
           <button className="btn primary sm" type="button" onClick={() => setBulk(true)}>Send {chosen} selected</button>
@@ -301,9 +304,6 @@ export default function SalesConfirmations() {
             <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
           )
         )}
-        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
-          Export {chosen > 0 ? `${chosen} selected` : shown.length === rows.length ? 'all' : `${shown.length} shown`}
-        </button>
       </div>
 
       <Board

@@ -18,7 +18,7 @@ import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { useSelection } from '../components/ListTools'
 import { ActivityPanel, useProfileNames } from '../components/PartyExtras'
-import { Avatar, Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
+import { Avatar, Board, DownloadIcon, StatusPicker, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
 import { BoardTabs } from '../components/board/BoardTabs'
 import { DealsReports } from '../components/DealsReports'
@@ -284,6 +284,9 @@ export default function Deals() {
           {me && <option value={me.id}>My deals</option>}
           {people.filter((p) => p.id !== me?.id).map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
         </select>
+        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
+          <DownloadIcon />Export {chosen > 0 ? `${chosen} selected` : shown.length === deals.length ? 'all' : `${shown.length} shown`}
+        </button>
         <span className="push" />
         {canCreate && chosen > 0 && (
           confirmDelete ? (
@@ -296,9 +299,6 @@ export default function Deals() {
             <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
           )
         )}
-        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
-          Export {chosen > 0 ? `${chosen} selected` : shown.length === deals.length ? 'all' : `${shown.length} shown`}
-        </button>
       </div>
 
       <Board

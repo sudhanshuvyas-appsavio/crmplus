@@ -24,7 +24,7 @@ import { OrderExecution } from '../components/OrderExecution'
 import { BoardTabs } from '../components/board/BoardTabs'
 import { DnbCreationForm } from '../components/DnbCreationForm'
 import { DnbReports } from '../components/DnbReports'
-import { Avatar, Board, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { Avatar, Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { cell } from '../components/board/mirrors'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
@@ -248,10 +248,10 @@ export default function DispatchAndBilling() {
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search" placeholder="Search item, invoice, SC, buyer, supplier, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <span className="push" />
         <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
-          Export {shown.length === rows.length ? 'all' : `${shown.length} shown`}
+          <DownloadIcon />Export {shown.length === rows.length ? 'all' : `${shown.length} shown`}
         </button>
+        <span className="push" />
       </div>
 
       <Board
