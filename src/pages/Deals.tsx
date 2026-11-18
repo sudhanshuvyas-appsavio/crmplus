@@ -14,8 +14,7 @@ import { supabase } from '../lib/supabase'
 import type { CountRow, Deal, DealChange, PaymentTerm } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { Drawer, DeleteControl, InlineForm } from '../components/Drawer'
-import { BoardTabs } from '../components/board/BoardTabs'
+import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { useSelection } from '../components/ListTools'
 import { ActivityPanel, useProfileNames } from '../components/PartyExtras'
@@ -79,8 +78,6 @@ export default function Deals() {
   const [leadNos, setLeadNos] = useState<Map<string, string>>(new Map())
   const [dealLines, setDealLines] = useState<Map<string, DealLineRow[]>>(new Map())
   const [editing, setEditing] = useState<Deal | 'new' | null>(null)
-  const [tab, setTab] = useState<'table' | 'form'>('table')
-  const [formKey, setFormKey] = useState(0)
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useStoredState('deals.owner', '')
   const [view, setView] = useStoredState<'table' | 'kanban'>('deals.view', 'table')
@@ -124,14 +121,13 @@ export default function Deals() {
   const wantNew = params.get('new')
   useEffect(() => {
     if (wantNew && canCreate) {
-      setTab('table')
       setEditing('new')
       setParams({}, { replace: true })
       return
     }
     if (!openId || !deals) return
     const found = deals.find((x) => x.id === openId)
-    if (found) { setTab('table'); setEditing(found) }
+    if (found) setEditing(found)
     setParams({}, { replace: true })
   }, [openId, wantNew, deals, setParams, canCreate])
 
@@ -241,31 +237,6 @@ export default function Deals() {
 
   const chosen = selection.chosen.length
 
-  /** The deal form: shown in the drawer, or inline in the Deal Creation Form tab. */
-  const renderPanel = (
-    d: Deal | null,
-    h: { key: string; onClose: () => void; onDone: (text: string, keepOpen?: boolean) => void | Promise<void>; onReload: (id: string) => void | Promise<void> },
-  ) => (
-    <DealPanel
-      key={h.key}
-      deal={d}
-      canEdit={canEdit}
-      canDelete={canCreate}
-      canApprove={canApprove}
-      isAdmin={isAdmin}
-      canOrder={can('order.manage')}
-      buyers={buyers}
-      suppliers={suppliers}
-      counts={counts}
-      terms={terms}
-      companies={companies}
-      people={people}
-      onClose={h.onClose}
-      onDone={h.onDone}
-      onReload={h.onReload}
-    />
-  )
-
   return (
     <>
       <header className="page-head">
@@ -274,17 +245,11 @@ export default function Deals() {
           <p className="page-sub">Every trade from enquiry to approval. Approved deals become Sales Confirmations.</p>
         </div>
         {canCreate && (
-          <button className="btn primary" type="button" onClick={() => { setTab('table'); setEditing('new') }}>
+          <button className="btn primary" type="button" onClick={() => setEditing('new')}>
             + New deal
           </button>
         )}
       </header>
-
-      <BoardTabs
-        tabs={[{ key: 'table', label: 'Main table' }, ...(canCreate ? [{ key: 'form', label: 'Deal Creation Form' }] : [])]}
-        active={tab}
-        onChange={(k) => setTab(k as 'table' | 'form')}
-      />
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -293,28 +258,6 @@ export default function Deals() {
         </div>
       )}
 
-      {tab === 'form' && canCreate && (
-        <InlineForm>
-          {renderPanel(null, {
-            key: `form-${formKey}`,
-            onClose: () => setTab('table'),
-            onDone: async (text) => {
-              setBanner({ kind: 'ok', text })
-              await load()
-              setFormKey((n) => n + 1)
-              setTab('table')
-            },
-            onReload: async (id) => {
-              await load()
-              const { data } = await supabase.from('crm_deals').select('*').eq('id', id).maybeSingle()
-              setTab('table')
-              if (data) setEditing(data as Deal)
-            },
-          })}
-        </InlineForm>
-      )}
-
-      {tab === 'table' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search deals" placeholder="Search deal, buyer, supplier, count" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -367,22 +310,34 @@ export default function Deals() {
         )}
       />
 
-      </>)}
-
-      {tab === 'table' && editing && renderPanel(editing === 'new' ? null : editing, {
-        key: editing === 'new' ? 'new' : editing.id,
-        onClose: () => setEditing(null),
-        onDone: async (text, keepOpen) => {
-          setBanner({ kind: 'ok', text })
-          await load()
-          if (!keepOpen) setEditing(null)
-        },
-        onReload: async (id) => {
-          await load()
-          const { data } = await supabase.from('crm_deals').select('*').eq('id', id).maybeSingle()
-          if (data) setEditing(data as Deal)
-        },
-      })}
+      {editing && (
+        <DealPanel
+          key={editing === 'new' ? 'new' : editing.id}
+          deal={editing === 'new' ? null : editing}
+          canEdit={canEdit}
+          canDelete={canCreate}
+          canApprove={canApprove}
+          isAdmin={isAdmin}
+          canOrder={can('order.manage')}
+          buyers={buyers}
+          suppliers={suppliers}
+          counts={counts}
+          terms={terms}
+          companies={companies}
+          people={people}
+          onClose={() => setEditing(null)}
+          onDone={async (text, keepOpen) => {
+            setBanner({ kind: 'ok', text })
+            await load()
+            if (!keepOpen) setEditing(null)
+          }}
+          onReload={async (id) => {
+            await load()
+            const { data } = await supabase.from('crm_deals').select('*').eq('id', id).maybeSingle()
+            if (data) setEditing(data as Deal)
+          }}
+        />
+      )}
     </>
   )
 }

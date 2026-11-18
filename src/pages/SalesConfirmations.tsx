@@ -27,8 +27,6 @@ import { errMessage } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
 import { ConfirmationDrawer } from '../components/sc/ConfirmationDrawer'
-import { InlineForm } from '../components/Drawer'
-import { BoardTabs } from '../components/board/BoardTabs'
 import { BulkSendDrawer } from '../components/sc/BulkSendDrawer'
 import type { Company, Party, ScRow } from '../components/sc/scShared'
 
@@ -57,8 +55,6 @@ export default function SalesConfirmations() {
   const [items, setItems] = useState<Map<string, ScItem[]>>(new Map())
   const [scLines, setScLines] = useState<Map<string, ScLineRow[]>>(new Map())
   const [editing, setEditing] = useState<ScRow | 'new' | null>(null)
-  const [tab, setTab] = useState<'table' | 'form'>('table')
-  const [formKey, setFormKey] = useState(0)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useStoredState('sc.type', '')
   const [view, setView] = useStoredState<'table' | 'kanban'>('sc.view', 'table')
@@ -111,7 +107,7 @@ export default function SalesConfirmations() {
   useEffect(() => {
     if (!openId || !rows) return
     const found = rows.find((x) => x.id === openId)
-    if (found) { setTab('table'); setEditing(found) }
+    if (found) setEditing(found)
     setParams({}, { replace: true })
   }, [openId, rows, setParams])
 
@@ -244,29 +240,6 @@ export default function SalesConfirmations() {
 
   const chosen = selection.chosen.length
 
-  /** The confirmation form: shown in the drawer, or inline in the Creation Form tab. */
-  const renderDrawer = (
-    sc: ScRow | null,
-    h: { key: string; onClose: () => void; onDone: (text: string, keepOpenId?: string) => void | Promise<void> },
-  ) => (
-    <ConfirmationDrawer
-      key={h.key}
-      sc={sc}
-      canManage={canManage}
-      canOrder={canOrder}
-      items={sc ? items.get(sc.id) ?? [] : []}
-      suppliers={suppliers}
-      buyers={buyers}
-      companies={companies}
-      counts={counts}
-      terms={terms}
-      transporters={transporters}
-      jobs={jobs}
-      onClose={h.onClose}
-      onDone={h.onDone}
-    />
-  )
-
   return (
     <>
       <header className="page-head">
@@ -275,17 +248,11 @@ export default function SalesConfirmations() {
           <p className="page-sub">Confirmations sent to the supplier on the buyer’s behalf, then again with delivery details.</p>
         </div>
         {canManage && (
-          <button className="btn primary" type="button" onClick={() => { setTab('table'); setEditing('new') }}>
+          <button className="btn primary" type="button" onClick={() => setEditing('new')}>
             + New confirmation
           </button>
         )}
       </header>
-
-      <BoardTabs
-        tabs={[{ key: 'table', label: 'Main table' }, ...(canManage ? [{ key: 'form', label: 'Sales Confirmation Creation Form' }] : [])]}
-        active={tab}
-        onChange={(k) => setTab(k as 'table' | 'form')}
-      />
 
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
@@ -294,26 +261,6 @@ export default function SalesConfirmations() {
         </div>
       )}
 
-      {tab === 'form' && canManage && (
-        <InlineForm>
-          {renderDrawer(null, {
-            key: `form-${formKey}`,
-            onClose: () => setTab('table'),
-            onDone: async (text, keepOpenId) => {
-              setBanner({ kind: 'ok', text })
-              await load()
-              setFormKey((n) => n + 1)
-              setTab('table')
-              if (keepOpenId) {
-                const { data } = await supabase.from('sales_confirmations').select('*').eq('id', keepOpenId).single()
-                if (data) setEditing(data as ScRow)
-              }
-            },
-          })}
-        </InlineForm>
-      )}
-
-      {tab === 'table' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search confirmations" placeholder="Search no., supplier, buyer, count, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -368,24 +315,36 @@ export default function SalesConfirmations() {
           </>
         )}
       />
-      </>)}
 
-      {tab === 'table' && editing && renderDrawer(editing === 'new' ? null : editing, {
-        key: editing === 'new' ? 'new' : editing.id,
-        onClose: () => setEditing(null),
-        onDone: async (text, keepOpenId) => {
-          setBanner({ kind: 'ok', text })
-          await load()
-          if (keepOpenId) {
-            const { data } = await supabase.from('sales_confirmations').select('*').eq('id', keepOpenId).single()
-            if (data) {
-              setEditing(data as ScRow)
-              return
+      {editing && (
+        <ConfirmationDrawer
+          key={editing === 'new' ? 'new' : editing.id}
+          sc={editing === 'new' ? null : editing}
+          canManage={canManage}
+          canOrder={canOrder}
+          items={editing === 'new' ? [] : items.get(editing.id) ?? []}
+          suppliers={suppliers}
+          buyers={buyers}
+          companies={companies}
+          counts={counts}
+          terms={terms}
+          transporters={transporters}
+          jobs={jobs}
+          onClose={() => setEditing(null)}
+          onDone={async (text, keepOpenId) => {
+            setBanner({ kind: 'ok', text })
+            await load()
+            if (keepOpenId) {
+              const { data } = await supabase.from('sales_confirmations').select('*').eq('id', keepOpenId).single()
+              if (data) {
+                setEditing(data as ScRow)
+                return
+              }
             }
-          }
-          setEditing(null)
-        },
-      })}
+            setEditing(null)
+          }}
+        />
+      )}
 
       {bulk && (
         <BulkSendDrawer
