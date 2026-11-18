@@ -10,12 +10,14 @@ import type { CloseStatus, CommissionInvoice, JobProcess, Order, OrderDispatch, 
 import { Field } from './PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
-import { TRANSPORT_TYPES, uomLabel } from '../lib/deals'
+import { TRANSPORT_TYPES, transportTypeLabel, uomLabel } from '../lib/deals'
+import { useProfileNames } from './PartyExtras'
 
 const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toLocaleString('en-IN', { maximumFractionDigits: 2 }))
 
 export function OrderExecution({ order, canManage, jobs, onChanged }: { order: Order; canManage: boolean; jobs: JobProcess[]; onChanged?: () => Promise<void> }) {
   const [transporters, setTransporters] = useState<Transporter[]>([])
+  const people = useProfileNames()
   const [trs, setTrs] = useState<OrderTransport[]>([])
   const [ojs, setOjs] = useState<OrderJobProcess[]>([])
   const [dsp, setDsp] = useState<OrderDispatch[]>([])
@@ -166,28 +168,47 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
         <div className="table-wrap" style={{ marginBottom: 12 }}>
           <table>
             <thead>
+              {/* columns in the order of the monday Dispatch and Billing subitems */}
               <tr>
-                <th>Entry</th><th>Date</th><th className="right">Qty</th><th>Invoice</th><th>DC no.</th><th>Vehicle / LR</th>
-                <th className="right">Weight</th><th className="right">Value</th><th className="right">Buyer comm.</th><th className="right">Supplier comm.</th><th className="right">Total</th><th />
+                <th>Dispatch Entry No</th><th>Owner</th><th>Invoice No.</th><th>Invoice Date</th><th>Del Date</th><th>DC No.</th><th>Vehicle Number</th>
+                <th>Transport Company</th><th className="right">Bags Weight</th><th className="right">Total Weight</th><th className="right">Value</th>
+                <th className="right">Buyer Commission</th><th className="right">Supplier Commission</th><th className="right">CGST</th><th className="right">Insurance Tax</th>
+                <th className="right">Add</th><th className="right">Deduct</th><th className="right">Total Amount</th><th className="right">Round off</th>
+                <th>Dispatch Date</th><th className="right">Quantity Dispatched</th><th>Transport Type</th><th>LR No.</th><th />
               </tr>
             </thead>
             <tbody>
-              {dsp.map((x) => (
-                <tr key={x.id}>
-                  <td className="mono small">{x.dispatch_no}</td>
-                  <td className="mono small">{x.dispatch_date}</td>
-                  <td className="right mono">{money(x.quantity)}</td>
-                  <td className="small">{x.invoice_no ?? '—'}{x.invoice_date ? ` · ${x.invoice_date}` : ''}</td>
-                  <td className="small">{x.dc_no ?? '—'}</td>
-                  <td className="small">{[x.vehicle_no, x.lr_no ? `LR ${x.lr_no}` : null].filter(Boolean).join(' · ') || '—'}</td>
-                  <td className="right mono small">{money(x.total_weight)}</td>
-                  <td className="right mono small">{money(x.entry_value)}</td>
-                  <td className="right mono small">{money(x.buyer_commission)}</td>
-                  <td className="right mono small">{money(x.supplier_commission)}</td>
-                  <td className="right mono small">{money(x.total_amount)}</td>
-                  <td>{del('order_dispatches', x.id)}</td>
-                </tr>
-              ))}
+              {dsp.map((x) => {
+                const tr = x.transport_id ? trs.find((t) => t.id === x.transport_id) : undefined
+                return (
+                  <tr key={x.id}>
+                    <td className="mono small">{x.dispatch_no}</td>
+                    <td className="small">{x.person_id ? people[x.person_id] ?? '—' : '—'}</td>
+                    <td className="mono small">{x.invoice_no ?? '—'}</td>
+                    <td className="small">{x.invoice_date ?? '—'}</td>
+                    <td className="small">{x.delivery_date ?? '—'}</td>
+                    <td className="small">{x.dc_no ?? '—'}</td>
+                    <td className="mono small">{x.vehicle_no ?? '—'}</td>
+                    <td className="small">{tr ? (tr.kind === 'our' ? 'Our vehicle' : tr.transporter_id ? trName(tr.transporter_id) : 'Third party') : '—'}</td>
+                    <td className="right mono small">{money(order.bag_weight)}</td>
+                    <td className="right mono small">{money(x.total_weight)}</td>
+                    <td className="right mono small">{money(x.entry_value)}</td>
+                    <td className="right mono small">{money(x.buyer_commission)}</td>
+                    <td className="right mono small">{money(x.supplier_commission)}</td>
+                    <td className="right mono small">{money(x.cgst_pct)}</td>
+                    <td className="right mono small">{money(x.insurance_pct)}</td>
+                    <td className="right mono small">{money(x.add_amount)}</td>
+                    <td className="right mono small">{money(x.deduct_amount)}</td>
+                    <td className="right mono small">{money(x.total_amount)}</td>
+                    <td className="right mono small">{money(x.round_off)}</td>
+                    <td className="mono small">{x.dispatch_date}</td>
+                    <td className="right mono">{money(x.quantity)}</td>
+                    <td className="small">{x.transport_type ? transportTypeLabel(x.transport_type) : '—'}</td>
+                    <td className="small">{x.lr_no ?? '—'}</td>
+                    <td>{del('order_dispatches', x.id)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
