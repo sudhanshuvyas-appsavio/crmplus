@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 /** A centred dialog with a pinned header and footer, in the Master Data modal's
  *  style. Used by the Tasks module for task detail, forms and confirmations.
@@ -9,6 +10,7 @@ export function Modal({
   size = 'md',
   onClose,
   footer,
+  portal = false,
   children,
 }: {
   title: string
@@ -17,6 +19,10 @@ export function Modal({
   onClose: () => void
   /** Rendered in the pinned footer: Close on the left by convention, actions on the right. */
   footer?: ReactNode
+  /** Render outside the current subtree (into the Master Data pane, else the page body).
+   *  Needed when the dialog opens from inside a drawer, whose centring transform would
+   *  otherwise become the dialog's containing block. */
+  portal?: boolean
   children: ReactNode
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -54,7 +60,7 @@ export function Modal({
     }
   }, [onClose])
 
-  return (
+  const dialog = (
     <div className="modal-root">
       <button type="button" className="modal-scrim" aria-label="Close" onClick={onClose} />
       <div ref={panelRef} role="dialog" aria-modal="true" aria-label={title} className={`modal-panel modal-${size}`}>
@@ -74,4 +80,5 @@ export function Modal({
       </div>
     </div>
   )
+  return portal ? createPortal(dialog, document.querySelector('.md-pane') ?? document.body) : dialog
 }

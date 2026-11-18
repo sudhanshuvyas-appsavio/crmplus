@@ -9,6 +9,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { errMessage } from '../lib/party'
 import { formatDate, formatDateTime } from '../lib/format'
 import { GST_PORTAL_URL, lookupGst } from '../lib/integrations'
+import { canPreview, downloadDocument, DocumentPreview } from './documents/DocumentPreview'
 import { DOC_TYPES, type Activity, type ActivityKind, type MdContact, type PartyDocument } from '../api/types'
 
 export type PartyType = 'supplier' | 'buyer'
@@ -152,12 +153,27 @@ function sizeText(n: number | null): string {
   return n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
 }
 
-export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: PartyType; partyId: string; canEdit: boolean }) {
+const PARTY_DOC_LIMIT = 10
+const PARTY_DOC_MAX_BYTES = 10 * 1048576
+
+export function DocumentsPanel({
+  partyType,
+  partyId,
+  canEdit,
+  onChanged,
+}: {
+  partyType: PartyType
+  partyId: string
+  canEdit: boolean
+  /** Called after an upload or delete, so a Documents count elsewhere can refresh. */
+  onChanged?: () => void
+}) {
   const names = useProfileNames()
   const [docs, setDocs] = useState<PartyDocument[] | null>(null)
   const [docType, setDocType] = useState('gst_copy')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [preview, setPreview] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -174,17 +190,12 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
     void load()
   }, [load])
 
-  async function upload(file: File) {
-    setBusy(true)
-    setMsg(null)
+  async function uploadOne(file: File): Promise<string | null> {
+    if (file.size > PARTY_DOC_MAX_BYTES) return `${file.name} is larger than 10 MB.`
     const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, '_')
     const path = `${partyType}/${partyId}/${crypto.randomUUID()}-${safe}`
     const up = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type || undefined })
-    if (up.error) {
-      setBusy(false)
-      setMsg(up.error.message || 'Upload failed. PDFs, images, Word, Excel and CSV files up to 10 MB are accepted.')
-      return
-    }
+    if (up.error) return `${file.name}: ${up.error.message || 'upload failed. PDFs, images, Word, Excel and CSV files up to 10 MB are accepted.'}`
     const { error } = await supabase.from('party_documents').insert({
       party_type: partyType,
       party_id: partyId,
@@ -196,19 +207,33 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
     })
     if (error) {
       await supabase.storage.from(BUCKET).remove([path])
-      setMsg(errMessage(error, 'Could not record the document'))
+      return `${file.name}: ${errMessage(error, 'could not record the document')}`
     }
-    setBusy(false)
-    await load()
+    return null
   }
 
-  async function open(doc: PartyDocument) {
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.storage_path, 60)
-    if (error || !data) {
-      setMsg('Could not open that file.')
-      return
+  async function upload(files: FileList) {
+    const room = Math.max(PARTY_DOC_LIMIT - (docs?.length ?? 0), 0)
+    const list = Array.from(files).slice(0, room)
+    const said: string[] = []
+    if (files.length > room) said.push(`Only ${room} more file${room === 1 ? '' : 's'} can be added (at most ${PARTY_DOC_LIMIT}); the rest were not uploaded.`)
+    setBusy(true)
+    setMsg(null)
+    for (const f of list) {
+      const problem = await uploadOne(f)
+      if (problem) said.push(problem)
     }
-    window.open(data.signedUrl, '_blank', 'noopener')
+    setMsg(said.length > 0 ? said.join(' ') : null)
+    setBusy(false)
+    await load()
+    onChanged?.()
+  }
+
+  /** Images, PDFs and text open in the preview dialog; other files download. */
+  async function open(doc: PartyDocument, index: number) {
+    if (canPreview(doc.file_name, doc.mime_type)) return setPreview(index)
+    const problem = await downloadDocument(BUCKET, doc)
+    if (problem) setMsg(problem)
   }
 
   async function remove(doc: PartyDocument) {
@@ -223,20 +248,21 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
     await supabase.storage.from(BUCKET).remove([doc.storage_path])
     setBusy(false)
     await load()
+    onChanged?.()
   }
 
   return (
     <Section title="Documents">
-      <p className="muted small">GST copy, cancelled cheque and KYC forms. Several files of the same kind are fine.</p>
+      <p className="muted small">GST copy, cancelled cheque and KYC forms: up to 10 files of 10 MB each. Images, PDFs and text files open in a preview.</p>
       {docs && docs.length === 0 && <p className="muted small">No documents yet.</p>}
       {docs && docs.length > 0 && (
         <div className="table-wrap">
           <table>
             <tbody>
-              {docs.map((d) => (
+              {docs.map((d, i) => (
                 <tr key={d.id}>
                   <td>
-                    <button className="btn ghost sm" type="button" onClick={() => void open(d)}>
+                    <button className="btn ghost sm" type="button" onClick={() => void open(d, i)}>
                       {d.file_name}
                     </button>
                     <div className="muted small">
@@ -268,17 +294,21 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
           </select>
           <input
             type="file"
-            aria-label="Choose a file to upload"
-            disabled={busy}
+            multiple
+            aria-label="Choose files to upload"
+            disabled={busy || (docs?.length ?? 0) >= PARTY_DOC_LIMIT}
             onChange={(e) => {
-              const f = e.target.files?.[0]
+              const f = e.target.files
+              if (f && f.length > 0) void upload(f)
               e.target.value = ''
-              if (f) void upload(f)
             }}
           />
         </div>
       )}
       {msg && <p className="field-warn">{msg}</p>}
+      {preview !== null && docs && docs.length > 0 && (
+        <DocumentPreview bucket={BUCKET} docs={docs} index={Math.min(preview, docs.length - 1)} onIndex={setPreview} onClose={() => setPreview(null)} />
+      )}
     </Section>
   )
 }
@@ -523,7 +553,9 @@ export function PartyExtras({
   gstVerifiedAt,
   gstNote,
   mirror,
+  onDocsChanged,
 }: {
+  onDocsChanged?: () => void
   mirror?: { table: 'supplier_master' | 'buyer_master'; id: string } | null
   partyType: PartyType
   partyId: string
@@ -546,7 +578,7 @@ export function PartyExtras({
         canEdit={canEdit}
         mirror={mirror}
       />
-      <DocumentsPanel partyType={partyType} partyId={partyId} canEdit={canEdit} />
+      <DocumentsPanel partyType={partyType} partyId={partyId} canEdit={canEdit} onChanged={onDocsChanged} />
       {can('md_contact.view') && <MdContactsPanel partyType={partyType} partyId={partyId} />}
       <ActivityPanel entityType={partyType} entityId={partyId} canWrite={canEdit} />
     </>

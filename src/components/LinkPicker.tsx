@@ -3,7 +3,8 @@
  *  the list of ids and saves it with `syncLinks` (src/lib/links.ts) once the
  *  record exists. */
 
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
+import { FieldErrorsContext } from './fieldErrors'
 import { supabase } from '../lib/supabase'
 
 export interface LinkOption {
@@ -22,6 +23,7 @@ export function LinkPicker({
   onChange,
   disabled,
   placeholder = 'Add…',
+  error,
 }: {
   id: string
   label: string
@@ -31,12 +33,16 @@ export function LinkPicker({
   onChange: (next: string[]) => void
   disabled?: boolean
   placeholder?: string
+  /** A message for this field (e.g. "Counts is required"); also read from the form's error map by id. */
+  error?: string | null
 }) {
+  const fromForm = useContext(FieldErrorsContext)
+  const message = error ?? fromForm?.[id]
   const byId = new Map(options.map((o) => [o.id, o]))
   const offered = options.filter((o) => !value.includes(o.id) && !o.inactive)
 
   return (
-    <div className="field">
+    <div className={`field${message ? ' has-error' : ''}`}>
       <label htmlFor={id}>{label}</label>
       {value.length > 0 && (
         <div className="link-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
@@ -75,7 +81,13 @@ export function LinkPicker({
         </select>
       )}
       {value.length === 0 && disabled && <p className="muted small">None.</p>}
-      {hint && <p className="field-hint">{hint}</p>}
+      {message ? (
+        <p className="field-warn" role="alert">
+          {message}
+        </p>
+      ) : (
+        hint && <p className="field-hint">{hint}</p>
+      )}
     </div>
   )
 }

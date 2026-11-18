@@ -6,7 +6,8 @@
  *  create Master with required fields"). The required fields below are the
  *  ones the story lists; the database enforces the same rules. */
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useState, type ReactNode } from 'react'
+import { FieldErrorsContext, FieldErrorsProvider } from './fieldErrors'
 import { supabase } from '../lib/supabase'
 import { BUYER_MACHINE_TYPES, CATEGORIES, COMMISSION_BASES } from '../api/types'
 import type { BuyerMaster, PartyProfile, SupplierMaster } from '../api/types'
@@ -16,27 +17,40 @@ import { useProfileNames } from './PartyExtras'
 
 /* ---- shared bits ---------------------------------------------------------- */
 
+export { FieldErrorsContext, FieldErrorsProvider }
+
 export function Field({
   id,
   label,
   required,
   hint,
+  error,
   children,
 }: {
   id: string
   label: string
   required?: boolean
   hint?: string
+  /** A message shown under the field in place of the hint (a missing or invalid value). */
+  error?: string | null
   children: ReactNode
 }) {
+  const fromForm = useContext(FieldErrorsContext)
+  error = error !== undefined ? error : fromForm?.[id]
   return (
-    <div className="field">
+    <div className={`field${error ? ' has-error' : ''}`}>
       <label htmlFor={id}>
         {label}
         {required && <span aria-hidden="true"> *</span>}
       </label>
       {children}
-      {hint && <p className="field-hint">{hint}</p>}
+      {error ? (
+        <p className="field-warn" role="alert">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="field-hint">{hint}</p>
+      )}
     </div>
   )
 }
@@ -143,6 +157,7 @@ export type ProfileForm = {
   messenger_id: string
   qty_bags_month: string
   qty_kgs_month: string
+  default_commission: string
 }
 
 export type SupplierOnlyForm = {
@@ -164,7 +179,7 @@ export const blankProfile = (): ProfileForm => ({
   short_name: '', customer_code: '', website: '', map_url: '', office_phone: '', res_phone: '', mill_address: '',
   remarks_2: '', contact_1_email: '', contact_2_name: '', contact_2_mobile: '', contact_2_email: '',
   contact_3_name: '', contact_3_mobile: '', contact_3_email: '', sales_person_id: '', collection_staff_id: '',
-  messenger_id: '', qty_bags_month: '', qty_kgs_month: '',
+  messenger_id: '', qty_bags_month: '', qty_kgs_month: '', default_commission: '',
 })
 export const blankSupplierOnly = (): SupplierOnlyForm => ({ machine_type: '', counts_supplying: '', spindles: '', monthly_production: '' })
 export const blankBuyerOnly = (): BuyerOnlyForm => ({ machine_types: [], no_of_looms: '', fabric_producing: '', reed_pick: '', width: '' })
@@ -188,6 +203,7 @@ export function profileFromRows(s: Partial<PartyProfile> | null | undefined, b: 
     contact_3_email: text('contact_3_email'), sales_person_id: text('sales_person_id'),
     collection_staff_id: text('collection_staff_id'), messenger_id: text('messenger_id'),
     qty_bags_month: num('qty_bags_month'), qty_kgs_month: num('qty_kgs_month'),
+    default_commission: text('default_commission'),
   }
 }
 
@@ -210,7 +226,14 @@ export function buyerOnlyFromRow(row: BuyerMaster | null | undefined): BuyerOnly
   }
 }
 
-const isEmail = (v: string) => v.trim().indexOf('@') > 0
+/** monday's "Default Commision Percentage" options and the master's codes. */
+export const DEFAULT_COMMISSIONS: { value: string; label: string }[] = [
+  { value: 'pct', label: 'Percentage of Ex Mill Value' },
+  { value: 'per_bag', label: 'Bagwise Rate' },
+  { value: 'per_kg', label: 'Rs per kg' },
+]
+
+const isEmail = (v: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim())
 const isPhone = (v: string) => /^[0-9]{6,15}$/.test(v.trim())
 const isCount = (v: string) => /^[0-9]+$/.test(v.trim())
 const badNumber = (v: string) => v.trim() !== '' && numOrNull(v) === null
@@ -277,6 +300,7 @@ export function profilePayload(f: ProfileForm) {
     messenger_id: f.messenger_id || null,
     qty_bags_month: numOrNull(f.qty_bags_month),
     qty_kgs_month: numOrNull(f.qty_kgs_month),
+    default_commission: orNull(f.default_commission),
   }
 }
 
@@ -393,15 +417,12 @@ export function supplierFromRow(row: SupplierMaster): SupplierForm {
 export function supplierProblems(f: SupplierForm): string[] {
   const out: string[] = []
   if (!f.name.trim()) out.push('Supplier name')
-  if (!f.contact_person.trim()) out.push('Contact person')
-  if (!isMobile(f.mobile)) out.push('Mobile (10 digits)')
   if (!isGst(f.gst)) out.push('GST (15-character format)')
-  if (f.pan.trim().length !== 10) out.push('PAN (10 characters)')
-  if (!f.bank_account_1.trim()) out.push('Bank A/c')
-  if (!/^[0-9]{2}$/.test(f.state_code.trim())) out.push('State code (2 digits)')
-  if (!f.state.trim()) out.push('State')
-  if (isGst(f.gst) && /^[0-9]{2}$/.test(f.state_code.trim()) && f.gst.trim().slice(0, 2) !== f.state_code.trim()) {
-    out.push('State code matching the GST number')
+  if (f.mobile.trim() && !isMobile(f.mobile)) out.push('Mobile (10 digits, or leave blank)')
+  if (f.pan.trim() && f.pan.trim().length !== 10) out.push('PAN (10 characters, or leave blank)')
+  if (f.state_code.trim()) {
+    if (!/^[0-9]{2}$/.test(f.state_code.trim())) out.push('State code (2 digits, or leave blank)')
+    else if (isGst(f.gst) && f.gst.trim().slice(0, 2) !== f.state_code.trim()) out.push('State code matching the GST number')
   }
   out.push(...profileProblems(f), ...supplierOnlyProblems(f))
   return out
@@ -415,20 +436,19 @@ export function supplierPayload(f: SupplierForm) {
     spindles: numOrNull(f.spindles),
     monthly_production: numOrNull(f.monthly_production),
     name: f.name.trim(),
-    contact_person: f.contact_person.trim(),
-    mobile: f.mobile.trim(),
+    contact_person: orNull(f.contact_person),
+    mobile: orNull(f.mobile),
     email: f.email.trim() || null,
     address: f.address.trim() || null,
     gst: f.gst.trim().toUpperCase(),
-    pan: f.pan.trim().toUpperCase(),
-    bank_account_1: f.bank_account_1.trim(),
+    pan: orNull(f.pan.trim().toUpperCase()),
+    bank_account_1: orNull(f.bank_account_1),
     bank_account_2: f.bank_account_2.trim() || null,
-    state_code: f.state_code.trim(),
-    state: f.state.trim(),
+    state_code: orNull(f.state_code),
+    state: orNull(f.state),
     category: f.category || null,
     commission_basis: f.commission_basis || null,
     commission_value: numOrNull(f.commission_value),
-    product_range: f.product_range.trim() || null,
     notes: f.notes.trim() || null,
     is_active: f.is_active,
   }
@@ -522,9 +542,6 @@ export function SupplierFields({
         <Field id={`${p}-state`} label="State" required>
           <input id={`${p}-state`} value={form.state} onChange={(e) => set('state', e.target.value)} />
         </Field>
-        <Field id={`${p}-range`} label="Product range" hint="Counts and yarn types this supplier makes -- used by the supplier search.">
-          <input id={`${p}-range`} value={form.product_range} onChange={(e) => set('product_range', e.target.value)} />
-        </Field>
         <CommissionFields idPrefix={p} form={form} set={set} />
       </div>
       <Field id={`${p}-address`} label="Full address">
@@ -604,11 +621,8 @@ export function buyerFromRow(row: BuyerMaster): BuyerForm {
 export function buyerProblems(f: BuyerForm): string[] {
   const out: string[] = []
   if (!f.name.trim()) out.push('Buyer name')
-  if (!f.contact_person.trim()) out.push('Contact person')
   if (!isGst(f.gst)) out.push('GST (15-character format)')
-  if (f.pan.trim().length !== 10) out.push('PAN (10 characters)')
-  if (!f.spindlage_capacity.trim()) out.push('Capacity / spindlage')
-  if (!f.product_range.trim()) out.push('Product range')
+  if (f.pan.trim() && f.pan.trim().length !== 10) out.push('PAN (10 characters, or leave blank)')
   if (f.mobile.trim() && !isMobile(f.mobile)) out.push('Mobile (10 digits, or leave blank)')
   if (f.state_code.trim()) {
     if (!/^[0-9]{2}$/.test(f.state_code.trim())) out.push('State code (2 digits, or leave blank)')
@@ -631,14 +645,12 @@ export function buyerPayload(f: BuyerForm) {
     reed_pick: orNull(f.reed_pick),
     width: orNull(f.width),
     name: f.name.trim(),
-    contact_person: f.contact_person.trim(),
+    contact_person: orNull(f.contact_person),
     mobile: f.mobile.trim() || null,
     email: f.email.trim() || null,
     address: f.address.trim() || null,
     gst: f.gst.trim().toUpperCase(),
-    pan: f.pan.trim().toUpperCase(),
-    spindlage_capacity: f.spindlage_capacity.trim(),
-    product_range: f.product_range.trim(),
+    pan: orNull(f.pan.trim().toUpperCase()),
     state_code: f.state_code.trim() || null,
     state: f.state.trim() || null,
     category: f.category || null,
@@ -716,12 +728,6 @@ export function BuyerFields({
             value={form.pan}
             onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/\s+/g, ''))}
           />
-        </Field>
-        <Field id={`${p}-spin`} label="Capacity / spindlage" required>
-          <input id={`${p}-spin`} value={form.spindlage_capacity} onChange={(e) => set('spindlage_capacity', e.target.value)} />
-        </Field>
-        <Field id={`${p}-range`} label="Product range" required hint="The counts and types this buyer uses.">
-          <input id={`${p}-range`} value={form.product_range} onChange={(e) => set('product_range', e.target.value)} />
         </Field>
         <Field id={`${p}-scode`} label="State code">
           <input
@@ -855,23 +861,23 @@ export function PartyProfileSections({
         >
           <input id={`${p}-gst`} className="mono" maxLength={15} value={form.gst} onChange={(e) => patch(gstPatch(form, e.target.value))} />
         </Field>
-        <Field id={`${p}-pan`} label="PAN" required hint="10 characters, upper case.">
+        <Field id={`${p}-pan`} label="PAN" hint="10 characters, upper case.">
           <input id={`${p}-pan`} className="mono" maxLength={10} value={form.pan} onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
         </Field>
-        <Field id={`${p}-scode`} label="State code" required={showSupplier}>
+        <Field id={`${p}-scode`} label="State code">
           <input id={`${p}-scode`} className="mono" maxLength={2} inputMode="numeric" value={form.state_code} onChange={(e) => set('state_code', e.target.value.replace(/\D/g, ''))} />
         </Field>
-        <Field id={`${p}-state`} label="State" required={showSupplier}>
+        <Field id={`${p}-state`} label="State">
           <input id={`${p}-state`} value={form.state} onChange={(e) => set('state', e.target.value)} />
         </Field>
       </div>
 
       <h3 className="section-title">Contacts</h3>
       <div className="form-grid">
-        <Field id={`${p}-contact`} label="Contact 1 name" required>
+        <Field id={`${p}-contact`} label="Contact 1 name">
           <input id={`${p}-contact`} value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
         </Field>
-        <Field id={`${p}-mobile`} label="Contact 1 mobile" required={showSupplier} hint={mobileHint(form.mobile)}>
+        <Field id={`${p}-mobile`} label="Contact 1 mobile" hint={mobileHint(form.mobile)}>
           <input id={`${p}-mobile`} inputMode="numeric" maxLength={10} className="mono" value={form.mobile} onChange={digits('mobile')} />
         </Field>
         <Field id={`${p}-c1email`} label="Contact 1 email" hint={emailHint(form.contact_1_email)}>
@@ -899,7 +905,7 @@ export function PartyProfileSections({
 
       <h3 className="section-title">Phones and web</h3>
       <div className="form-grid">
-        <Field id={`${p}-ophone`} label="Office phone" hint={phoneHint(form.office_phone)}>
+        <Field id={`${p}-ophone`} label="Office phone" required hint={phoneHint(form.office_phone)}>
           <input id={`${p}-ophone`} inputMode="numeric" maxLength={15} className="mono" value={form.office_phone} onChange={digits('office_phone')} />
         </Field>
         <Field id={`${p}-rphone`} label="Residence phone" hint={phoneHint(form.res_phone)}>
@@ -917,7 +923,7 @@ export function PartyProfileSections({
       </div>
 
       <h3 className="section-title">Addresses</h3>
-      <Field id={`${p}-address`} label="Office address">
+      <Field id={`${p}-address`} label="Office address" required>
         <textarea id={`${p}-address`} rows={3} value={form.address} onChange={(e) => set('address', e.target.value)} />
       </Field>
       <Field id={`${p}-mill`} label="Mill / factory / delivery address">
@@ -926,7 +932,7 @@ export function PartyProfileSections({
 
       <h3 className="section-title">Bank</h3>
       <div className="form-grid">
-        <Field id={`${p}-bank1`} label="Bank A/c (1)" required={showSupplier}>
+        <Field id={`${p}-bank1`} label="Bank A/c (1)">
           <input id={`${p}-bank1`} className="mono" value={form.bank_account_1} onChange={(e) => set('bank_account_1', e.target.value)} />
         </Field>
         <Field id={`${p}-bank2`} label="Bank A/c (2)">
@@ -937,6 +943,16 @@ export function PartyProfileSections({
       <h3 className="section-title">Commission</h3>
       <div className="form-grid">
         <CommissionFields idPrefix={p} form={form} set={set} withCategory={false} />
+        <Field id={`${p}-defcomm`} label="Default Commision Percentage" required>
+          <select id={`${p}-defcomm`} value={form.default_commission} onChange={(e) => set('default_commission', e.target.value)}>
+            <option value="">-- Select Default Commision Percentage --</option>
+            {DEFAULT_COMMISSIONS.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
 
       <h3 className="section-title">Team</h3>
@@ -968,7 +984,7 @@ export function PartyProfileSections({
         />
         <LinkPicker
           id={`${p}-counts`}
-          label="Counts"
+          label="Counts *"
           hint={showBuyer && showSupplier ? 'The counts this party buys and supplies.' : showSupplier ? 'The counts this supplier supplies.' : 'The counts this buyer buys.'}
           options={countOptions}
           value={countIds}
@@ -980,19 +996,6 @@ export function PartyProfileSections({
 
       <h3 className="section-title">Production profile</h3>
       <div className="form-grid">
-        {showBuyer && (
-          <Field id={`${p}-spin`} label="Capacity / spindlage" required>
-            <input id={`${p}-spin`} value={form.spindlage_capacity} onChange={(e) => set('spindlage_capacity', e.target.value)} />
-          </Field>
-        )}
-        <Field
-          id={`${p}-range`}
-          label="Product range"
-          required={showBuyer}
-          hint={showBuyer ? 'The counts and types this buyer uses.' : 'Counts and yarn types this supplier makes -- used by the search.'}
-        >
-          <input id={`${p}-range`} value={form.product_range} onChange={(e) => set('product_range', e.target.value)} />
-        </Field>
         {showBuyer && (
           <>
             <Field id={`${p}-looms`} label="No. of looms" hint={form.no_of_looms && !isCount(form.no_of_looms) ? 'A whole number.' : undefined}>
