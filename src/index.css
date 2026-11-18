@@ -1119,3 +1119,6 @@ tr.clickable { cursor: pointer; }
   .gk-search { width: 100%; }
   .md-pane .drawer { width: 100vw; min-width: 0; height: 100dvh; border-radius: 0; }
 }
+
+/* monday-style wide board tables: long text (addresses, remarks) is clipped, full value on hover */
+.cell-clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }

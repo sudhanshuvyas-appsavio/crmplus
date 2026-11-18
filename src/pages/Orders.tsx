@@ -22,11 +22,12 @@ import { Drawer } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { OrderExecution } from '../components/OrderExecution'
 import { Avatar, Board, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { MIRROR_PARTY_COLS, cell, partyMirrors, type MirrorCompany, type MirrorParty } from '../components/board/mirrors'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  DISPATCH_STATUSES, TRANSPORT_TYPES, commTerms, dispatchStatus, inr, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
+  COMM_BASES, DISPATCH_STATUSES, TRANSPORT_TYPES, commTerms, dispatchStatus, inr, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
 } from '../lib/deals'
 
 type Named = { id: string; name: string }
@@ -44,9 +45,9 @@ export default function DispatchAndBilling() {
   const canRead = canManage || can('order.read')
   const [params, setParams] = useSearchParams()
   const [rows, setRows] = useState<Order[] | null>(null)
-  const [buyers, setBuyers] = useState<Named[]>([])
-  const [suppliers, setSuppliers] = useState<Named[]>([])
-  const [companies, setCompanies] = useState<Named[]>([])
+  const [buyers, setBuyers] = useState<MirrorParty[]>([])
+  const [suppliers, setSuppliers] = useState<MirrorParty[]>([])
+  const [companies, setCompanies] = useState<MirrorCompany[]>([])
   const [counts, setCounts] = useState<CountRow[]>([])
   const [terms, setTerms] = useState<PaymentTerm[]>([])
   const [jobs, setJobs] = useState<JobProcess[]>([])
@@ -61,9 +62,9 @@ export default function DispatchAndBilling() {
   const load = useCallback(async () => {
     const [o, b, s, c, k, t, j, tr, p, sc] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', { ascending: false }),
-      supabase.from('buyer_master').select('id,name'),
-      supabase.from('supplier_master').select('id,name'),
-      supabase.from('companies').select('id,name'),
+      supabase.from('buyer_master').select(MIRROR_PARTY_COLS),
+      supabase.from('supplier_master').select(MIRROR_PARTY_COLS),
+      supabase.from('companies').select('id,name,phone_1,mobile'),
       supabase.from('count_master').select('*'),
       supabase.from('payment_terms').select('*'),
       supabase.from('job_processes').select('*').order('name'),
@@ -73,9 +74,9 @@ export default function DispatchAndBilling() {
     ])
     if (o.error) setBanner({ kind: 'bad', text: errMessage(o.error, 'Could not load Dispatch and Billing') })
     setRows((o.data ?? []) as Order[])
-    setBuyers((b.data ?? []) as Named[])
-    setSuppliers((s.data ?? []) as Named[])
-    setCompanies((c.data ?? []) as Named[])
+    setBuyers((b.data ?? []) as MirrorParty[])
+    setSuppliers((s.data ?? []) as MirrorParty[])
+    setCompanies((c.data ?? []) as MirrorCompany[])
     setCounts((k.data ?? []) as CountRow[])
     setTerms((t.data ?? []) as PaymentTerm[])
     setJobs((j.data ?? []) as JobProcess[])
@@ -140,21 +141,54 @@ export default function DispatchAndBilling() {
   const sum = (pick: (d: Order) => number | null) => (list: Order[]) => (
     <span className="mono strong">{inr(list.reduce((a, r) => a + (pick(r) ?? 0), 0), 0)}</span>
   )
+  const buyerById = new Map(buyers.map((x) => [x.id, x]))
+  const supplierById = new Map(suppliers.map((x) => [x.id, x]))
+  const ctx = { people: personName, companies: new Map(companies.map((c) => [c.id, c])) }
+  const jobName = new Map(jobs.map((j) => [j.id, j.name]))
+  const basisLabel = (b: string | null) => COMM_BASES.find((x) => x.value === b)?.label ?? null
+  const money = (v: number | null) => <span className="mono">{inr(v, 0)}</span>
+  // Columns in the order of the monday Dispatch and Billing board.
   const columns: BoardColumn<Order>[] = [
     { key: 'no', label: 'Item', width: 130, render: (x) => <span className="mono">{x.order_no}</span> },
     { key: 'status', label: 'Status', width: 170, render: (x) => <StatusPill label={dispatchStatus(x.dispatch_status).label} tone={dispatchStatus(x.dispatch_status).tone} /> },
-    { key: 'inv', label: 'Invoice', render: (x) => (x.invoice_no ? <span className="mono small">{x.invoice_no}{x.invoice_date ? ` · ${x.invoice_date}` : ''}</span> : <span className="muted small">—</span>) },
+    { key: 'inv', label: 'Invoice No.', render: (x) => cell(x.invoice_no, { mono: true }) },
+    { key: 'invdate', label: 'Invoice Date', render: (x) => cell(x.invoice_date) },
+    { key: 'created', label: 'Created Date', render: (x) => cell(x.created_at.slice(0, 10)) },
     { key: 'sc', label: 'Sales Confirmation', interactive: true, render: (x) => <Link className="mono small" to={`/sales-confirmations?open=${x.sales_confirmation_id}`}>{scs.get(x.sales_confirmation_id) ?? '—'}</Link> },
     { key: 'buyer', label: 'Buyer', render: (x) => <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> },
+    ...partyMirrors<Order>('Buyer', (x) => buyerById.get(x.buyer_id),
+      ['messenger', 'officePhone', 'officeAddress', 'millAddress', 'gst', 'unit', 'unitPhone', 'cp1', 'cp1Phone', 'cp1Email', 'cp2Phone', 'cp2Email', 'email', 'pan'], ctx),
+    { key: 'bctype', label: 'Buyer Commission Type', render: (x) => cell(basisLabel(x.buyer_comm_basis)) },
+    { key: 'bcval', label: 'Buyer Commission Value', align: 'right', render: (x) => cell(x.buyer_comm_value, { mono: true }) },
     { key: 'supplier', label: 'Supplier', render: (x) => supplierName.get(x.supplier_id) ?? '—' },
-    { key: 'count', label: 'Count', render: (x) => <span className="small">{countName.get(x.count_id) ?? '—'}</span> },
-    { key: 'qty', label: 'Dispatched', render: (x) => <Progress done={x.dispatched_qty} total={x.quantity} uom={x.uom} /> },
-    { key: 'value', label: 'Value', align: 'right', render: (x) => <span className="mono">{inr(x.order_value, 0)}</span>, total: sum((r) => r.order_value) },
-    { key: 'bcomm', label: 'Buyer comm.', align: 'right', render: (x) => <span className="mono">{inr(x.buyer_commission, 0)}</span>, total: sum((r) => r.buyer_commission) },
-    { key: 'scomm', label: 'Supplier comm.', align: 'right', render: (x) => <span className="mono">{inr(x.supplier_commission, 0)}</span>, total: sum((r) => r.supplier_commission) },
-    { key: 'total', label: 'Total amount', align: 'right', render: (x) => <span className="mono">{inr(x.total_amount, 0)}</span>, total: sum((r) => r.total_amount) },
-    { key: 'transport', label: 'Transport', render: (x) => <span className="small">{x.transport_type ? transportTypeLabel(x.transport_type) : '—'}{x.vehicle_no ? ` · ${x.vehicle_no}` : ''}</span> },
+    ...partyMirrors<Order>('Supplier', (x) => supplierById.get(x.supplier_id), ['messenger', 'unit', 'unitPhone'], ctx),
+    { key: 'sctype', label: 'Supplier Commission Type', render: (x) => cell(basisLabel(x.supplier_comm_basis)) },
+    { key: 'scval', label: 'Supplier Commission Value', align: 'right', render: (x) => cell(x.supplier_comm_value, { mono: true }) },
+    { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.alt_delivery_address, { clip: true }) },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => cell(x.quantity, { mono: true }) },
+    { key: 'transporter', label: 'Transporter Name', render: (x) => cell(x.transporter_id ? transporterName.get(x.transporter_id) : null) },
+    { key: 'vehicle', label: 'Vehicle Number', render: (x) => cell(x.vehicle_no, { mono: true }) },
+    { key: 'driver', label: 'Driver Contact Phone', render: (x) => cell(x.driver_phone, { mono: true }) },
+    { key: 'schedule', label: 'Delivery Schedule', render: (x) => cell(x.delivery_schedule, { clip: true }) },
+    { key: 'count', label: 'Counts', render: (x) => cell(countName.get(x.count_id)) },
+    { key: 'uom', label: 'UOM', render: (x) => cell(uomLabel(x.uom)) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => cell(x.final_rate, { mono: true }) },
+    { key: 'bag', label: 'Bags Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
+    { key: 'weight', label: 'Total Weight', align: 'right', render: (x) => cell(x.total_weight, { mono: true }) },
+    { key: 'value', label: 'Value', align: 'right', render: (x) => money(x.order_value), total: sum((r) => r.order_value) },
+    { key: 'bcomm', label: 'Buyer Commission', align: 'right', render: (x) => money(x.buyer_commission), total: sum((r) => r.buyer_commission) },
+    { key: 'scomm', label: 'Supplier Commission', align: 'right', render: (x) => money(x.supplier_commission), total: sum((r) => r.supplier_commission) },
+    { key: 'cgst', label: 'CGST', align: 'right', render: (x) => cell(x.cgst_pct, { mono: true }) },
+    { key: 'ins', label: 'Insurance Tax', align: 'right', render: (x) => cell(x.insurance_pct, { mono: true }) },
+    { key: 'add', label: 'Add', align: 'right', render: (x) => cell(x.add_amount, { mono: true }) },
+    { key: 'deduct', label: 'Deduct', align: 'right', render: (x) => cell(x.deduct_amount, { mono: true }) },
+    { key: 'total', label: 'Total Amount', align: 'right', render: (x) => money(x.total_amount), total: sum((r) => r.total_amount) },
+    { key: 'round', label: 'Round off', align: 'right', render: (x) => cell(x.round_off, { mono: true }) },
+    { key: 'dispatched', label: 'Quantity Dispatched', render: (x) => <Progress done={x.dispatched_qty} total={x.quantity} uom={x.uom} /> },
+    { key: 'remark', label: 'Remark 1', render: (x) => cell(x.special_instructions, { clip: true }) },
+    { key: 'dispatch-date', label: 'Dispatch Date', render: (x) => cell(x.tentative_dispatch_date) },
     { key: 'person', label: 'Person', render: (x) => <Avatar name={x.person_id ? personName.get(x.person_id) : undefined} /> },
+    { key: 'transport', label: 'Transport Type', render: (x) => cell(x.transport_type ? transportTypeLabel(x.transport_type) : null) },
   ]
 
   return (

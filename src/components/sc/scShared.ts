@@ -1,6 +1,7 @@
 /** Shared types and the confirmation message text for the sales confirmation screens. */
 
 import type { SalesConfirmation } from '../../api/types'
+import type { MirrorParty } from '../board/mirrors'
 import { formatDateTime } from '../../lib/format'
 
 /** Columns added to sales_confirmations after the first release (see the T-042 migration). */
@@ -29,10 +30,7 @@ export interface ScNotification {
   batch_id: string | null
 }
 
-export type Party = {
-  id: string; name: string; mobile: string | null; email: string | null; company_id: string | null; is_active: boolean
-  address?: string | null; office_phone?: string | null; gst?: string | null
-}
+export type Party = MirrorParty & { mobile: string | null; email: string | null }
 export type Company = { id: string; name: string; is_active: boolean; phone_1?: string | null; mobile?: string | null }
 
 
