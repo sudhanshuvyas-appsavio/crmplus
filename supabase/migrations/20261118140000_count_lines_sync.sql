@@ -197,52 +197,37 @@ begin
 end $$;
 
 -- =====================================================================
--- 3. Repair existing data (rows left behind by direct edits); only the records fixed
---    here get their totals recomputed
+-- 3. Repair existing data (rows left behind by direct edits)
+--    Plain statements only: no temporary tables, no switching triggers off, so it
+--    also runs in the Supabase SQL Editor, which can run statements separately.
 -- =====================================================================
-create temp table fixed_deals(id uuid primary key) on commit drop;
-create temp table fixed_scs(id uuid primary key) on commit drop;
+update public.crm_deal_lines l set count_id = d.count_id, quantity = d.quantity, uom = d.uom, bag_weight = d.bag_weight, final_rate = d.final_rate
+from public.crm_deals d
+where l.deal_id = d.id and d.quantity > 0
+  and (select count(*) from public.crm_deal_lines x where x.deal_id = d.id) = 1
+  and (l.count_id, l.quantity, l.uom, l.bag_weight, l.final_rate) is distinct from (d.count_id, d.quantity, d.uom, d.bag_weight, d.final_rate);
+insert into public.crm_deal_lines(deal_id, line_no, count_id, quantity, uom, bag_weight, final_rate)
+select d.id, 1, d.count_id, d.quantity, d.uom, d.bag_weight, d.final_rate from public.crm_deals d
+where d.count_id is not null and d.quantity > 0 and not exists (select 1 from public.crm_deal_lines l where l.deal_id = d.id);
 
-with u as (
-  update public.crm_deal_lines l set count_id = d.count_id, quantity = d.quantity, uom = d.uom, bag_weight = d.bag_weight, final_rate = d.final_rate
-  from public.crm_deals d
-  where l.deal_id = d.id and d.quantity > 0
-    and (select count(*) from public.crm_deal_lines x where x.deal_id = d.id) = 1
-    and (l.count_id, l.quantity, l.uom, l.bag_weight, l.final_rate) is distinct from (d.count_id, d.quantity, d.uom, d.bag_weight, d.final_rate)
-  returning l.deal_id)
-insert into fixed_deals select distinct deal_id from u on conflict do nothing;
-with i as (
-  insert into public.crm_deal_lines(deal_id, line_no, count_id, quantity, uom, bag_weight, final_rate)
-  select d.id, 1, d.count_id, d.quantity, d.uom, d.bag_weight, d.final_rate from public.crm_deals d
-  where d.count_id is not null and d.quantity > 0 and not exists (select 1 from public.crm_deal_lines l where l.deal_id = d.id)
-  returning deal_id)
-insert into fixed_deals select deal_id from i on conflict do nothing;
+update public.sc_lines l set count_id = s.count_id, quantity = s.quantity, uom = s.uom, bag_weight = s.bag_weight, rate = s.rate
+from public.sales_confirmations s
+where l.sc_id = s.id and s.count_id is not null and s.quantity > 0
+  and (select count(*) from public.sc_lines x where x.sc_id = s.id) = 1
+  and (l.count_id, l.quantity, l.uom, l.bag_weight, l.rate) is distinct from (s.count_id, s.quantity, s.uom, s.bag_weight, s.rate);
+insert into public.sc_lines(sc_id, line_no, count_id, quantity, uom, bag_weight, rate)
+select s.id, 1, s.count_id, s.quantity, s.uom, s.bag_weight, s.rate from public.sales_confirmations s
+where s.count_id is not null and s.quantity > 0 and not exists (select 1 from public.sc_lines l where l.sc_id = s.id);
 
-with u as (
-  update public.sc_lines l set count_id = s.count_id, quantity = s.quantity, uom = s.uom, bag_weight = s.bag_weight, rate = s.rate
-  from public.sales_confirmations s
-  where l.sc_id = s.id and s.count_id is not null and s.quantity > 0
-    and (select count(*) from public.sc_lines x where x.sc_id = s.id) = 1
-    and (l.count_id, l.quantity, l.uom, l.bag_weight, l.rate) is distinct from (s.count_id, s.quantity, s.uom, s.bag_weight, s.rate)
-  returning l.sc_id)
-insert into fixed_scs select distinct sc_id from u on conflict do nothing;
-with i as (
-  insert into public.sc_lines(sc_id, line_no, count_id, quantity, uom, bag_weight, rate)
-  select s.id, 1, s.count_id, s.quantity, s.uom, s.bag_weight, s.rate from public.sales_confirmations s
-  where s.count_id is not null and s.quantity > 0 and not exists (select 1 from public.sc_lines l where l.sc_id = s.id)
-  returning sc_id)
-insert into fixed_scs select sc_id from i on conflict do nothing;
-
--- header totals from the rows (the confirmation status check is left out: it is not being changed)
-select set_config('app.lines', '1', true);
-update public.crm_deals set updated_at = updated_at where id in (select id from fixed_deals);
-alter table public.sales_confirmations disable trigger trg_sc_derive;
-update public.sales_confirmations s set
-  total_weight = (select sum(total_weight) from public.sc_lines l where l.sc_id = s.id),
-  sc_value = (select sum(line_value) from public.sc_lines l where l.sc_id = s.id)
-where s.id in (select id from fixed_scs);
-alter table public.sales_confirmations enable trigger trg_sc_derive;
-select set_config('app.lines', '', true);
+-- header totals from the rows, only where they differ (the update triggers recompute them)
+update public.crm_deals d set updated_at = d.updated_at
+where exists (select 1 from public.crm_deal_lines l where l.deal_id = d.id)
+  and (d.total_weight, d.deal_value) is distinct from
+      ((select sum(l.total_weight) from public.crm_deal_lines l where l.deal_id = d.id), (select sum(l.line_value) from public.crm_deal_lines l where l.deal_id = d.id));
+update public.sales_confirmations s set updated_at = s.updated_at
+where exists (select 1 from public.sc_lines l where l.sc_id = s.id)
+  and (s.total_weight, s.sc_value) is distinct from
+      ((select sum(l.total_weight) from public.sc_lines l where l.sc_id = s.id), (select sum(l.line_value) from public.sc_lines l where l.sc_id = s.id));
 
 -- =====================================================================
 -- grants
