@@ -14,7 +14,7 @@ import { Drawer } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Field } from '../components/PartyForms'
-import { ActionChoice, ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
+import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { uploadDocuments } from '../components/documents/DocumentList'
 import { PhoneField } from '../components/PhoneField'
@@ -663,13 +663,9 @@ const suggestPrefix = (name: string) =>
 
 function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsChanged, readOnly = false }: DrawerProps) {
   const existing = editing.mode === 'edit' ? editing.company : null
-  // monday's form opens with "Select Action": create a new record, or update an existing one.
-  const [action, setAction] = useState<'create' | 'update'>('create')
-  const [pickedId, setPickedId] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [touched, setTouched] = useState({ short: false, ref: false })
-  const picked = companies.find((c) => c.id === pickedId) ?? null
-  const target = existing ?? (action === 'update' ? picked : null)
+  const target = existing
   const creating = !target
 
   // monday sets the Date to today when a business unit is created; it stays editable.
@@ -710,19 +706,6 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
       ...(creating && !touched.short ? { short_name: suggestShort(name) } : {}),
       ...(creating && !touched.ref ? { ref_prefix: suggestPrefix(name) } : {}),
     }))
-  }
-
-  function chooseAction(next: 'create' | 'update') {
-    setAction(next)
-    setPickedId('')
-    setTouched({ short: false, ref: false })
-    setForm({ ...BLANK_FORM, record_date: todayIST() })
-  }
-
-  function pickCompany(id: string) {
-    setPickedId(id)
-    const c = companies.find((x) => x.id === id)
-    if (c) setForm(toForm(c))
   }
 
   async function save() {
@@ -789,36 +772,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
   return (
     <Drawer title={creating ? 'Add a company' : existing?.name ?? 'Edit company'} onClose={onClose} readOnly={readOnly}>
       <ErrorBanner message={serverError} />
-      {creating && !readOnly && !existing && (
-        <ActionChoice
-          label="Select Action"
-          value={action}
-          onChange={chooseAction}
-          options={[
-            { value: 'create', label: 'Create New Record', hint: 'Add a new business unit.' },
-            { value: 'update', label: 'Update Existing Record', hint: 'Pick a business unit and change its details.' },
-          ]}
-        />
-      )}
-      {!existing && !readOnly && action === 'update' && (
-        <FormSection title="Business unit to update">
-          <FullWidth>
-            <Field id="c-pick" label="Business unit" required hint="Its details are loaded below for you to change.">
-              <select id="c-pick" value={pickedId} onChange={(e) => pickCompany(e.target.value)}>
-                <option value="">Select a business unit…</option>
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </FullWidth>
-        </FormSection>
-      )}
-
-      {(existing || action === 'create' || picked) && (
-        <>
+      <>
           <FormSection title="Board Information" count={11}>
             <Field id="c-name" label="Name" required error={show('c-name')}>
               <input id="c-name" value={form.name} placeholder="Enter Name" onChange={(e) => setName(e.target.value)} autoFocus />
@@ -952,15 +906,14 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
               </label>
             </FullWidth>
           </FormSection>
-        </>
-      )}
+      </>
 
       <div className="drawer-actions">
         <button
           className="btn primary"
           type="button"
           onClick={() => void save()}
-          disabled={busy || (!existing && action === 'update' && !picked)}
+          disabled={busy}
         >
           {busy ? 'Saving…' : creating ? 'Create the company' : 'Save changes'}
         </button>

@@ -17,7 +17,7 @@ import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
-import { ErrorBanner, FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
 import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
@@ -500,12 +500,8 @@ function JobProcessDrawer({
   onDone: (message: string) => void | Promise<void>
 }) {
   const canManage = canManageRecords && !viewOnly
-  // monday's form opens with "Select Action": create a new record or update an existing one.
-  const [action, setAction] = useState<'create' | 'update'>('create')
-  const [pickedId, setPickedId] = useState('')
   const [files, setFiles] = useState<File[]>([])
-  const picked = rows.find((r) => r.id === pickedId) ?? null
-  const row = existing ?? (action === 'update' ? picked : null)
+  const row = existing
   const [f, setF] = useState<Form>(existing ? fromRow(existing) : blank)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -532,20 +528,6 @@ function JobProcessDrawer({
       .catch(() => { if (live) setErr("Could not load this record's locations.") })
     return () => { live = false }
   }, [row])
-
-  function chooseAction(next: 'create' | 'update') {
-    setAction(next)
-    setPickedId('')
-    setFiles([])
-    setF(blank)
-    setLocationIds([])
-    setLinksLoaded(true)
-  }
-  function pick(id: string) {
-    setPickedId(id)
-    const r = rows.find((x) => x.id === id)
-    setF(r ? fromRow(r) : blank)
-  }
 
   /** Typing a GSTIN fills the state code, state and PAN that it carries. */
   function setGst(value: string) {
@@ -610,24 +592,11 @@ function JobProcessDrawer({
     await onDone(`${existing.name} deleted.`)
   }
 
-  const showForm = existing || action === 'create' || picked
-
   return (
     <Drawer title={existing ? `${existing.process_code} · ${existing.name}` : 'Sizing/Delivery Address Creation Form'} onClose={onClose} readOnly={viewOnly}>
       <ErrorBanner message={err} />
-      {!existing && !viewOnly && (
-        <RecordAction
-          action={action}
-          onAction={chooseAction}
-          pickedId={pickedId}
-          onPick={pick}
-          records={rows.map((r) => ({ id: r.id, label: r.name }))}
-          noun="sizing / delivery address"
-        />
-      )}
       {!canManage && !viewOnly && <div className="notice small">You can view this record; changing it needs the “Add and edit job processes” permission.</div>}
-      {showForm && (
-        <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <FormSection title="Sizing/Delivery Address Information" count={6}>
             <Field id="t-name" label="Name" required error={show('t-name')}>
               <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
@@ -737,13 +706,12 @@ function JobProcessDrawer({
               </label>
             </FullWidth>
           </FormSection>
-        </fieldset>
-      )}
+      </fieldset>
 
 
       {canManage && (
         <div className="drawer-actions">
-          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || (!existing && action === 'update' && !picked)}>
+          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
             {busy ? 'Saving…' : row ? '✓ Update Item' : '✓ Create Item'}
           </button>
           <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>

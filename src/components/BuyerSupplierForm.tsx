@@ -8,23 +8,23 @@
  *  value, two remarks and up to ten documents.
  *
  *  A monday item is one buyer or one supplier, so Type picks the master the
- *  record is written to. Update lists every existing record and loads it. */
+ *  record is written to. Changing a saved record is Actions > Edit on the list. */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CATEGORIES } from '../api/types'
 import type { BuyerMaster, SupplierMaster } from '../api/types'
 import { Drawer } from './Drawer'
 import { DEFAULT_COMMISSIONS, Field, FieldErrorsProvider } from './PartyForms'
 import { PhoneField } from './PhoneField'
-import { ActionChoice, ErrorBanner, FormSection, FullWidth } from './FormKit'
+import { ErrorBanner, FormSection, FullWidth } from './FormKit'
 import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors } from '../lib/validate'
 import { PendingDocuments } from './documents/PendingDocuments'
-import { DocumentsPanel, useProfileNames } from './PartyExtras'
+import { useProfileNames } from './PartyExtras'
 import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
-import { loadLinkIds, syncLinks } from '../lib/links'
+import { syncLinks } from '../lib/links'
 import { errMessage, GST_STATES, isGst, numOrNull } from '../lib/party'
-import { joinPhone, phoneProblem, splitPhone, splitStored } from '../lib/phone'
+import { phoneProblem, splitPhone } from '../lib/phone'
 
 type Side = 'buyer' | 'supplier'
 
@@ -89,13 +89,6 @@ const nowLocal = (): string => {
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
   return d.toISOString().slice(0, 16)
 }
-const toLocal = (iso: string | null | undefined): string => {
-  if (!iso) return nowLocal()
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return nowLocal()
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-  return d.toISOString().slice(0, 16)
-}
 
 const blank = (type: Side): FormState => ({
   name: '', record_at: nowLocal(), type, email: '', office_phone: '', address: '', mill_address: '', state: '', gst: '',
@@ -105,51 +98,6 @@ const blank = (type: Side): FormState => ({
   fabric_producing: '', no_of_looms: '', reed_pick: '', width: '', machine_type: '', counts_supplying: '',
   spindles: '', monthly_production: '', qty_bags: '', qty_kgs: '',
 })
-
-/** A stored 10-digit mobile shown with its country code. */
-const withCode = (v: string | null | undefined): string => (v ? joinPhone({ code: '+91', number: v }) : '')
-
-function fromRow(side: Side, r: BuyerMaster | SupplierMaster): FormState {
-  return {
-    name: r.name,
-    record_at: toLocal(r.record_at ?? r.created_at),
-    type: side,
-    email: r.email ?? '',
-    office_phone: r.office_phone ? joinPhone(splitStored(r.office_phone)) : '',
-    address: r.address ?? '',
-    mill_address: r.mill_address ?? '',
-    state: r.state ?? '',
-    gst: r.gst ?? '',
-    company_id: r.company_id ?? '',
-    default_commission: r.default_commission ?? '',
-    category: r.category ?? '',
-    messenger_id: r.messenger_id ?? '',
-    pan: r.pan ?? '',
-    c1_name: r.contact_person ?? '',
-    c1_phone: withCode(r.mobile),
-    c1_email: r.contact_1_email ?? '',
-    c2_name: r.contact_2_name ?? '',
-    c2_phone: withCode(r.contact_2_mobile),
-    c2_email: r.contact_2_email ?? '',
-    c3_name: r.contact_3_name ?? '',
-    c3_phone: withCode(r.contact_3_mobile),
-    c3_email: r.contact_3_email ?? '',
-    commission_type: r.commission_basis ?? '',
-    commission_value: r.commission_value === null ? '' : String(r.commission_value),
-    remark_1: r.notes ?? '',
-    remark_2: r.remarks_2 ?? '',
-    fabric_producing: 'fabric_producing' in r ? r.fabric_producing ?? '' : '',
-    no_of_looms: 'no_of_looms' in r && r.no_of_looms !== null ? String(r.no_of_looms) : '',
-    reed_pick: 'reed_pick' in r ? r.reed_pick ?? '' : '',
-    width: 'width' in r ? r.width ?? '' : '',
-    machine_type: 'machine_type' in r ? r.machine_type ?? '' : '',
-    counts_supplying: 'counts_supplying' in r && r.counts_supplying !== null ? String(r.counts_supplying) : '',
-    spindles: 'spindles' in r && r.spindles !== null ? String(r.spindles) : '',
-    monthly_production: 'monthly_production' in r && r.monthly_production !== null ? String(r.monthly_production) : '',
-    qty_bags: r.qty_bags_month === null || r.qty_bags_month === undefined ? '' : String(r.qty_bags_month),
-    qty_kgs: r.qty_kgs_month === null || r.qty_kgs_month === undefined ? '' : String(r.qty_kgs_month),
-  }
-}
 
 const orNull = (v: string) => v.trim() || null
 
@@ -303,9 +251,7 @@ export function BuyerSupplierForm({
   canSupplier,
   onClose,
   onDone,
-  onDocsChanged,
 }: {
-  onDocsChanged?: () => void
   companies: CompanyOption[]
   suppliers: SupplierMaster[]
   buyers: BuyerMaster[]
@@ -315,8 +261,6 @@ export function BuyerSupplierForm({
   onDone: (message: string, kind?: 'ok' | 'bad') => void | Promise<void>
 }) {
   const firstSide: Side = canBuyer ? 'buyer' : 'supplier'
-  const [action, setAction] = useState<'create' | 'update'>('create')
-  const [target, setTarget] = useState('') // "buyer:<id>" | "supplier:<id>"
   const [form, setForm] = useState<FormState>(() => blank(firstSide))
   const [locationIds, setLocationIds] = useState<string[]>([])
   const [countIds, setCountIds] = useState<string[]>([])
@@ -324,80 +268,22 @@ export function BuyerSupplierForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
-  const [linksReady, setLinksReady] = useState(true)
 
   const people = useProfileNames()
   const locationOptions = useLocationOptions()
   const countOptions = useCountOptions()
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((p) => ({ ...p, [key]: value }))
-  const allowed = (s: Side) => (s === 'buyer' ? canBuyer : canSupplier)
-
-  const records = useMemo(
-    () =>
-      [
-        ...buyers.map((b) => ({ key: `buyer:${b.id}`, side: 'buyer' as Side, row: b as BuyerMaster | SupplierMaster })),
-        ...suppliers.map((s) => ({ key: `supplier:${s.id}`, side: 'supplier' as Side, row: s as BuyerMaster | SupplierMaster })),
-      ]
-        .filter((r) => allowed(r.side))
-        .sort((a, z) => a.row.name.localeCompare(z.row.name)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [buyers, suppliers, canBuyer, canSupplier],
-  )
-
-  const [side, id] = target.split(':') as [Side | undefined, string | undefined]
-  const current = action === 'update' && side && id ? records.find((r) => r.key === target) ?? null : null
-
-  // Choosing a record to update loads it, with its linked locations and counts.
-  useEffect(() => {
-    if (action !== 'update') return undefined
-    if (!current) {
-      setForm(blank(firstSide))
-      setLocationIds([])
-      setCountIds([])
-      return undefined
-    }
-    setForm(fromRow(current.side, current.row))
-    setLinksReady(false)
-    let live = true
-    Promise.all([loadLinkIds('location', current.side, current.row.id), loadLinkIds('count', current.side, current.row.id)])
-      .then(([l, c]) => {
-        if (!live) return
-        setLocationIds(l)
-        setCountIds(c)
-        setLinksReady(true)
-      })
-      .catch((caught) => {
-        if (live) setError(`Locations and counts could not be loaded (${errMessage(caught)}). Saving is turned off until they can be.`)
-      })
-    return () => {
-      live = false
-    }
-  }, [action, current, firstSide])
-
-  function chooseAction(next: 'create' | 'update') {
-    setAction(next)
-    setError(null)
-    setTarget('')
-    setFiles([])
-    setForm(blank(firstSide))
-    setLocationIds([])
-    setCountIds([])
-    setLinksReady(true)
-  }
 
   function clearForm() {
     setError(null)
     setFiles([])
-    if (action === 'update') setTarget('')
-    else {
-      setForm(blank(form.type))
-      setLocationIds([])
-      setCountIds([])
-    }
+    setForm(blank(form.type))
+    setLocationIds([])
+    setCountIds([])
   }
 
-  const errors = errorsOf(form, countIds, { buyers, suppliers, selfId: current?.row.id })
+  const errors = errorsOf(form, countIds, { buyers, suppliers })
   const typed: Record<string, string> = {
     'bs-name': form.name, 'bs-email': form.email, 'bs-ophone': form.office_phone, 'bs-address': form.address, 'bs-gst': form.gst,
     'bs-company': form.company_id, 'bs-defcomm': form.default_commission, 'bs-pan': form.pan, 'bs-c1p': form.c1_phone,
@@ -409,8 +295,8 @@ export function BuyerSupplierForm({
   const visibleErrors: Record<string, string> = Object.fromEntries(
     Object.entries(errors).filter(([id]) => submitted || (typed[id] ?? '').trim() !== ''),
   )
-  const updatingNothing = action === 'update' && !current
-  const canSave = !updatingNothing && linksReady && allowed(form.type)
+  const allowed = (s: Side) => (s === 'buyer' ? canBuyer : canSupplier)
+  const canSave = allowed(form.type)
 
   async function uploadFiles(owner: Side, ownerId: string): Promise<string[]> {
     const failed: string[] = []
@@ -449,26 +335,13 @@ export function BuyerSupplierForm({
     setBusy(true)
     const table = form.type === 'buyer' ? 'buyer_master' : 'supplier_master'
     const payload: Record<string, unknown> = payloadOf(form)
-    let ownerId: string
-    if (action === 'create') {
-      const { data, error: e } = await supabase.from(table).insert(payload).select('id').single()
-      if (e) {
-        setBusy(false)
-        setError(errMessage(e, 'Could not save this record'))
-        return
-      }
-      ownerId = (data as { id: string }).id
-    } else {
-      if (!current) return
-      // the type of an existing record cannot change here: it lives in the master it was created in
-      const { data, error: e } = await supabase.from(table).update(payload).eq('id', current.row.id).select('id')
-      if (e || !data || data.length === 0) {
-        setBusy(false)
-        setError(e ? errMessage(e, 'Could not save this record') : 'Your account cannot change this record.')
-        return
-      }
-      ownerId = current.row.id
+    const { data, error: e } = await supabase.from(table).insert(payload).select('id').single()
+    if (e) {
+      setBusy(false)
+      setError(errMessage(e, 'Could not save this record'))
+      return
     }
+    const ownerId = (data as { id: string }).id
 
     const problemsAfter: string[] = []
     for (const [kind, ids] of [['location', locationIds], ['count', countIds]] as const) {
@@ -483,48 +356,20 @@ export function BuyerSupplierForm({
       if (failed.length > 0) problemsAfter.push(`documents not uploaded: ${failed.join(', ')}`)
     }
     setBusy(false)
-    const saved = `${form.name.trim()} ${action === 'create' ? 'added' : 'updated'}.`
+    const saved = `${form.name.trim()} added.`
     if (problemsAfter.length > 0) {
-      await onDone(`${saved} The record is saved, but ${problemsAfter.join('; ')}. Open it with Update Existing Record to retry.`, 'bad')
+      await onDone(`${saved} The record is saved, but ${problemsAfter.join('; ')}. Open it with Actions > Edit to retry.`, 'bad')
       return
     }
     await onDone(saved)
   }
 
-  const typeLocked = action === 'update' && current !== null
-
   return (
     <Drawer title="Buyers & Suppliers creation form" onClose={onClose}>
       <ErrorBanner message={error} />
 
-      <ActionChoice
-        label="Select Action"
-        value={action}
-        onChange={chooseAction}
-        options={[
-          { value: 'create', label: 'Create New Record', hint: 'Add a new buyer or supplier.' },
-          { value: 'update', label: 'Update Existing Record', hint: 'Pick a record and change its details.' },
-        ]}
-      />
-      {action === 'update' && (
-        <FormSection title="Record to update">
-          <FullWidth>
-            <Field id="bs-target" label="Record" required hint="Its details are loaded below for you to change.">
-              <select id="bs-target" value={target} onChange={(e) => setTarget(e.target.value)}>
-                <option value="">— Select a record —</option>
-                {records.map((r) => (
-                  <option key={r.key} value={r.key}>
-                    {r.row.name} ({r.side === 'buyer' ? 'Buyer' : 'Supplier'})
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </FullWidth>
-        </FormSection>
-      )}
-
       <FieldErrorsProvider value={visibleErrors}>
-      <fieldset disabled={updatingNothing} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <FormSection title="Buyer & Supplier Details" count={14}>
           <Field id="bs-name" label="Name" required>
             <input id="bs-name" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Enter Name" autoFocus />
@@ -532,8 +377,8 @@ export function BuyerSupplierForm({
           <Field id="bs-date" label="Date">
             <input id="bs-date" type="datetime-local" value={form.record_at} onChange={(e) => set('record_at', e.target.value)} />
           </Field>
-          <Field id="bs-type" label="Type" required hint={typeLocked ? 'A record stays a buyer or a supplier once created.' : undefined}>
-            <select id="bs-type" value={form.type} onChange={(e) => set('type', e.target.value as Side)} disabled={typeLocked}>
+          <Field id="bs-type" label="Type" required>
+            <select id="bs-type" value={form.type} onChange={(e) => set('type', e.target.value as Side)}>
               <option value="buyer" disabled={!canBuyer}>
                 Buyer
               </option>
@@ -591,7 +436,6 @@ export function BuyerSupplierForm({
             options={locationOptions}
             value={locationIds}
             onChange={setLocationIds}
-            disabled={!linksReady}
             placeholder="-- Select Location MDM --"
           />
           <Field id="bs-defcomm" label="Default Commision Percentage" required>
@@ -659,7 +503,6 @@ export function BuyerSupplierForm({
             options={countOptions}
             value={countIds}
             onChange={setCountIds}
-            disabled={!linksReady}
             placeholder="-- Select Counts --"
           />
           <Field id="bs-ctype" label={`${form.type === 'buyer' ? 'Buyer' : 'Supplier'} Commission Type`}>
@@ -738,11 +581,7 @@ export function BuyerSupplierForm({
 
         <FormSection title="Documents" count={1}>
           <FullWidth>
-            {action === 'update' && current ? (
-              <DocumentsPanel partyType={current.side} partyId={current.row.id} canEdit onChanged={onDocsChanged} />
-            ) : (
-              <PendingDocuments files={files} onChange={setFiles} disabled={busy} />
-            )}
+            <PendingDocuments files={files} onChange={setFiles} disabled={busy} />
           </FullWidth>
         </FormSection>
       </fieldset>
@@ -750,7 +589,7 @@ export function BuyerSupplierForm({
 
       <div className="drawer-actions">
         <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || !canSave}>
-          {busy ? 'Saving…' : action === 'create' ? '✓ Create Item' : '✓ Update Item'}
+          {busy ? 'Saving…' : '✓ Create Item'}
         </button>
         <button className="btn ghost" type="button" onClick={clearForm} disabled={busy}>
           Clear Form
