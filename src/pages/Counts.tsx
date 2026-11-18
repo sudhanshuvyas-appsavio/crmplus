@@ -399,8 +399,7 @@ export default function Counts() {
                     <RowActionMenu
                       label={r.display_name}
                       actions={[
-                        { label: 'View', onSelect: () => setViewing(r) },
-                        { label: 'Edit', onSelect: () => setEditing({ mode: 'edit', row: r }), disabledReason: canManage ? null : 'Needs “Add and edit article”' },
+                        { label: 'Edit', onSelect: () => (canManage ? setEditing({ mode: 'edit', row: r }) : setViewing(r)) },
                         { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canManage ? null : 'Needs “Add and edit article”' },
                       ]}
                     />

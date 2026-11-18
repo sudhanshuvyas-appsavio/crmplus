@@ -141,8 +141,7 @@ export default function PaymentTerms() {
                   <RowActionMenu
                     label={r.name}
                     actions={[
-                      { label: 'View', onSelect: () => setViewing(r) },
-                      { label: 'Edit', onSelect: () => setEditing(r), disabledReason: canEdit ? null : 'Needs “Change system settings”' },
+                      { label: 'Edit', onSelect: () => (canEdit ? setEditing(r) : setViewing(r)) },
                       { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canEdit ? null : 'Needs “Change system settings”' },
                     ]}
                   />
