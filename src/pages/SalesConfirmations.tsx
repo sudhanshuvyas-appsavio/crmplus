@@ -28,6 +28,8 @@ import { formatDateTime } from '../lib/format'
 import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
 import { ConfirmationDrawer } from '../components/sc/ConfirmationDrawer'
 import { BulkSendDrawer } from '../components/sc/BulkSendDrawer'
+import { ScReports } from '../components/sc/ScReports'
+import { BoardTabs } from '../components/board/BoardTabs'
 import type { Company, Party, ScRow } from '../components/sc/scShared'
 
 const CSV_COLUMNS = [
@@ -56,7 +58,7 @@ export default function SalesConfirmations() {
   const [scLines, setScLines] = useState<Map<string, ScLineRow[]>>(new Map())
   const [editing, setEditing] = useState<ScRow | 'new' | null>(null)
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useStoredState('sc.type', '')
+  const [tab, setTab] = useState<'table' | 'reports'>('table')
   const [view, setView] = useStoredState<'table' | 'kanban'>('sc.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -117,20 +119,22 @@ export default function SalesConfirmations() {
   const countName = useMemo(() => new Map(counts.map((x) => [x.id, x.display_name])), [counts])
   const transporterName = useMemo(() => nm(transporters), [transporters])
   const jobName = useMemo(() => nm(jobs), [jobs])
+  const termNameMap = useMemo(() => nm(terms), [terms])
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
     return (rows ?? []).filter(
       (x) =>
-        (!typeFilter || x.sale_type === typeFilter) &&
         (!q ||
           x.sc_no.toLowerCase().includes(q) ||
           (x.supplier_id ? supplierName.get(x.supplier_id) ?? '' : '').toLowerCase().includes(q) ||
           (x.buyer_id ? buyerName.get(x.buyer_id) ?? '' : '').toLowerCase().includes(q) ||
           (x.count_id ? countName.get(x.count_id) ?? '' : '').toLowerCase().includes(q) ||
+          (scLines.get(x.id) ?? []).some((l) => (countName.get(l.count_id) ?? '').toLowerCase().includes(q)) ||
+          (x.payment_term_id ? termNameMap.get(x.payment_term_id) ?? '' : '').toLowerCase().includes(q) ||
           (x.vehicle_no ?? '').toLowerCase().includes(q)),
     )
-  }, [rows, search, typeFilter, supplierName, buyerName, countName])
+  }, [rows, search, supplierName, buyerName, countName, termNameMap, scLines])
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
 
@@ -261,14 +265,27 @@ export default function SalesConfirmations() {
         </div>
       )}
 
+      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }, { key: 'reports', label: 'Reports' }]} active={tab} onChange={(k) => setTab(k as 'table' | 'reports')} />
+
+      {tab === 'reports' && (
+        <ScReports
+          rows={rows}
+          lines={scLines}
+          buyerName={buyerName}
+          supplierName={supplierName}
+          countName={countName}
+          termName={termNameMap}
+          onPick={(text) => {
+            setSearch(text)
+            setTab('table')
+          }}
+        />
+      )}
+
+      {tab === 'table' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search confirmations" placeholder="Search no., supplier, buyer, count, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select aria-label="Type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-          <option value="">Local and export</option>
-          <option value="local">Local</option>
-          <option value="export">Export</option>
-        </select>
         <span className="push" />
         {canManage && chosen > 0 && (
           <button className="btn primary sm" type="button" onClick={() => setBulk(true)}>Send {chosen} selected</button>
@@ -315,6 +332,7 @@ export default function SalesConfirmations() {
           </>
         )}
       />
+      </>)}
 
       {editing && (
         <ConfirmationDrawer

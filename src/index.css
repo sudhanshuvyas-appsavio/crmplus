@@ -1323,3 +1323,23 @@ a.summary-card:hover { box-shadow: var(--shadow); }
 .inline-form-head { padding: 14px 20px; border-bottom: 1px solid var(--border); }
 .inline-form-head h2 { font-size: 16px; font-weight: 600; }
 .inline-form-body { padding: 18px 22px 24px; }
+
+/* Reports tab: chart cards and ranked bars */
+.viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.viz-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px 12px; }
+.viz-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
+.viz-card-head h3 { font-size: 15px; font-weight: 600; }
+.viz-empty { padding: 18px 0; }
+.rbars { display: grid; gap: 2px; }
+.rbar { display: grid; grid-template-columns: minmax(96px, 36%) 1fr; align-items: center; gap: 10px; width: 100%; padding: 4px 6px; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: 6px; cursor: pointer; }
+.rbar:disabled, .rbar.other { cursor: default; }
+.rbar:not(:disabled):hover, .rbar:not(:disabled):focus-visible { background: var(--surface-3); outline: none; }
+.rbar-label { font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rbar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rbar-fill { height: 16px; min-width: 3px; background: var(--c1); border-radius: 0 4px 4px 0; transition: width 0.2s ease; }
+.rbar:not(:disabled):hover .rbar-fill, .rbar:not(:disabled):focus-visible .rbar-fill { filter: brightness(1.12); }
+.rbar-value { font-size: 12.5px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rbar.other .rbar-fill { background: var(--ink-3); opacity: 0.5; }
+.viz-table-toggle { margin-top: 6px; }
+.viz-table { width: 100%; margin-top: 6px; font-size: 13px; }
+.viz-table td { padding: 4px 6px; border-top: 1px solid var(--border); }
