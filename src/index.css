@@ -1356,3 +1356,11 @@ a.summary-card:hover { box-shadow: var(--shadow); }
 .followups > summary::-webkit-details-marker { display: none; }
 .followups > summary::before { content: ''; width: 7px; height: 7px; border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3); transform: rotate(45deg) translateY(-2px); transition: transform 0.15s ease; }
 .followups:not([open]) > summary::before { transform: rotate(-45deg); }
+
+/* board toolbars: every control the same height and text size (the buttons were 29px / 12px beside
+   34-38px / 14px inputs, so "Export all" looked like it floated) */
+.board-toolbar > .seg, .board-toolbar > .toolbar-search, .board-toolbar > select, .board-toolbar .btn { height: 36px; box-sizing: border-box; }
+.board-toolbar > .seg button { height: 100%; }
+.board-toolbar > .toolbar-search, .board-toolbar > select { padding-top: 0; padding-bottom: 0; font-size: 14px; }
+.board-toolbar .btn, .board-toolbar .btn.sm { padding: 0 14px; font-size: 14px; }
+.board-toolbar .toolbar-confirm { display: inline-flex; align-items: center; gap: 8px; }
