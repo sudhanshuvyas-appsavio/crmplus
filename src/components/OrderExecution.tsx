@@ -10,11 +10,14 @@ import type { CloseStatus, CommissionInvoice, JobProcess, Order, OrderDispatch, 
 import { Field } from './PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
+import { TRANSPORT_TYPES, transportTypeLabel, uomLabel } from '../lib/deals'
+import { useProfileNames } from './PartyExtras'
 
 const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toLocaleString('en-IN', { maximumFractionDigits: 2 }))
 
 export function OrderExecution({ order, canManage, jobs, onChanged }: { order: Order; canManage: boolean; jobs: JobProcess[]; onChanged?: () => Promise<void> }) {
   const [transporters, setTransporters] = useState<Transporter[]>([])
+  const people = useProfileNames()
   const [trs, setTrs] = useState<OrderTransport[]>([])
   const [ojs, setOjs] = useState<OrderJobProcess[]>([])
   const [dsp, setDsp] = useState<OrderDispatch[]>([])
@@ -160,18 +163,59 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
       {manage && <JobForm jobs={jobs.filter((j) => j.is_active)} onAdd={(r) => add('order_job_processes', r)} />}
 
       <h4>Dispatch entries</h4>
-      <p className="small">Dispatched {money(dispatched)} of {money(order.quantity)} {order.uom}.</p>
+      <p className="small">Dispatched {money(dispatched)} of {money(order.quantity)} {uomLabel(order.uom)}; {money(order.quantity - dispatched)} left.</p>
       {dsp.length > 0 && (
-        <ul className="small" style={{ margin: 0 }}>
-          {dsp.map((x) => (
-            <li key={x.id}>
-              <span className="mono">{x.dispatch_no}</span> · {x.dispatch_date} · {money(x.quantity)} {order.uom}{x.vehicle_no ? ` · ${x.vehicle_no}` : ''}
-              {x.lr_no ? ` · LR ${x.lr_no}` : ''}{x.invoice_no ? ` · Inv ${x.invoice_no}` : ''} {del('order_dispatches', x.id)}
-            </li>
-          ))}
-        </ul>
+        <div className="table-wrap" style={{ marginBottom: 12 }}>
+          <table>
+            <thead>
+              {/* columns in the order of the monday Dispatch and Billing subitems */}
+              <tr>
+                <th>Dispatch Entry No</th><th>Owner</th><th>Invoice No.</th><th>Invoice Date</th><th>Del Date</th><th>DC No.</th><th>Vehicle Number</th>
+                <th>Transport Company</th><th className="right">Bags Weight</th><th className="right">Total Weight</th><th className="right">Value</th>
+                <th className="right">Buyer Commission</th><th className="right">Supplier Commission</th><th className="right">CGST</th><th className="right">Insurance Tax</th>
+                <th className="right">Add</th><th className="right">Deduct</th><th className="right">Total Amount</th><th className="right">Round off</th>
+                <th>Dispatch Date</th><th className="right">Quantity Dispatched</th><th>Transport Type</th><th>LR No.</th><th />
+              </tr>
+            </thead>
+            <tbody>
+              {dsp.map((x) => {
+                const tr = x.transport_id ? trs.find((t) => t.id === x.transport_id) : undefined
+                return (
+                  <tr key={x.id}>
+                    <td className="mono small">{x.dispatch_no}</td>
+                    <td className="small">{x.person_id ? people[x.person_id] ?? '—' : '—'}</td>
+                    <td className="mono small">{x.invoice_no ?? '—'}</td>
+                    <td className="small">{x.invoice_date ?? '—'}</td>
+                    <td className="small">{x.delivery_date ?? '—'}</td>
+                    <td className="small">{x.dc_no ?? '—'}</td>
+                    <td className="mono small">{x.vehicle_no ?? '—'}</td>
+                    <td className="small">{tr ? (tr.kind === 'our' ? 'Our vehicle' : tr.transporter_id ? trName(tr.transporter_id) : 'Third party') : '—'}</td>
+                    <td className="right mono small">{money(order.bag_weight)}</td>
+                    <td className="right mono small">{money(x.total_weight)}</td>
+                    <td className="right mono small">{money(x.entry_value)}</td>
+                    <td className="right mono small">{money(x.buyer_commission)}</td>
+                    <td className="right mono small">{money(x.supplier_commission)}</td>
+                    <td className="right mono small">{money(x.cgst_pct)}</td>
+                    <td className="right mono small">{money(x.insurance_pct)}</td>
+                    <td className="right mono small">{money(x.add_amount)}</td>
+                    <td className="right mono small">{money(x.deduct_amount)}</td>
+                    <td className="right mono small">{money(x.total_amount)}</td>
+                    <td className="right mono small">{money(x.round_off)}</td>
+                    <td className="mono small">{x.dispatch_date}</td>
+                    <td className="right mono">{money(x.quantity)}</td>
+                    <td className="small">{x.transport_type ? transportTypeLabel(x.transport_type) : '—'}</td>
+                    <td className="small">{x.lr_no ?? '—'}</td>
+                    <td>{del('order_dispatches', x.id)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
-      {manage && <DispatchForm trs={trs} trName={trName} onAdd={(r) => add('order_dispatches', r)} />}
+      {manage && order.quantity - dispatched > 0 && (
+        <DispatchForm people={people} trs={trs} trName={trName} left={order.quantity - dispatched} defaults={order} onAdd={(r) => add('order_dispatches', r)} />
+      )}
 
       <h4>Payment tracking</h4>
       {!order.payment_tracking_enabled ? <p className="muted small">Not enabled.</p> : (
@@ -245,28 +289,79 @@ function JobForm({ jobs, onAdd }: { jobs: JobProcess[]; onAdd: (r: Record<string
   )
 }
 
-function DispatchForm({ trs, trName, onAdd }: { trs: OrderTransport[]; trName: (id: string | null) => string; onAdd: (r: Record<string, unknown>) => Promise<boolean> }) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+/** One dispatch entry (a monday subitem). Weight, value, commissions and total
+ *  are worked out by the database from the item's rate and commission terms. */
+function DispatchForm({ people, trs, trName, left, defaults, onAdd }: {
+  people: Record<string, string>
+  trs: OrderTransport[]
+  trName: (id: string | null) => string
+  left: number
+  defaults: Order
+  onAdd: (r: Record<string, unknown>) => Promise<boolean>
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(today)
   const [qty, setQty] = useState('')
   const [tid, setTid] = useState('')
-  const [veh, setVeh] = useState('')
+  const [veh, setVeh] = useState(defaults.vehicle_no ?? '')
   const [lr, setLr] = useState('')
   const [inv, setInv] = useState('')
+  const [invDate, setInvDate] = useState(today)
+  const [dc, setDc] = useState('')
+  const [delDate, setDelDate] = useState('')
+  const [tt, setTt] = useState(defaults.transport_type ?? '')
+  const [cgst, setCgst] = useState(defaults.cgst_pct === null ? '' : String(defaults.cgst_pct))
+  const [ins, setIns] = useState(defaults.insurance_pct === null ? '' : String(defaults.insurance_pct))
+  const [addA, setAddA] = useState('')
+  const [ded, setDed] = useState('')
+  const [round, setRound] = useState('')
+  const [person, setPerson] = useState(defaults.person_id ?? '')
   const q = numOrNull(qty)
+  const tooMuch = q !== null && q > left
   return (
-    <div className="form-grid">
-      <Field id="x-dd" label="Dispatch date" required><input id="x-dd" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      <Field id="x-dq" label="Quantity" required><input id="x-dq" className="mono" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
-      <Field id="x-dt" label="Transportation">
-        <select id="x-dt" value={tid} onChange={(e) => setTid(e.target.value)}>
-          <option value="">—</option>
-          {trs.map((t) => (<option key={t.id} value={t.id}>{t.kind === 'our' ? 'Our' : trName(t.transporter_id)}{t.vehicle_no ? ` · ${t.vehicle_no}` : ''}</option>))}
-        </select>
-      </Field>
-      <Field id="x-dv" label="Vehicle no."><input id="x-dv" value={veh} onChange={(e) => setVeh(e.target.value)} /></Field>
-      <Field id="x-dl" label="LR no."><input id="x-dl" value={lr} onChange={(e) => setLr(e.target.value)} /></Field>
-      <Field id="x-di" label="Invoice no."><input id="x-di" value={inv} onChange={(e) => setInv(e.target.value)} /></Field>
-      <button className="btn" type="button" disabled={!date || q === null || q <= 0} onClick={() => void onAdd({ dispatch_date: date, quantity: q, transport_id: tid || null, vehicle_no: veh.trim() || null, lr_no: lr.trim() || null, invoice_no: inv.trim() || null }).then((d) => { if (d) { setQty(''); setVeh(''); setLr(''); setInv(''); setTid('') } })}>Add dispatch entry</button>
+    <div className="dispatch-form">
+      <div className="form-grid">
+        <Field id="x-dq" label={`Quantity Dispatched (${uomLabel(defaults.uom)})`} required hint={`Up to ${money(left)}.`}><input id="x-dq" className="mono" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
+        <Field id="x-dd" label="Dispatch Date" required><input id="x-dd" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field id="x-di" label="Invoice No."><input id="x-di" value={inv} onChange={(e) => setInv(e.target.value)} /></Field>
+        <Field id="x-did" label="Invoice Date"><input id="x-did" type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} /></Field>
+        <Field id="x-dc" label="DC No."><input id="x-dc" value={dc} onChange={(e) => setDc(e.target.value)} /></Field>
+        <Field id="x-ddel" label="Del Date"><input id="x-ddel" type="date" value={delDate} onChange={(e) => setDelDate(e.target.value)} /></Field>
+        <Field id="x-dtt" label="Transport Type">
+          <select id="x-dtt" value={tt} onChange={(e) => setTt(e.target.value)}>
+            <option value="">—</option>
+            {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
+          </select>
+        </Field>
+        <Field id="x-dt" label="Transport Company">
+          <select id="x-dt" value={tid} onChange={(e) => setTid(e.target.value)}>
+            <option value="">—</option>
+            {trs.map((t) => (<option key={t.id} value={t.id}>{t.kind === 'our' ? 'Our' : trName(t.transporter_id)}{t.vehicle_no ? ` · ${t.vehicle_no}` : ''}</option>))}
+          </select>
+        </Field>
+        <Field id="x-dv" label="Vehicle Number"><input id="x-dv" value={veh} onChange={(e) => setVeh(e.target.value.toUpperCase())} /></Field>
+        <Field id="x-dl" label="LR No."><input id="x-dl" value={lr} onChange={(e) => setLr(e.target.value)} /></Field>
+        <Field id="x-dcg" label="CGST"><input id="x-dcg" className="mono" inputMode="decimal" value={cgst} onChange={(e) => setCgst(e.target.value)} /></Field>
+        <Field id="x-dins" label="Insurance Tax"><input id="x-dins" className="mono" inputMode="decimal" value={ins} onChange={(e) => setIns(e.target.value)} /></Field>
+        <Field id="x-dadd" label="Add"><input id="x-dadd" className="mono" inputMode="decimal" value={addA} onChange={(e) => setAddA(e.target.value)} /></Field>
+        <Field id="x-dded" label="Deduct"><input id="x-dded" className="mono" inputMode="decimal" value={ded} onChange={(e) => setDed(e.target.value)} /></Field>
+        <Field id="x-dro" label="Round off"><input id="x-dro" className="mono" inputMode="decimal" value={round} onChange={(e) => setRound(e.target.value)} /></Field>
+        <Field id="x-dpe" label="Person">
+          <select id="x-dpe" value={person} onChange={(e) => setPerson(e.target.value)}>
+            <option value="">—</option>
+            {Object.entries(people).sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => (<option key={id} value={id}>{name}</option>))}
+          </select>
+        </Field>
+      </div>
+      {tooMuch && <p className="field-warn">That is more than the {money(left)} left to dispatch.</p>}
+      <button className="btn" type="button" disabled={!date || q === null || q <= 0 || tooMuch} onClick={() => void onAdd({
+        dispatch_date: date, quantity: q, transport_id: tid || null, vehicle_no: veh.trim() || null, lr_no: lr.trim() || null,
+        invoice_no: inv.trim() || null, invoice_date: inv.trim() ? invDate || null : null, dc_no: dc.trim() || null, delivery_date: delDate || null,
+        transport_type: tt || null, cgst_pct: numOrNull(cgst), insurance_pct: numOrNull(ins), add_amount: numOrNull(addA), deduct_amount: numOrNull(ded),
+        round_off: numOrNull(round), person_id: person || null,
+      }).then((d) => { if (d) { setQty(''); setLr(''); setInv(''); setDc(''); setDelDate(''); setTid(''); setAddA(''); setDed(''); setRound('') } })}>
+        Add dispatch entry
+      </button>
     </div>
   )
 }

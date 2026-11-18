@@ -1,6 +1,7 @@
 /** Shared types and the confirmation message text for the sales confirmation screens. */
 
 import type { SalesConfirmation } from '../../api/types'
+import type { MirrorParty } from '../board/mirrors'
 import { formatDateTime } from '../../lib/format'
 
 /** Columns added to sales_confirmations after the first release (see the T-042 migration). */
@@ -29,8 +30,8 @@ export interface ScNotification {
   batch_id: string | null
 }
 
-export type Party = { id: string; name: string; mobile: string | null; email: string | null; company_id: string | null; is_active: boolean }
-export type Company = { id: string; name: string; is_active: boolean }
+export type Party = MirrorParty & { mobile: string | null; email: string | null }
+export type Company = { id: string; name: string; is_active: boolean; phone_1?: string | null; mobile?: string | null }
 
 
 export const num = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toLocaleString('en-IN', { maximumFractionDigits: 3 }))
@@ -42,6 +43,8 @@ export type Names = {
   buyerCompany: string
   count: string
   term: string
+  transporter?: string
+  deliveryTo?: string
 }
 
 /** The confirmation text shared with a party. Same sheet for both, different opening line. */
@@ -62,9 +65,16 @@ export function messageFor(who: 'supplier' | 'buyer', sc: ScRow, n: Names): { su
   if (sc.bag_weight) lines.push(`Bag weight: ${num(sc.bag_weight)} kg`)
   lines.push(`Freight: ${sc.freight === 'included' ? 'Included' : 'Excluded'}`)
   if (sc.price_basis) lines.push(`Basis: ${sc.price_basis === 'net' ? 'Net' : 'Ex-mill'}`)
-  if (sc.rate !== null) lines.push(`Rate: ${num(sc.rate)} per ${sc.uom}`)
+  if (sc.rate !== null) lines.push(`Rate: ${num(sc.rate)} per kg`)
   if (n.term) lines.push(`Payment terms: ${n.term}`)
+  if (n.deliveryTo) lines.push(`Deliver to: ${n.deliveryTo}`)
   if (sc.delivery_schedule) lines.push(`Delivery schedule: ${sc.delivery_schedule}`)
+  if (n.transporter || sc.vehicle_no || sc.driver_phone) {
+    lines.push('', 'Delivery details')
+    if (n.transporter) lines.push(`Transport: ${n.transporter}`)
+    if (sc.vehicle_no) lines.push(`Vehicle no.: ${sc.vehicle_no}`)
+    if (sc.driver_phone) lines.push(`Driver phone: ${sc.driver_phone}`)
+  }
   if (sc.special_instructions) lines.push(`Special instructions: ${sc.special_instructions}`)
   if (sc.remarks) lines.push(`Remarks: ${sc.remarks}`)
   return { subject: `Sales confirmation ${sc.sc_no}`, body: lines.join('\n') }

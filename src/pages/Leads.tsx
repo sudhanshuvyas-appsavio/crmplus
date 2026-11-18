@@ -15,7 +15,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { LEAD_ROLES, LEAD_STATUSES, LEAD_UOMS } from '../api/types'
+import { LEAD_ROLES, LEAD_SOURCES, LEAD_STATUSES, LEAD_UOMS } from '../api/types'
+import { uomLabel } from '../lib/deals'
 import type { Activity, CountRow, Lead, LeadRole, LeadStatus, Station } from '../api/types'
 import { useNavigate } from 'react-router-dom'
 import { ActivityPanel } from '../components/PartyExtras'
@@ -31,12 +32,13 @@ import { errMessage, isGst, isMobile, numOrNull } from '../lib/party'
 import { formatDate, formatDateTime } from '../lib/format'
 
 const LEAD_CSV_COLUMNS = [
-  'lead_no', 'status', 'party_role', 'party_name', 'contact_person', 'mobile', 'station', 'office_address',
-  'gst', 'count', 'quantity', 'uom', 'expected_rate', 'timeline', 'remarks', 'sales_staff',
-  'follow_up_date', 'buyer_code', 'supplier_code', 'qualified_at',
+  'lead_no', 'status', 'lead_type', 'lead_source', 'party_role', 'party_name', 'contact_person', 'mobile_cc', 'mobile', 'station', 'office_address',
+  'gst', 'count', 'quantity', 'uom', 'expected_rate', 'timeline', 'timeline_from', 'timeline_to', 'remarks', 'sales_staff',
+  'follow_up_date', 'follow_up_at', 'buyer_code', 'supplier_code', 'qualified_at', 'created_at',
 ] as const
 
 type StaffOption = { id: string; name: string }
+type MasterParty = { id: string; name: string; contact_person: string | null; mobile: string | null; gst: string | null; address: string | null; is_active: boolean }
 type Editing = { mode: 'create' } | { mode: 'edit'; lead: Lead } | null
 type Banner = { kind: 'ok' | 'bad'; text: string } | null
 
@@ -225,26 +227,37 @@ export default function Leads() {
 
         const quantity = r.get('quantity')
         const stationName = await ensureStation(r.get('station'))
+        const followDate = r.get('follow_up_date')
         const form: LeadForm = {
+          lead_type: buyerId || supplierId ? 'existing' : 'new',
+          lead_source: r.get('lead_source'),
           party_role: role,
           party_name: r.get('party_name'),
           contact_person: r.get('contact_person'),
+          mobile_cc: r.get('mobile_cc') || '+91',
           mobile: r.get('mobile').replace(/\D/g, ''),
           station: stationName,
           office_address: r.get('office_address'),
           gst: r.get('gst').toUpperCase().replace(/\s+/g, ''),
+          buyer_id: buyerId ?? '',
+          supplier_id: supplierId ?? '',
           count_id: countId ?? '',
           quantity,
           uom: pickOne('UOM', r.get('uom'), LEAD_UOMS) || (quantity ? 'KG' : ''),
           expected_rate: r.get('expected_rate'),
           timeline: r.get('timeline'),
+          timeline_from: r.get('timeline_from'),
+          timeline_to: r.get('timeline_to'),
           remarks: r.get('remarks'),
           sales_staff_id: staffId ?? '',
-          follow_up_date: r.get('follow_up_date'),
+          follow_up_at: /^\d{4}-\d{2}-\d{2}$/.test(followDate) ? `${followDate}T10:00` : '',
         }
-        const missing = leadProblems(form)
+        const missing = leadProblems(form).filter((m) => !m.startsWith('Buyer from') && !m.startsWith('Supplier from'))
         if (form.expected_rate && numOrNull(form.expected_rate) === null) missing.push('Expected rate (a number)')
-        if (form.follow_up_date && !/^\d{4}-\d{2}-\d{2}$/.test(form.follow_up_date)) missing.push('Follow-up date (YYYY-MM-DD)')
+        if (followDate && !/^\d{4}-\d{2}-\d{2}$/.test(followDate)) missing.push('Follow-up date (YYYY-MM-DD)')
+        for (const [k, v] of [['timeline_from', form.timeline_from], ['timeline_to', form.timeline_to]] as const) {
+          if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) missing.push(`${k} (YYYY-MM-DD)`)
+        }
         if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
 
         const { error } = await supabase
@@ -441,11 +454,11 @@ export default function Leads() {
       {dealPrompt && (
         <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center', zIndex: 1000 }}>
           <div className="card pad" role="dialog" aria-modal="true" aria-label="Create a deal" style={{ maxWidth: 420, width: 'calc(100% - 32px)' }}>
-            <h3 className="section-title" style={{ marginTop: 0 }}>Create a deal?</h3>
-            <p>{dealPrompt.lead_no} is now Qualified. Do you want to create a Deal from it now?</p>
+            <h3 className="section-title" style={{ marginTop: 0 }}>Deal created</h3>
+            <p>{dealPrompt.lead_no} is now Qualified, and its deal was created as a New Deal. Add the supplier and the final rate there.</p>
             <div className="drawer-actions">
               <button className="btn primary" type="button" onClick={() => void createDeal()} disabled={dealBusy}>
-                {dealBusy ? 'Creating…' : 'Yes, create deal'}
+                {dealBusy ? 'Opening…' : 'Open the deal'}
               </button>
               <button className="btn ghost" type="button" onClick={() => setDealPrompt(null)} disabled={dealBusy}>
                 Not now
@@ -466,7 +479,7 @@ export default function Leads() {
             setBanner({ kind: 'ok', text })
             setQualifying(null)
             await load()
-            if (can('deal.create') && done) setDealPrompt({ id: leadId, lead_no: done.lead_no })
+            if (can('deal.read') && done) setDealPrompt({ id: leadId, lead_no: done.lead_no })
           }}
         />
       )}
@@ -477,73 +490,114 @@ export default function Leads() {
 /* ---- create / edit a lead (T-009) ------------------------------------------ */
 
 type LeadForm = {
+  lead_type: 'existing' | 'new'
+  lead_source: string
   party_role: LeadRole
   party_name: string
   contact_person: string
+  mobile_cc: string
   mobile: string
   station: string
   office_address: string
   gst: string
+  buyer_id: string
+  supplier_id: string
   count_id: string
   quantity: string
   uom: string
   expected_rate: string
   timeline: string
+  timeline_from: string
+  timeline_to: string
   remarks: string
   sales_staff_id: string
-  follow_up_date: string
+  /** datetime-local value (browser time), e.g. 2026-11-20T15:30 */
+  follow_up_at: string
+}
+
+/** ISO timestamp -> value for <input type="datetime-local"> in the browser's time zone. */
+function toLocalInput(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function leadToForm(lead: Lead): LeadForm {
   return {
+    lead_type: lead.lead_type ?? (lead.buyer_id || lead.supplier_id ? 'existing' : 'new'),
+    lead_source: lead.lead_source ?? '',
     party_role: lead.party_role,
     party_name: lead.party_name,
     contact_person: lead.contact_person ?? '',
+    mobile_cc: lead.mobile_cc ?? '+91',
     mobile: lead.mobile ?? '',
     station: lead.station ?? '',
     office_address: lead.office_address ?? '',
     gst: lead.gst ?? '',
+    buyer_id: lead.buyer_id ?? '',
+    supplier_id: lead.supplier_id ?? '',
     count_id: lead.count_id ?? '',
     quantity: lead.quantity === null ? '' : String(lead.quantity),
     uom: lead.uom ?? '',
     expected_rate: lead.expected_rate === null ? '' : String(lead.expected_rate),
     timeline: lead.timeline ?? '',
+    timeline_from: lead.timeline_from ?? '',
+    timeline_to: lead.timeline_to ?? '',
     remarks: lead.remarks ?? '',
     sales_staff_id: lead.sales_staff_id ?? '',
-    follow_up_date: lead.follow_up_date ?? '',
+    follow_up_at: lead.follow_up_at ? toLocalInput(lead.follow_up_at) : lead.follow_up_date ? `${lead.follow_up_date}T10:00` : '',
   }
 }
+
+const phoneOk = (cc: string, n: string) => (cc === '+91' ? isMobile(n) : /^[0-9]{6,14}$/.test(n))
 
 function leadProblems(f: LeadForm): string[] {
   const out: string[] = []
   if (!f.party_name.trim()) out.push('Party name')
-  if (f.mobile.trim() && !isMobile(f.mobile)) out.push('Mobile (10 digits, or leave blank)')
+  if (f.lead_type === 'existing' && (f.party_role === 'buyer' || f.party_role === 'both') && !f.buyer_id) out.push('Buyer from Buyers & Suppliers')
+  if (f.lead_type === 'existing' && (f.party_role === 'supplier' || f.party_role === 'both') && !f.supplier_id) out.push('Supplier from Buyers & Suppliers')
+  if (!/^\+[0-9]{1,4}$/.test(f.mobile_cc)) out.push('Country code (like +91)')
+  if (f.mobile.trim() && !phoneOk(f.mobile_cc, f.mobile)) out.push(f.mobile_cc === '+91' ? 'Mobile (10 digits, or leave blank)' : 'Mobile (6 to 14 digits)')
   if (f.gst.trim() && !isGst(f.gst)) out.push('GST (15-character format, or leave blank)')
   if (f.quantity.trim()) {
     const q = numOrNull(f.quantity)
     if (q === null || q <= 0) out.push('Quantity (more than zero)')
   }
   if (f.quantity.trim() && !f.uom) out.push('Unit of measure')
+  if (f.timeline_from && f.timeline_to && f.timeline_to < f.timeline_from) out.push('Timeline: "to" on or after "from"')
   return out
 }
 
 function leadPayload(form: LeadForm) {
+  const existing = form.lead_type === 'existing'
   return {
+    lead_type: form.lead_type,
+    lead_source: form.lead_source.trim() || null,
     party_role: form.party_role,
     party_name: form.party_name.trim(),
     contact_person: form.contact_person.trim() || null,
+    mobile_cc: form.mobile_cc,
     mobile: form.mobile.trim() || null,
     station: form.station.trim() || null,
     office_address: form.office_address.trim() || null,
     gst: form.gst.trim().toUpperCase() || null,
+    ...(existing
+      ? {
+          buyer_id: form.party_role !== 'supplier' ? form.buyer_id || null : null,
+          supplier_id: form.party_role !== 'buyer' ? form.supplier_id || null : null,
+        }
+      : {}),
     count_id: form.count_id || null,
     quantity: numOrNull(form.quantity),
     uom: form.uom || null,
     expected_rate: numOrNull(form.expected_rate),
     timeline: form.timeline.trim() || null,
+    timeline_from: form.timeline_from || null,
+    timeline_to: form.timeline_to || null,
     remarks: form.remarks.trim() || null,
     sales_staff_id: form.sales_staff_id || null,
-    follow_up_date: form.follow_up_date || null,
+    follow_up_at: form.follow_up_at ? new Date(form.follow_up_at).toISOString() : null,
   }
 }
 
@@ -646,22 +700,53 @@ function LeadDrawer({
     existing
       ? leadToForm(existing)
       : {
-          party_role: 'buyer', party_name: '', contact_person: '', mobile: '', station: '',
-          office_address: '', gst: '', count_id: '', quantity: '', uom: 'KG', expected_rate: '',
-          timeline: '', remarks: '', sales_staff_id: defaultStaffId ?? '', follow_up_date: '',
+          lead_type: 'new', lead_source: '', party_role: 'buyer', party_name: '', contact_person: '', mobile_cc: '+91', mobile: '', station: '',
+          office_address: '', gst: '', buyer_id: '', supplier_id: '', count_id: '', quantity: '', uom: 'KG', expected_rate: '',
+          timeline: '', timeline_from: '', timeline_to: '', remarks: '', sales_staff_id: defaultStaffId ?? '', follow_up_at: '',
         },
   )
   const [busy, setBusy] = useState(false)
+  const [editMode, setEditMode] = useState(!initial)
   const [formError, setFormError] = useState<string | null>(null)
+  const [masters, setMasters] = useState<{ buyers: MasterParty[]; suppliers: MasterParty[] }>({ buyers: [], suppliers: [] })
+  useEffect(() => {
+    const cols = 'id,name,contact_person,mobile,gst,address,is_active'
+    void Promise.all([
+      supabase.from('buyer_master').select(cols).order('name'),
+      supabase.from('supplier_master').select(cols).order('name'),
+    ]).then(([b, s]) => setMasters({ buyers: (b.data ?? []) as MasterParty[], suppliers: (s.data ?? []) as MasterParty[] }))
+  }, [])
 
   function set<K extends keyof LeadForm>(key: K, value: LeadForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  /** Existing lead: picking the party copies its details from the master (no retyping). */
+  function pickMaster(side: 'buyer' | 'supplier', id: string) {
+    const p = (side === 'buyer' ? masters.buyers : masters.suppliers).find((x) => x.id === id)
+    setForm((prev) => ({
+      ...prev,
+      [`${side}_id`]: id,
+      ...(p
+        ? {
+            party_name: p.name,
+            contact_person: p.contact_person ?? prev.contact_person,
+            mobile_cc: p.mobile ? '+91' : prev.mobile_cc,
+            mobile: p.mobile ?? prev.mobile,
+            gst: p.gst ?? prev.gst,
+            office_address: p.address ?? prev.office_address,
+          }
+        : {}),
+    }))
   }
 
   const missing = leadProblems(form)
   const selectedCount = counts.find((c) => c.id === form.count_id)
   const qualified = existing?.status === 'qualified'
   const locked = Boolean(existing?.converted_deal_id)
+  // Editable until the lead is converted into a deal.
+  const editable = !locked && (editMode || !existing)
+  // qualifying creates the deal by itself; this button only covers leads qualified before that
   const canConvert = can('deal.create') && qualified && !locked
 
   useEffect(() => {
@@ -691,7 +776,7 @@ function LeadDrawer({
 
   async function convert() {
     if (!existing) return
-    if (!window.confirm(`Convert ${existing.lead_no} to a draft deal? The lead becomes read-only.`)) return
+    if (!window.confirm(`Create the deal for ${existing.lead_no}? The lead becomes read-only.`)) return
     setBusy(true)
     setFormError(null)
     const { data, error } = await supabase.rpc('convert_lead_to_deal', { p_lead: existing.id })
@@ -724,6 +809,7 @@ function LeadDrawer({
       setFormError(errMessage(error, 'Could not save this lead'))
       return
     }
+    setEditMode(false)
     await onDone(existing ? `${existing.lead_no} updated.` : 'Lead created.')
   }
 
@@ -777,12 +863,21 @@ function LeadDrawer({
         </div>
       )}
 
-      <fieldset disabled={locked} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-      <h3 className="section-title">Party</h3>
-      <p className="muted small">
-        Temporary details, held until the party is validated against the Buyer / Supplier Master.
-      </p>
+      <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      <h3 className="section-title">Lead</h3>
       <div className="form-grid">
+        <Field id="l-type" label="Lead type" required hint={form.lead_type === 'existing' ? 'Pick the party from Buyers & Suppliers.' : 'A party not yet in Buyers & Suppliers.'}>
+          <select id="l-type" value={form.lead_type} onChange={(e) => set('lead_type', e.target.value as LeadForm['lead_type'])}>
+            <option value="new">New</option>
+            <option value="existing">Existing</option>
+          </select>
+        </Field>
+        <Field id="l-source" label="Lead source">
+          <input id="l-source" list="l-source-list" value={form.lead_source} onChange={(e) => set('lead_source', e.target.value)} />
+          <datalist id="l-source-list">
+            {LEAD_SOURCES.map((s) => (<option key={s} value={s} />))}
+          </datalist>
+        </Field>
         <Field id="l-role" label="Party role" required>
           <select id="l-role" value={form.party_role} onChange={(e) => set('party_role', e.target.value as LeadRole)}>
             {LEAD_ROLES.map((r) => (
@@ -792,8 +887,41 @@ function LeadDrawer({
             ))}
           </select>
         </Field>
+        {existing && (
+          <Field id="l-created" label="Created">
+            <input id="l-created" readOnly value={formatDateTime(existing.created_at)} />
+          </Field>
+        )}
+      </div>
+
+      <h3 className="section-title">Party</h3>
+      {form.lead_type === 'existing' ? (
+        <div className="form-grid">
+          {form.party_role !== 'supplier' && (
+            <Field id="l-buyer" label="Buyer" required>
+              <select id="l-buyer" value={form.buyer_id} onChange={(e) => pickMaster('buyer', e.target.value)}>
+                <option value="">Choose…</option>
+                {masters.buyers.filter((x) => x.is_active || x.id === form.buyer_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
+              </select>
+            </Field>
+          )}
+          {form.party_role !== 'buyer' && (
+            <Field id="l-supplier" label="Supplier" required>
+              <select id="l-supplier" value={form.supplier_id} onChange={(e) => pickMaster('supplier', e.target.value)}>
+                <option value="">Choose…</option>
+                {masters.suppliers.filter((x) => x.is_active || x.id === form.supplier_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
+              </select>
+            </Field>
+          )}
+        </div>
+      ) : (
+        <p className="muted small">
+          Temporary details, held until the party is validated against Buyers &amp; Suppliers (at Qualify).
+        </p>
+      )}
+      <div className="form-grid">
         <Field id="l-name" label="Party name" required>
-          <input id="l-name" value={form.party_name} onChange={(e) => set('party_name', e.target.value)} autoFocus />
+          <input id="l-name" value={form.party_name} readOnly={form.lead_type === 'existing'} onChange={(e) => set('party_name', e.target.value)} autoFocus={form.lead_type === 'new'} />
         </Field>
         <Field id="l-contact" label="Contact person">
           <input id="l-contact" value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
@@ -801,16 +929,24 @@ function LeadDrawer({
         <Field
           id="l-mobile"
           label="Mobile"
-          hint={form.mobile && !isMobile(form.mobile) ? 'Mobile must be exactly 10 digits.' : undefined}
+          hint={form.mobile && !phoneOk(form.mobile_cc, form.mobile) ? (form.mobile_cc === '+91' ? 'Mobile must be exactly 10 digits.' : '6 to 14 digits.') : undefined}
         >
-          <input
-            id="l-mobile"
-            className="mono"
-            inputMode="numeric"
-            maxLength={10}
-            value={form.mobile}
-            onChange={(e) => set('mobile', e.target.value.replace(/\D/g, ''))}
-          />
+          <div className="phone-row">
+            <input
+              aria-label="Country code"
+              className="mono cc"
+              value={form.mobile_cc}
+              onChange={(e) => set('mobile_cc', '+' + e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+            />
+            <input
+              id="l-mobile"
+              className="mono"
+              inputMode="numeric"
+              maxLength={form.mobile_cc === '+91' ? 10 : 14}
+              value={form.mobile}
+              onChange={(e) => set('mobile', e.target.value.replace(/\D/g, ''))}
+            />
+          </div>
         </Field>
         <Field id="l-station" label="Station" hint="Pick from the Station Master, or add a new one.">
           <StationPicker value={form.station} stations={stations} onChange={(v) => set('station', v)} />
@@ -877,7 +1013,7 @@ function LeadDrawer({
             <option value="">—</option>
             {LEAD_UOMS.map((u) => (
               <option key={u} value={u}>
-                {u}
+                {uomLabel(u)}
               </option>
             ))}
           </select>
@@ -885,8 +1021,11 @@ function LeadDrawer({
         <Field id="l-rate" label="Expected rate">
           <input id="l-rate" inputMode="decimal" className="mono" value={form.expected_rate} onChange={(e) => set('expected_rate', e.target.value)} />
         </Field>
-        <Field id="l-timeline" label="Timeline">
-          <input id="l-timeline" value={form.timeline} onChange={(e) => set('timeline', e.target.value)} />
+        <Field id="l-tfrom" label="Timeline from">
+          <input id="l-tfrom" type="date" value={form.timeline_from} onChange={(e) => set('timeline_from', e.target.value)} />
+        </Field>
+        <Field id="l-tto" label="Timeline to" hint={form.timeline && !form.timeline_from && !form.timeline_to ? `Earlier note: ${form.timeline}` : undefined}>
+          <input id="l-tto" type="date" min={form.timeline_from || undefined} value={form.timeline_to} onChange={(e) => set('timeline_to', e.target.value)} />
         </Field>
         <Field id="l-staff" label="Sales staff">
           <select id="l-staff" value={form.sales_staff_id} onChange={(e) => set('sales_staff_id', e.target.value)}>
@@ -898,8 +1037,8 @@ function LeadDrawer({
             ))}
           </select>
         </Field>
-        <Field id="l-follow" label="Follow-up date">
-          <input id="l-follow" type="date" value={form.follow_up_date} onChange={(e) => set('follow_up_date', e.target.value)} />
+        <Field id="l-follow" label="Follow-up date and time">
+          <input id="l-follow" type="datetime-local" value={form.follow_up_at} onChange={(e) => set('follow_up_at', e.target.value)} />
         </Field>
       </div>
       <Field id="l-remarks" label="Remarks">
@@ -907,12 +1046,22 @@ function LeadDrawer({
       </Field>
       </fieldset>
 
-      {missing.length > 0 && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
+      {missing.length > 0 && editable && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
       <div className="drawer-actions">
-        {!locked && (
+        {existing && !locked && !editMode && (
+          <button className="btn" type="button" onClick={() => setEditMode(true)} disabled={busy}>
+            Edit
+          </button>
+        )}
+        {editable && (
         <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0}>
           {busy ? 'Saving…' : existing ? 'Save changes' : 'Create the lead'}
         </button>
+        )}
+        {existing && editable && (
+          <button className="btn ghost" type="button" onClick={() => { setForm(leadToForm(existing)); setFormError(null); setEditMode(false) }} disabled={busy}>
+            Cancel editing
+          </button>
         )}
         {canConvert && (
           <button className="btn" type="button" onClick={() => void convert()} disabled={busy}>
