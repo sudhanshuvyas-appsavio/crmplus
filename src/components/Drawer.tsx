@@ -6,10 +6,13 @@ export function Drawer({
   title,
   onClose,
   children,
+  readOnly = false,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
+  /** View mode: every field is disabled and the Save / Delete buttons are hidden. */
+  readOnly?: boolean
 }) {
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -32,7 +35,18 @@ export function Drawer({
             </svg>
           </button>
         </header>
-        <div className="drawer-body">{children}</div>
+        <div className="drawer-body">
+          {readOnly ? (
+            <>
+              <div className="notice small">Viewing only. Use Actions → Edit on the list to change this record.</div>
+              <fieldset disabled className="drawer-ro">
+                {children}
+              </fieldset>
+            </>
+          ) : (
+            children
+          )}
+        </div>
       </aside>
     </>
   )

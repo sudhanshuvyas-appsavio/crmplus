@@ -10,6 +10,8 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Field } from '../components/PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
 
@@ -21,6 +23,10 @@ export default function PaymentTerms() {
   const canEdit = can('settings.manage')
   const [rows, setRows] = useState<PaymentTerm[] | null>(null)
   const [editing, setEditing] = useState<PaymentTerm | 'new' | null>(null)
+  const [viewing, setViewing] = useState<PaymentTerm | null>(null)
+  const [deleting, setDeleting] = useState<PaymentTerm | null>(null)
+  const [delBusy, setDelBusy] = useState(false)
+  const [delErr, setDelErr] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
 
@@ -32,6 +38,18 @@ export default function PaymentTerms() {
   useEffect(() => {
     void load()
   }, [load])
+
+  async function confirmDelete() {
+    if (!deleting) return
+    setDelBusy(true)
+    setDelErr(null)
+    const { data, error } = await supabase.from('payment_terms').delete().eq('id', deleting.id).select('id')
+    setDelBusy(false)
+    if (error || !data || data.length === 0) return setDelErr(error ? errMessage(error) : 'Could not delete this term.')
+    setBanner({ kind: 'ok', text: `${deleting.name} deleted.` })
+    setDeleting(null)
+    await load()
+  }
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -53,6 +71,13 @@ export default function PaymentTerms() {
             await load()
           }}
         />
+      )}
+
+      {viewing && <TermDrawer key={`v-${viewing.id}`} term={viewing} readOnly onClose={() => setViewing(null)} onDone={() => setViewing(null)} />}
+      {deleting && (
+        <ConfirmDialog title="Delete payment term" busy={delBusy} error={delErr} onConfirm={() => void confirmDelete()} onClose={() => setDeleting(null)}>
+          Delete <strong>{deleting.name}</strong>? This cannot be undone.
+        </ConfirmDialog>
       )}
 
       <GridToolbar
@@ -82,27 +107,32 @@ export default function PaymentTerms() {
           <thead>
             <tr>
               <th className="left">Name</th>
-              <th>Credit days</th>
-              <th>Advance %</th>
-              <th>Description</th>
-              <th>Status</th>
+              <th>Days</th>
+              <th className="md-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {paging.visible.map((r) => (
-              <tr key={r.id} className={canEdit ? 'clickable' : ''} onClick={() => canEdit && setEditing(r)}>
+              <tr key={r.id}>
                 <td className="left">
                   <strong>{r.name}</strong>
                 </td>
                 <td className="mono">{r.days}</td>
-                <td className="mono">{r.advance_pct}</td>
-                <td className="small">{r.description ?? '—'}</td>
-                <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
+                <td className="md-actions">
+                  <RowActionMenu
+                    label={r.name}
+                    actions={[
+                      { label: 'View', onSelect: () => setViewing(r) },
+                      { label: 'Edit', onSelect: () => setEditing(r), disabledReason: canEdit ? null : 'Needs “Change system settings”' },
+                      { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canEdit ? null : 'Needs “Change system settings”' },
+                    ]}
+                  />
+                </td>
               </tr>
             ))}
             {shown.length === 0 && (
               <tr>
-                <td className="empty" colSpan={5}>
+                <td className="empty" colSpan={3}>
                   {rows.length === 0 ? 'No payment terms yet.' : 'No payment term matches that search.'}
                 </td>
               </tr>
@@ -115,7 +145,7 @@ export default function PaymentTerms() {
   )
 }
 
-function TermDrawer({ term, onClose, onDone }: { term: PaymentTerm | null; onClose: () => void; onDone: (m: string) => void | Promise<void> }) {
+function TermDrawer({ term, onClose, onDone, readOnly = false }: { term: PaymentTerm | null; onClose: () => void; onDone: (m: string) => void | Promise<void>; readOnly?: boolean }) {
   const [f, setF] = useState<Form>(
     term ? { name: term.name, days: String(term.days), advance_pct: String(term.advance_pct), description: term.description ?? '', is_active: term.is_active } : blank,
   )
@@ -125,7 +155,7 @@ function TermDrawer({ term, onClose, onDone }: { term: PaymentTerm | null; onClo
   const adv = numOrNull(f.advance_pct)
   const problems: string[] = []
   if (!f.name.trim()) problems.push('Name')
-  if (days === null || days < 0 || days > 365 || !Number.isInteger(days)) problems.push('Credit days (0–365)')
+  if (days === null || days < 0 || days > 365 || !Number.isInteger(days)) problems.push('Days (0–365)')
   if (adv === null || adv < 0 || adv > 100) problems.push('Advance % (0–100)')
 
   async function save() {
@@ -148,13 +178,13 @@ function TermDrawer({ term, onClose, onDone }: { term: PaymentTerm | null; onClo
   }
 
   return (
-    <Drawer title={term ? term.name : 'Add a payment term'} onClose={onClose}>
+    <Drawer title={term ? term.name : 'Add a payment term'} onClose={onClose} readOnly={readOnly}>
       {err && <div className="alert">{err}</div>}
       <div className="form-grid">
         <Field id="pt-name" label="Name" required hint="Must be unique.">
           <input id="pt-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         </Field>
-        <Field id="pt-days" label="Credit days" required>
+        <Field id="pt-days" label="Days" required hint="Number of days for the payment term.">
           <input id="pt-days" className="mono" inputMode="numeric" value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })} />
         </Field>
         <Field id="pt-adv" label="Advance %" required>

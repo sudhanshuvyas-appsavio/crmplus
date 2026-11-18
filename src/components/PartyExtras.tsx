@@ -9,6 +9,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { errMessage } from '../lib/party'
 import { formatDate, formatDateTime } from '../lib/format'
 import { GST_PORTAL_URL, lookupGst } from '../lib/integrations'
+import { canPreview, downloadDocument, DocumentPreview } from './documents/DocumentPreview'
 import { DOC_TYPES, type Activity, type ActivityKind, type MdContact, type PartyDocument } from '../api/types'
 
 export type PartyType = 'supplier' | 'buyer'
@@ -158,6 +159,7 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
   const [docType, setDocType] = useState('gst_copy')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [preview, setPreview] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -202,13 +204,11 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
     await load()
   }
 
-  async function open(doc: PartyDocument) {
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.storage_path, 60)
-    if (error || !data) {
-      setMsg('Could not open that file.')
-      return
-    }
-    window.open(data.signedUrl, '_blank', 'noopener')
+  /** Images, PDFs and text open in the preview dialog; other files download. */
+  async function open(doc: PartyDocument, index: number) {
+    if (canPreview(doc.file_name, doc.mime_type)) return setPreview(index)
+    const problem = await downloadDocument(BUCKET, doc)
+    if (problem) setMsg(problem)
   }
 
   async function remove(doc: PartyDocument) {
@@ -233,10 +233,10 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
         <div className="table-wrap">
           <table>
             <tbody>
-              {docs.map((d) => (
+              {docs.map((d, i) => (
                 <tr key={d.id}>
                   <td>
-                    <button className="btn ghost sm" type="button" onClick={() => void open(d)}>
+                    <button className="btn ghost sm" type="button" onClick={() => void open(d, i)}>
                       {d.file_name}
                     </button>
                     <div className="muted small">
@@ -279,6 +279,9 @@ export function DocumentsPanel({ partyType, partyId, canEdit }: { partyType: Par
         </div>
       )}
       {msg && <p className="field-warn">{msg}</p>}
+      {preview !== null && docs && docs.length > 0 && (
+        <DocumentPreview bucket={BUCKET} docs={docs} index={Math.min(preview, docs.length - 1)} onIndex={setPreview} onClose={() => setPreview(null)} />
+      )}
     </Section>
   )
 }

@@ -18,6 +18,9 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { FormSection, FullWidth, RecordAction } from '../components/FormKit'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
@@ -81,6 +84,10 @@ export default function Counts() {
   const canManage = can('article.manage')
   const [rows, setRows] = useState<CountRow[] | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
+  const [viewing, setViewing] = useState<CountRow | null>(null)
+  const [deleting, setDeleting] = useState<CountRow | null>(null)
+  const [delBusy, setDelBusy] = useState(false)
+  const [delErr, setDelErr] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filterValues, setFilterValues] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
@@ -204,6 +211,18 @@ export default function Counts() {
     setBusy(false)
   }
 
+  async function confirmDelete() {
+    if (!deleting) return
+    setDelBusy(true)
+    setDelErr(null)
+    const { data, error } = await supabase.from('count_master').delete().eq('id', deleting.id).select('id')
+    setDelBusy(false)
+    if (error || !data || data.length === 0) return setDelErr(error ? errMessage(error, 'Could not delete this count') : 'Could not delete this count.')
+    setBanner({ kind: 'ok', text: 'Count deleted.' })
+    setDeleting(null)
+    await load()
+  }
+
   if (!rows) return <Loading label="Loading counts" />
 
   const duplicateCount = rows.filter((r) => r.is_duplicate).length
@@ -223,6 +242,23 @@ export default function Counts() {
           }}
           onError={(text) => setBanner({ kind: 'bad', text })}
         />
+      )}
+
+      {viewing && (
+        <CountDrawer
+          key={`v-${viewing.id}`}
+          editing={{ mode: 'edit', row: viewing }}
+          rows={rows}
+          readOnly
+          onClose={() => setViewing(null)}
+          onDone={() => setViewing(null)}
+          onError={() => undefined}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog title="Delete count" busy={delBusy} error={delErr} onConfirm={() => void confirmDelete()} onClose={() => setDeleting(null)}>
+          Delete <strong>{deleting.display_name}</strong>? This cannot be undone.
+        </ConfirmDialog>
       )}
 
       <GridToolbar
@@ -284,64 +320,74 @@ export default function Counts() {
                   <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all counts" />
                 </th>
               )}
-              <th>Item ID</th>
-              <th className="left">Name</th>
+              <th className="left md-sticky">Name</th>
+              <th>Created Date</th>
               <th className="left">Summary</th>
-              <th>Thread count</th>
+              <th>Thread Count</th>
               <th>Machine</th>
               <th>Yarn 1</th>
+              <th>Yarn 1 (Percentage)</th>
               <th>Yarn 2</th>
-              <th>Overall yarn composition</th>
-              <th>Overall yarn</th>
+              <th>Yarn 2 (Percentage)</th>
+              <th>Overall Yarn Composition</th>
+              <th>Overall Yarn</th>
               <th>Yarn</th>
               <th>Process</th>
               <th>Certification</th>
               <th>Type</th>
-              <th>Status</th>
-              <th>Created date</th>
+              <th>Item ID</th>
+              <th>Is Duplicate</th>
+              <th>Duplicate Error</th>
+              <th className="md-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {paging.visible.map((r) => {
               const overall = overallOf(r)
+              const none = <span className="muted">—</span>
               return (
-                <tr key={r.id} className={canManage ? 'clickable' : ''} onClick={() => canManage && setEditing({ mode: 'edit', row: r })}>
+                <tr key={r.id}>
                   {canManage && (
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td>
                       <input type="checkbox" checked={selection.isSelected(r.id)} onChange={() => selection.toggle(r.id)} aria-label={`Select ${r.display_name}`} />
                     </td>
                   )}
-                  <td className="mono small">{r.item_no}</td>
-                  <td className="left">
+                  <td className="left md-sticky">
                     <strong>{r.name || r.display_name}</strong>
-                    {r.is_duplicate && (
-                      <div>
-                        <span className="chip warn" title={r.duplicate_error ?? undefined}>
-                          Duplicate
-                        </span>
-                        {r.duplicate_error && <div className="small muted">{r.duplicate_error}</div>}
-                      </div>
-                    )}
                   </td>
+                  <td className="mono small">{formatDateTime(r.created_at)}</td>
                   <td className="left small">{r.display_name}</td>
                   <td className="mono small">{r.count_no}</td>
                   <td className="small">{r.machine}</td>
-                  <td className="small">{fmtPct(Number(r.yarn_1_pct))}% {r.yarn_1}</td>
-                  <td className="small">{r.yarn_2 ? `${fmtPct(Number(r.yarn_2_pct))}% ${r.yarn_2}` : <span className="muted">—</span>}</td>
+                  <td className="small">{r.yarn_1}</td>
+                  <td className="mono small">{fmtPct(Number(r.yarn_1_pct))}</td>
+                  <td className="small">{r.yarn_2 || none}</td>
+                  <td className="mono small">{r.yarn_2 ? fmtPct(Number(r.yarn_2_pct)) : none}</td>
                   <td className="small">{overall.composition}</td>
                   <td className="small">{overall.yarn}</td>
                   <td className="small muted">{r.ply ?? '—'}</td>
                   <td className="small muted">{r.process ?? '—'}</td>
                   <td className="small muted">{r.certification ?? '—'}</td>
                   <td className="small">{r.yarn_type}</td>
-                  <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
-                  <td className="mono small">{formatDateTime(r.created_at)}</td>
+                  <td className="mono small">{r.item_no}</td>
+                  <td>{r.is_duplicate ? <span className="chip warn">Duplicate</span> : none}</td>
+                  <td className="small md-wrap">{r.duplicate_error ?? '—'}</td>
+                  <td className="md-actions">
+                    <RowActionMenu
+                      label={r.display_name}
+                      actions={[
+                        { label: 'View', onSelect: () => setViewing(r) },
+                        { label: 'Edit', onSelect: () => setEditing({ mode: 'edit', row: r }), disabledReason: canManage ? null : 'Needs “Add and edit article”' },
+                        { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canManage ? null : 'Needs “Add and edit article”' },
+                      ]}
+                    />
+                  </td>
                 </tr>
               )
             })}
             {shown.length === 0 && (
               <tr>
-                <td className="empty" colSpan={canManage ? 16 : 15}>
+                <td className="empty" colSpan={canManage ? 20 : 19}>
                   {rows.length === 0 ? 'No counts yet.' : 'No count matches that search.'}
                   {rows.length === 0 && canManage ? ' Add the first one.' : ''}
                 </td>
@@ -381,17 +427,35 @@ function CountDrawer({
   onClose,
   onDone,
   onError,
+  readOnly = false,
 }: {
   editing: NonNullable<Editing>
+  readOnly?: boolean
   rows: CountRow[]
   onClose: () => void
   onDone: (message: string, kind?: 'ok' | 'bad') => void | Promise<void>
   onError: (message: string) => void
 }) {
-  const existing = editing.mode === 'edit' ? editing.row : null
-  const [form, setForm] = useState<FormState>(existing ? toForm(existing) : BLANK)
+  const opened = editing.mode === 'edit' ? editing.row : null
+  // monday's form opens with "Select Action": create a new record or update an existing one.
+  const [action, setAction] = useState<'create' | 'update'>('create')
+  const [pickedId, setPickedId] = useState('')
+  const picked = rows.find((r) => r.id === pickedId) ?? null
+  const existing = opened ?? (action === 'update' ? picked : null)
+  const [form, setForm] = useState<FormState>(opened ? toForm(opened) : BLANK)
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  function chooseAction(next: 'create' | 'update') {
+    setAction(next)
+    setPickedId('')
+    setForm(BLANK)
+  }
+  function pick(id: string) {
+    setPickedId(id)
+    const r = rows.find((x) => x.id === id)
+    setForm(r ? toForm(r) : BLANK)
+  }
 
   /** Every change goes through the recipe rules: 100% closes Yarn 2, and Yarn 2 cannot repeat Yarn 1. */
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -399,7 +463,7 @@ function CountDrawer({
   }
 
   const state = recipeState(form)
-  const missing = recipeProblems(form)
+  const missing = [...recipeProblems(form), ...(!existing && !form.name.trim() ? ['Name'] : [])]
   const twin = useMemo(() => {
     if (missing.length > 0) return null
     const key = recipeKey(form)
@@ -425,9 +489,9 @@ function CountDrawer({
   }
 
   async function remove() {
-    if (!existing) return
+    if (!opened) return
     setBusy(true)
-    const { error } = await supabase.from('count_master').delete().eq('id', existing.id)
+    const { error } = await supabase.from('count_master').delete().eq('id', opened.id)
     setBusy(false)
     if (error) {
       onError(errMessage(error, 'Could not delete this count'))
@@ -458,105 +522,125 @@ function CountDrawer({
   const name = buildName(form)
   const readOnlyStyle = { background: 'var(--surface-3)' }
 
+  const showForm = opened || action === 'create' || picked
+
   return (
-    <Drawer title={existing ? existing.display_name : 'Add a count'} onClose={onClose}>
-      <div className="notice small">
-        Summary: <strong>{name || '—'}</strong>
-      </div>
-      {twin && (
-        <div className="alert warn" role="status">
-          A count with this recipe already exists (“{twin.name || twin.display_name}”, item ID {twin.item_no}). It can still be saved, but it will be flagged as a duplicate.
-        </div>
-      )}
+    <Drawer title={opened ? opened.display_name : 'Counts Creation Form'} onClose={onClose} readOnly={readOnly}>
       {formError && (
         <div className="alert" role="alert">
           {formError}
         </div>
       )}
-      <p className="muted small">Fields marked * are required.</p>
-      <div className="form-grid">
-        <Field id="ct-name" label="Name" hint={existing ? undefined : 'Your own label for the count. Left blank, it follows the summary.'}>
-          <input id="ct-name" value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
-        </Field>
-        {existing && (
-          <Field id="ct-item" label="Item ID" hint="Assigned automatically.">
-            <input id="ct-item" className="mono" readOnly style={readOnlyStyle} value={existing.item_no} />
-          </Field>
-        )}
-        <Field id="ct-no" label="Thread count" required hint="Between 6s and 120s.">
-          <input id="ct-no" inputMode="numeric" className="mono" value={form.count_no} onChange={(e) => set('count_no', e.target.value.replace(/\D/g, ''))} />
-        </Field>
-        <Field id="ct-machine" label="Machine" required>
-          {select('ct-machine', form.machine, COUNT_MACHINES, (v) => set('machine', v), 'Choose…')}
-        </Field>
-        <Field id="ct-y1" label="Yarn 1" required>
-          {select('ct-y1', form.yarn_1, COUNT_YARNS, (v) => set('yarn_1', v), 'Choose…')}
-        </Field>
-        <Field id="ct-p1" label="Yarn 1 (percentage)" required hint="Up to 100. Below 100, a second yarn takes the rest.">
-          <input id="ct-p1" inputMode="decimal" className="mono" value={form.yarn_1_pct} onChange={(e) => set('yarn_1_pct', e.target.value.replace(/[^0-9.]/g, ''))} />
-        </Field>
-        <Field
-          id="ct-y2"
-          label="Yarn 2"
-          required={state.yarn2Enabled}
-          hint={state.yarn2Reason ?? `Takes the remaining ${fmtPct(state.remainder ?? 0)}%.`}
-        >
-          {select(
-            'ct-y2',
-            form.yarn_2,
-            COUNT_YARNS.filter((y) => y !== form.yarn_1),
-            (v) => set('yarn_2', v),
-            state.yarn2Enabled ? 'Choose…' : '—',
-            !state.yarn2Enabled,
+      {!opened && !readOnly && (
+        <RecordAction
+          action={action}
+          onAction={chooseAction}
+          pickedId={pickedId}
+          onPick={pick}
+          records={rows.map((r) => ({ id: r.id, label: r.display_name }))}
+          noun="count"
+        />
+      )}
+      {showForm && (
+        <>
+          <div className="notice small">
+            Summary: <strong>{name || '—'}</strong>
+          </div>
+          {twin && (
+            <div className="alert warn" role="status">
+              A count with this recipe already exists (“{twin.name || twin.display_name}”, item ID {twin.item_no}). It can still be saved, but it will be flagged as a duplicate.
+            </div>
           )}
-        </Field>
-        <Field id="ct-p2" label="Yarn 2 (percentage)" hint="Always the remainder of Yarn 1; it cannot be edited.">
-          <input
-            id="ct-p2"
-            className="mono"
-            readOnly
-            style={readOnlyStyle}
-            value={state.remainder !== null && form.yarn_2 !== '' ? fmtPct(state.remainder) : ''}
-            placeholder={state.remainder !== null ? `${fmtPct(state.remainder)} remaining` : ''}
-          />
-        </Field>
-        <Field id="ct-overall" label="Overall yarn composition">
-          <input id="ct-overall" className="mono" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallComposition} />
-        </Field>
-        <Field id="ct-overall-yarn" label="Overall yarn">
-          <input id="ct-overall-yarn" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallYarn} />
-        </Field>
-        <Field id="ct-ply" label="Single / double yarn">
-          {select('ct-ply', form.ply, COUNT_PLIES, (v) => set('ply', v))}
-        </Field>
-        <Field id="ct-process" label="Process">
-          {select('ct-process', form.process, COUNT_PROCESSES, (v) => set('process', v))}
-        </Field>
-        <Field id="ct-cert" label="Certification">
-          {select('ct-cert', form.certification, COUNT_CERTIFICATIONS, (v) => set('certification', v))}
-        </Field>
-        <Field id="ct-type" label="Type" required>
-          {select('ct-type', form.yarn_type, COUNT_YARN_TYPES, (v) => set('yarn_type', v), 'Choose…')}
-        </Field>
-      </div>
-      <div className="switch-row">
-        <label className="check">
-          <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-          <span className="check-body">
-            <span className="check-label">Active</span>
-            <span className="check-hint">Inactive counts stay on record but should not be used on new leads.</span>
-          </span>
-        </label>
-      </div>
-      {missing.length > 0 && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
+
+          <FormSection title="Count Information" count={7}>
+            <Field id="ct-name" label="Name" required hint="Your own label for the count; the Summary is built from the recipe.">
+              <input id="ct-name" value={form.name} placeholder="Enter Name" onChange={(e) => set('name', e.target.value)} autoFocus />
+            </Field>
+            <Field id="ct-no" label="Thread Count" required hint="Enter a value between 6s and 120s.">
+              <input id="ct-no" inputMode="numeric" className="mono" value={form.count_no} placeholder="Enter Thread Count" onChange={(e) => set('count_no', e.target.value.replace(/\D/g, ''))} />
+            </Field>
+            <Field id="ct-machine" label="Machine" required>
+              {select('ct-machine', form.machine, COUNT_MACHINES, (v) => set('machine', v), '-- Select Machine --')}
+            </Field>
+            <Field id="ct-type" label="Type" required hint="Type of product.">
+              {select('ct-type', form.yarn_type, COUNT_YARN_TYPES, (v) => set('yarn_type', v), '-- Select Type --')}
+            </Field>
+            <Field id="ct-process" label="Process">
+              {select('ct-process', form.process, COUNT_PROCESSES, (v) => set('process', v), '-- Select Process --')}
+            </Field>
+            <Field id="ct-cert" label="Certification">
+              {select('ct-cert', form.certification, COUNT_CERTIFICATIONS, (v) => set('certification', v), '-- Select Certification --')}
+            </Field>
+            <Field id="ct-ply" label="Yarn">
+              {select('ct-ply', form.ply, COUNT_PLIES, (v) => set('ply', v), '-- Select Yarn --')}
+            </Field>
+            {opened && (
+              <Field id="ct-item" label="Item ID" hint="Assigned automatically.">
+                <input id="ct-item" className="mono" readOnly style={readOnlyStyle} value={opened.item_no} />
+              </Field>
+            )}
+          </FormSection>
+
+          <FormSection title="Fabric Composition" count={5}>
+            <Field id="ct-y1" label="Yarn 1" required>
+              {select('ct-y1', form.yarn_1, COUNT_YARNS, (v) => set('yarn_1', v), '-- Select Yarn 1 --')}
+            </Field>
+            <Field id="ct-p1" label="Yarn 1 (Percentage)" required hint="Up to 100. Below 100, a second yarn takes the rest.">
+              <input id="ct-p1" inputMode="decimal" className="mono" value={form.yarn_1_pct} placeholder="Enter Yarn 1 (Percentage)" onChange={(e) => set('yarn_1_pct', e.target.value.replace(/[^0-9.]/g, ''))} />
+            </Field>
+            <Field
+              id="ct-y2"
+              label="Yarn 2"
+              required={state.yarn2Enabled}
+              hint={state.yarn2Reason ?? `Takes the remaining ${fmtPct(state.remainder ?? 0)}%.`}
+            >
+              {select(
+                'ct-y2',
+                form.yarn_2,
+                COUNT_YARNS.filter((y) => y !== form.yarn_1),
+                (v) => set('yarn_2', v),
+                state.yarn2Enabled ? '-- Select Yarn 2 --' : '—',
+                !state.yarn2Enabled,
+              )}
+            </Field>
+            <Field id="ct-p2" label="Yarn 2 (Percentage)" hint="Always the remainder of Yarn 1; it cannot be edited.">
+              <input
+                id="ct-p2"
+                className="mono"
+                readOnly
+                style={readOnlyStyle}
+                value={state.remainder !== null && form.yarn_2 !== '' ? fmtPct(state.remainder) : ''}
+                placeholder={state.remainder !== null ? `${fmtPct(state.remainder)} remaining` : ''}
+              />
+            </Field>
+            <Field id="ct-overall" label="Overall Yarn Composition" hint="Calculated field.">
+              <input id="ct-overall" className="mono" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallComposition} placeholder="(Calculated field)" />
+            </Field>
+            <Field id="ct-overall-yarn" label="Overall Yarn" hint="Calculated field.">
+              <input id="ct-overall-yarn" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallYarn} placeholder="(Calculated field)" />
+            </Field>
+            <FullWidth>
+              <label className="check">
+                <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
+                <span className="check-body">
+                  <span className="check-label">Active</span>
+                  <span className="check-hint">Inactive counts stay on record but should not be used on new leads.</span>
+                </span>
+              </label>
+            </FullWidth>
+          </FormSection>
+        </>
+      )}
+
+      {missing.length > 0 && !readOnly && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
       <div className="drawer-actions">
-        <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0}>
-          {busy ? 'Saving…' : existing ? 'Save changes' : 'Add the count'}
+        <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0 || (!opened && action === 'update' && !picked)}>
+          {busy ? 'Saving…' : existing ? '✓ Update Item' : '✓ Create Item'}
         </button>
         <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
           Cancel
         </button>
-        {existing && <DeleteControl label="Delete this count" name={existing.display_name} busy={busy} onConfirm={() => void remove()} />}
+        {opened && <DeleteControl label="Delete this count" name={opened.display_name} busy={busy} onConfirm={() => void remove()} />}
       </div>
     </Drawer>
   )

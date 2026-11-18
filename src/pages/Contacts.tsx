@@ -12,7 +12,7 @@
  *  a side asks for that side's required fields. Changing a buyer record needs
  *  "Add and edit buyers", a supplier record needs "Add and edit supplier mills". */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { BuyerMaster, SupplierMaster } from '../api/types'
@@ -26,7 +26,10 @@ import {
   supplierOnlyFromRow, supplierPayload, supplierProblems,
   type BuyerForm, type FullPartyForm, type SupplierForm,
 } from '../components/PartyForms'
-import { PartyExtras, useProfileNames } from '../components/PartyExtras'
+import { DocumentsPanel, PartyExtras, useProfileNames } from '../components/PartyExtras'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { Modal } from '../components/Modal'
 import { BuyerSupplierForm } from '../components/BuyerSupplierForm'
 import { loadLinkIds, syncLinks } from '../lib/links'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
@@ -35,7 +38,7 @@ import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pic
 import type { BulkDeleteResult, CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, isGst, numOrNull } from '../lib/party'
-import { formatDateTime } from '../lib/format'
+import { formatDate } from '../lib/format'
 import '../styles/cheque-board.css'
 
 export type Role = 'buyer' | 'supplier' | 'both'
@@ -229,6 +232,25 @@ const CSV_COLUMNS = [
 
 type Editing = { mode: 'create' } | { mode: 'edit'; contact: Contact } | null
 
+/** One column of the grid, with monday's title. */
+type Col = { id: string; title: string; render: (c: Contact) => ReactNode; wrap?: boolean; mono?: boolean }
+
+const dash = <span className="muted">—</span>
+const txt = (v: string | number | null | undefined): ReactNode => (v === null || v === undefined || v === '' ? dash : String(v))
+const COMMISSION_LABEL: Record<string, string> = { pct: 'Percentage', per_bag: 'BAG', per_kg: 'KG' }
+const commissionType = (v: string | null | undefined): ReactNode => (v ? COMMISSION_LABEL[v] ?? v : dash)
+const COLS_KEY = 'crmplus.buyersSuppliers.hiddenColumns'
+
+function loadHiddenCols(): string[] {
+  try {
+    const raw = localStorage.getItem(COLS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 export default function Contacts() {
   const { can } = useAuth()
   const canBuyer = can('buyer.manage')
@@ -238,6 +260,15 @@ export default function Contacts() {
   const [suppliers, setSuppliers] = useState<SupplierMaster[] | null>(null)
   const [buyers, setBuyers] = useState<BuyerMaster[] | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
+  const [viewing, setViewing] = useState<Contact | null>(null)
+  const [deleting, setDeleting] = useState<Contact | null>(null)
+  const [docsFor, setDocsFor] = useState<Contact | null>(null)
+  const [delErr, setDelErr] = useState<string | null>(null)
+  const [hiddenCols, setHiddenCols] = useState<string[]>(loadHiddenCols)
+  const [partyDocs, setPartyDocs] = useState<Map<string, number>>(new Map())
+  const [locationLinks, setLocationLinks] = useState<{ owner_type: string; owner_id: string; location_id: string }[]>([])
+  const [stationNames, setStationNames] = useState<Map<string, string>>(new Map())
+  const [countNames, setCountNames] = useState<Map<string, string>>(new Map())
   const [creationForm, setCreationForm] = useState(false)
   const [params] = useSearchParams()
   const [companies, setCompanies] = useState<CompanyOption[]>([])
@@ -256,13 +287,25 @@ export default function Contacts() {
   const profileNames = useProfileNames()
 
   const load = useCallback(async () => {
-    const [s, b, co, pc, cm] = await Promise.all([
+    const [s, b, co, pc, cm, pd, ll, sm] = await Promise.all([
       supabase.from('supplier_master').select('*').order('name'),
       supabase.from('buyer_master').select('*').order('name'),
       supabase.from('companies').select('id,name,is_active,mobile,phone_1').order('name'),
       supabase.from('party_counts').select('party_type,party_id,count_id'),
-      supabase.from('count_master').select('id,count_no'),
+      supabase.from('count_master').select('id,count_no,display_name'),
+      supabase.from('party_documents').select('party_type,party_id'),
+      supabase.from('location_links').select('owner_type,owner_id,location_id').in('owner_type', ['buyer', 'supplier']),
+      supabase.from('station_master').select('id,name'),
     ])
+    const docTally = new Map<string, number>()
+    for (const d of (pd.data ?? []) as { party_type: string; party_id: string }[]) {
+      const k = `${d.party_type}:${d.party_id}`
+      docTally.set(k, (docTally.get(k) ?? 0) + 1)
+    }
+    setPartyDocs(docTally)
+    setLocationLinks((ll.data ?? []) as { owner_type: string; owner_id: string; location_id: string }[])
+    setStationNames(new Map(((sm.data ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name])))
+    setCountNames(new Map(((cm.data ?? []) as { id: string; display_name: string }[]).map((x) => [x.id, x.display_name])))
     setCompanies((co.data ?? []) as CompanyOption[])
     setPartyCounts((pc.data ?? []) as { party_type: string; party_id: string; count_id: string }[])
     setCountNos(new Map(((cm.data ?? []) as { id: string; count_no: number }[]).map((c) => [c.id, c.count_no])))
@@ -318,6 +361,121 @@ export default function Contacts() {
     const nos = [...ids].map((id) => countNos.get(id)).filter((n): n is number => n !== undefined)
     return [...new Set(nos)].sort((a, z) => a - z).map((n) => `${n}S`).join(', ')
   }
+  const countIdsOf = (c: Contact): string[] => {
+    const ids = new Set<string>()
+    for (const l of partyCounts) {
+      if ((l.party_type === 'supplier' && l.party_id === c.supplier?.id) || (l.party_type === 'buyer' && l.party_id === c.buyer?.id)) ids.add(l.count_id)
+    }
+    return [...ids]
+  }
+  const locationsOf = (c: Contact): string =>
+    [...new Set(
+      locationLinks
+        .filter((l) => (l.owner_type === 'supplier' && l.owner_id === c.supplier?.id) || (l.owner_type === 'buyer' && l.owner_id === c.buyer?.id))
+        .map((l) => stationNames.get(l.location_id))
+        .filter((n): n is string => Boolean(n)),
+    )].join(', ')
+  const docCountOf = (c: Contact) => (partyDocs.get(`supplier:${c.supplier?.id}`) ?? 0) + (partyDocs.get(`buyer:${c.buyer?.id}`) ?? 0)
+  const personName = (id: string | null | undefined) => (id ? profileNames[id] ?? '—' : '—')
+
+  /** monday's columns, in monday's order and with monday's titles. Fields the
+   *  two records share are read from the supplier record, else the buyer one. */
+  const common = <K extends keyof SupplierMaster & keyof BuyerMaster>(c: Contact, k: K) => (c.supplier?.[k] ?? c.buyer?.[k]) as SupplierMaster[K] | null
+  const columns: Col[] = [
+    { id: 'date', title: 'Date', mono: true, render: (c) => { const v = common(c, 'record_at'); return v ? formatDate(v) : formatDate(common(c, 'created_at')) } },
+    { id: 'type', title: 'Type', render: (c) => <span className={c.role === 'both' ? 'chip brand' : 'chip'}>{roleLabel(c.role)}</span> },
+    { id: 'address', title: 'Office Address', wrap: true, render: (c) => txt(common(c, 'address')) },
+    { id: 'state', title: 'State', render: (c) => txt(common(c, 'state')) },
+    { id: 'gst', title: 'GST No.', mono: true, render: (c) => txt(common(c, 'gst')) },
+    { id: 'cp1', title: 'Contact Person 1', render: (c) => txt(common(c, 'contact_person')) },
+    { id: 'cp1p', title: 'Contact Person 1 Phone', mono: true, render: (c) => txt(common(c, 'mobile')) },
+    { id: 'cp1e', title: 'Contact Person 1 Email', render: (c) => txt(common(c, 'contact_1_email')) },
+    { id: 'cp2', title: 'Contact Person 2', render: (c) => txt(common(c, 'contact_2_name')) },
+    { id: 'cp2p', title: 'Contact Person 2 Phone', mono: true, render: (c) => txt(common(c, 'contact_2_mobile')) },
+    { id: 'cp2e', title: 'Contact Person 2 Email', render: (c) => txt(common(c, 'contact_2_email')) },
+    { id: 'cp3', title: 'Contact Person 3', render: (c) => txt(common(c, 'contact_3_name')) },
+    { id: 'cp3p', title: 'Contact Person 3 Phone', mono: true, render: (c) => txt(common(c, 'contact_3_mobile')) },
+    { id: 'cp3e', title: 'Contact Person 3 Email', render: (c) => txt(common(c, 'contact_3_email')) },
+    { id: 'location', title: 'Location MDM', wrap: true, render: (c) => txt(locationsOf(c)) },
+    { id: 'category', title: 'Category', render: (c) => txt(common(c, 'category')) },
+    { id: 'bank1', title: 'Bank Account Details 1', wrap: true, render: (c) => txt(common(c, 'bank_account_1')) },
+    { id: 'bank2', title: 'Bank Account Details 2', wrap: true, render: (c) => txt(common(c, 'bank_account_2')) },
+    { id: 'defcomm', title: 'Default Commission Percentage', render: (c) => txt(common(c, 'default_commission')) },
+    { id: 'short', title: 'Short Name', render: (c) => txt(common(c, 'short_name')) },
+    { id: 'mill', title: 'Mill/Factory/Delivery Address', wrap: true, render: (c) => txt(common(c, 'mill_address')) },
+    { id: 'ophone', title: 'Office Phone', mono: true, render: (c) => txt(common(c, 'office_phone')) },
+    { id: 'rphone', title: 'Res Phone', mono: true, render: (c) => txt(common(c, 'res_phone')) },
+    { id: 'pan', title: 'IT PAN', mono: true, render: (c) => txt(common(c, 'pan')) },
+    { id: 'email', title: 'Email', render: (c) => txt(common(c, 'email')) },
+    { id: 'bct', title: 'Buyer Commission Type', render: (c) => commissionType(c.buyer?.commission_basis) },
+    { id: 'bcv', title: 'Buyer Commission Value', mono: true, render: (c) => txt(c.buyer?.commission_value) },
+    { id: 'sct', title: 'Supplier Commission Type', render: (c) => commissionType(c.supplier?.commission_basis) },
+    { id: 'scv', title: 'Supplier Commission Value', mono: true, render: (c) => txt(c.supplier?.commission_value) },
+    { id: 'sales', title: 'Sales Person', render: (c) => personName(common(c, 'sales_person_id')) },
+    { id: 'coll', title: 'Collection Staff', render: (c) => personName(common(c, 'collection_staff_id')) },
+    { id: 'docs', title: 'Documents', mono: true, render: (c) => docCountOf(c) },
+    { id: 'counts', title: 'Counts', wrap: true, render: (c) => txt(countIdsOf(c).map((id) => countNames.get(id)).filter(Boolean).join(', ')) },
+    { id: 'threads', title: 'Thread Count', render: (c) => txt(threadCountsOf(c)) },
+    { id: 'rem1', title: 'Remark 1', wrap: true, render: (c) => txt(common(c, 'notes')) },
+    { id: 'rem2', title: 'Remark 2', wrap: true, render: (c) => txt(common(c, 'remarks_2')) },
+    { id: 'msg', title: 'Messenger', render: (c) => personName(common(c, 'messenger_id')) },
+    { id: 'ccode', title: 'Customer Code', mono: true, render: (c) => txt(common(c, 'customer_code')) },
+    { id: 'bmt', title: 'Buyer Machine Type', render: (c) => txt(c.buyer?.machine_types?.[0]) },
+    { id: 'bmt1', title: 'Buyer Machine Type 1', render: (c) => txt(c.buyer?.machine_types?.[1]) },
+    { id: 'bmt2', title: 'Buyer Machine Type 2', render: (c) => txt(c.buyer?.machine_types?.[2]) },
+    { id: 'smt', title: 'Supplier Machine Type', render: (c) => txt(c.supplier?.machine_type) },
+    { id: 'fabric', title: 'Fabric Producing', render: (c) => txt(c.buyer?.fabric_producing) },
+    { id: 'looms', title: 'No. of Looms', mono: true, render: (c) => txt(c.buyer?.no_of_looms) },
+    { id: 'bqb', title: 'Buyer Qty(Bags/month)', mono: true, render: (c) => txt(c.buyer?.qty_bags_month) },
+    { id: 'bqk', title: 'Buyer Qty(Kgs/month)', mono: true, render: (c) => txt(c.buyer?.qty_kgs_month) },
+    { id: 'reed', title: 'Reed * Pick', render: (c) => txt(c.buyer?.reed_pick) },
+    { id: 'width', title: 'Width', render: (c) => txt(c.buyer?.width) },
+    { id: 'csup', title: 'Counts Supplying', mono: true, render: (c) => txt(c.supplier?.counts_supplying) },
+    { id: 'spindles', title: 'Supplier No. of Roters & Spindles', mono: true, render: (c) => txt(c.supplier?.spindles) },
+    { id: 'mprod', title: 'Monthly Production Quantity', mono: true, render: (c) => txt(c.supplier?.monthly_production) },
+    { id: 'sqb', title: 'Supplier Qty(Bags/month)', mono: true, render: (c) => txt(c.supplier?.qty_bags_month) },
+    { id: 'sqk', title: 'Supplier Qty(Kgs/month)', mono: true, render: (c) => txt(c.supplier?.qty_kgs_month) },
+    { id: 'bname', title: 'Business Name', render: (c) => txt(companyOf(c)?.name) },
+    { id: 'web', title: 'Website URL', render: (c) => { const v = common(c, 'website'); return v ? <a href={/^https?:\/\//i.test(v) ? v : `https://${v}`} target="_blank" rel="noopener noreferrer">{v}</a> : dash } },
+    { id: 'map', title: 'Map Location', render: (c) => { const v = common(c, 'map_url'); return v ? <a href={/^https?:\/\//i.test(v) ? v : `https://${v}`} target="_blank" rel="noopener noreferrer">Open map</a> : dash } },
+    { id: 'bunit', title: 'Business Unit', render: (c) => txt(companyOf(c)?.name) },
+    { id: 'bphone', title: 'Business Phone', mono: true, render: (c) => txt(companyOf(c)?.mobile || companyOf(c)?.phone_1) },
+  ]
+  const visibleCols = columns.filter((col) => !hiddenCols.includes(col.id))
+  function toggleCol(id: string) {
+    setHiddenCols((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      try {
+        localStorage.setItem(COLS_KEY, JSON.stringify(next))
+      } catch {
+        /* a blocked storage just means the choice is not remembered */
+      }
+      return next
+    })
+  }
+  // checkbox column (when the person can manage) + Name + the chosen columns + Actions
+  const gridWidth = visibleCols.length + 2 + (canCreateAny ? 1 : 0)
+
+  async function confirmDeleteContact() {
+    if (!deleting) return
+    setBusy(true)
+    setDelErr(null)
+    const results = await Promise.all([
+      deleting.supplier ? bulkDelete('supplier_master', [deleting.supplier.id]) : Promise.resolve<BulkDeleteResult>({ deleted: [], failed: [] }),
+      deleting.buyer ? bulkDelete('buyer_master', [deleting.buyer.id]) : Promise.resolve<BulkDeleteResult>({ deleted: [], failed: [] }),
+    ])
+    setBusy(false)
+    const failed = results.flatMap((r) => r.failed)
+    if (failed.length > 0) {
+      setDelErr(`${deleting.name} could not be fully deleted: ${[...new Set(failed.map((f) => f.message))].join(' ')}`)
+      await load()
+      return
+    }
+    setBanner({ kind: 'ok', text: `${deleting.name} deleted.` })
+    setDeleting(null)
+    await load()
+  }
+
   // The board is grouped Buyer / Supplier; a contact that is both appears under each heading.
   const groups = (['buyer', 'supplier'] as const)
     .map((g) => {
@@ -555,6 +713,23 @@ export default function Contacts() {
         <input aria-label="Filter by spindlage or capacity" placeholder="Spindlage / capacity" value={spinSearch} onChange={(e) => setSpinSearch(e.target.value)} style={{ maxWidth: 180 }} />
       </div>
 
+      <details className="col-picker" style={{ marginBottom: 8 }}>
+        <summary className="small">Columns ({visibleCols.length + 1} of {columns.length + 1} shown)</summary>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', padding: '8px 0' }}>
+          {columns.map((col) => (
+            <label key={col.id} className="small" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={!hiddenCols.includes(col.id)} onChange={() => toggleCol(col.id)} />
+              {col.title}
+            </label>
+          ))}
+          {hiddenCols.length > 0 && (
+            <button className="btn ghost sm" type="button" onClick={() => { setHiddenCols([]); try { localStorage.removeItem(COLS_KEY) } catch { /* ignore */ } }}>
+              Show all columns
+            </button>
+          )}
+        </div>
+      </details>
+
       <div className="table-wrap">
         <table>
           <thead>
@@ -564,26 +739,17 @@ export default function Contacts() {
                   <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all contacts" />
                 </th>
               )}
-              <th>Code</th>
-              <th>Customer code</th>
-              <th className="left">Contact</th>
-              <th>Role</th>
-              <th>Business unit</th>
-              <th>Business phone</th>
-              <th>Thread counts</th>
-              <th>Person</th>
-              <th>GST</th>
-              <th>State</th>
-              <th>Category</th>
-              <th>Product range</th>
-              <th>Status</th>
-              <th>Updated</th>
+              <th className="left md-sticky">Name</th>
+              {visibleCols.map((col) => (
+                <th key={col.id}>{col.title}</th>
+              ))}
+              <th className="md-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 ? (
               <tr>
-                <td className="empty" colSpan={canCreateAny ? 15 : 14}>
+                <td className="empty" colSpan={gridWidth}>
                   {contacts.length === 0 ? 'No contacts yet.' : 'No contact matches those filters.'}
                   {contacts.length === 0 && canCreateAny ? ' Add the first one.' : ''}
                 </td>
@@ -592,64 +758,72 @@ export default function Contacts() {
               groups.map((grp) => (
                 <Fragment key={grp.key}>
                   <tr className="group-row">
-                    <td colSpan={canCreateAny ? 15 : 14}>
+                    <td colSpan={gridWidth}>
                       {grp.label}
                       <span className="group-count">{grp.total}</span>
                     </td>
                   </tr>
-                  {grp.rows.map((c) => {
-                const base = c.supplier ?? c.buyer!
-                return (
-                  <tr key={`${grp.key}:${c.key}`} className="clickable" onClick={() => setEditing({ mode: 'edit', contact: c })}>
-                    {canCreateAny && (
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={selection.isSelected(c.key)} onChange={() => selection.toggle(c.key)} aria-label={`Select ${c.name}`} />
+                  {grp.rows.map((c) => (
+                    <tr key={`${grp.key}:${c.key}`}>
+                      {canCreateAny && (
+                        <td>
+                          <input type="checkbox" checked={selection.isSelected(c.key)} onChange={() => selection.toggle(c.key)} aria-label={`Select ${c.name}`} />
+                        </td>
+                      )}
+                      <td className="left md-sticky">
+                        <strong>{c.name}</strong>
+                        {!c.active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
+                        {(c.supplier?.incomplete || c.buyer?.incomplete) && (
+                          <span className="chip" style={{ marginLeft: 6 }} title="Created from a lead with some details missing. Edit it to complete them.">
+                            Incomplete
+                          </span>
+                        )}
                       </td>
-                    )}
-                    <td className="mono small">
-                      {c.supplier?.supplier_code}
-                      {c.supplier && c.buyer && <br />}
-                      {c.buyer?.buyer_code}
-                    </td>
-                    <td className="mono small">{c.supplier?.customer_code || c.buyer?.customer_code || '—'}</td>
-                    <td className="left">
-                      <strong>{c.name}</strong>
-                      {(c.supplier?.short_name || c.buyer?.short_name) && (
-                        <div className="muted small">{c.supplier?.short_name || c.buyer?.short_name}</div>
-                      )}
-                    </td>
-                    <td>
-                      <span className={c.role === 'both' ? 'chip brand' : 'chip'}>{roleLabel(c.role)}</span>
-                    </td>
-                    <td className="small">{companyOf(c)?.name ?? '—'}</td>
-                    <td className="mono small">{companyOf(c)?.mobile || companyOf(c)?.phone_1 || '—'}</td>
-                    <td className="small">{threadCountsOf(c) || '—'}</td>
-                    <td className="small">
-                      {base.contact_person}
-                      <div className="mono muted">{base.mobile}</div>
-                    </td>
-                    <td className="mono small">{base.gst ?? '—'}</td>
-                    <td className="small">{base.state ?? '—'}</td>
-                    <td className="small">{base.category ?? '—'}</td>
-                    <td className="small">{c.buyer?.product_range || c.supplier?.product_range || '—'}</td>
-                    <td>
-                      {c.active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}
-                      {(c.supplier?.incomplete || c.buyer?.incomplete) && (
-                        <span className="chip" style={{ marginLeft: 6 }} title="Created from a lead with some details missing. Open it to complete them.">
-                          Incomplete
-                        </span>
-                      )}
-                    </td>
-                    <td className="mono small">{formatDateTime(c.updated)}</td>
-                  </tr>
-                )
-                  })}
+                      {visibleCols.map((col) => (
+                        <td key={col.id} className={`small${col.mono ? ' mono' : ''}${col.wrap ? ' md-wrap' : ' md-nowrap'}`} style={col.wrap ? { whiteSpace: 'pre-line' } : undefined}>
+                          {col.render(c)}
+                        </td>
+                      ))}
+                      <td className="md-actions">
+                        <RowActionMenu
+                          label={c.name}
+                          actions={[
+                            { label: 'View', onSelect: () => setViewing(c) },
+                            { label: 'Edit', onSelect: () => setEditing({ mode: 'edit', contact: c }), disabledReason: canEditContact(c) ? null : 'Needs buyer / supplier edit permission' },
+                            { label: 'Documents', onSelect: () => setDocsFor(c) },
+                            { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(c) }, disabledReason: canEditContact(c) ? null : 'Needs buyer / supplier edit permission' },
+                          ]}
+                        />
+                      </td>
+                    </tr>
+                  ))}
                 </Fragment>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {viewing && (
+        <ContactDrawer
+          key={`v-${viewing.key}`}
+          editing={{ mode: 'edit', contact: viewing }}
+          companies={companies}
+          canBuyer={canBuyer}
+          canSupplier={canSupplier}
+          canEdit={false}
+          viewOnly
+          onClose={() => setViewing(null)}
+          onDone={() => setViewing(null)}
+          onError={(text) => setBanner({ kind: 'bad', text })}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog title="Delete contact" busy={busy} error={delErr} onConfirm={() => void confirmDeleteContact()} onClose={() => setDeleting(null)}>
+          Delete <strong>{deleting.name}</strong>{deleting.supplier && deleting.buyer ? ' (both its buyer and supplier records)' : ''}? This cannot be undone.
+        </ConfirmDialog>
+      )}
+      {docsFor && <ContactDocumentsModal contact={docsFor} canEdit={canEditContact(docsFor)} onClose={() => { setDocsFor(null); void load() }} />}
 
       {creationForm && (
         <BuyerSupplierForm
@@ -692,9 +866,40 @@ export default function Contacts() {
 
 /* ---- create / edit drawer ------------------------------------------------------------ */
 
+/** The "Documents" row action: a contact's files, with the buyer / supplier
+ *  record picked when the contact is both. */
+function ContactDocumentsModal({ contact, canEdit, onClose }: { contact: Contact; canEdit: boolean; onClose: () => void }) {
+  const [side, setSide] = useState<'buyer' | 'supplier'>(contact.buyer ? 'buyer' : 'supplier')
+  const partyId = side === 'buyer' ? contact.buyer?.id : contact.supplier?.id
+  return (
+    <Modal
+      title={`Documents · ${contact.name}`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <button className="btn ghost" type="button" onClick={onClose}>
+          Close
+        </button>
+      }
+    >
+      {contact.buyer && contact.supplier && (
+        <div style={{ marginBottom: 8 }}>
+          <span className="muted small">Documents of the </span>
+          <select aria-label="Which record's documents to show" value={side} onChange={(e) => setSide(e.target.value as 'buyer' | 'supplier')}>
+            <option value="buyer">Buyer record ({contact.buyer.buyer_code})</option>
+            <option value="supplier">Supplier record ({contact.supplier.supplier_code})</option>
+          </select>
+        </div>
+      )}
+      {partyId && <DocumentsPanel key={`${side}-${partyId}`} partyType={side} partyId={partyId} canEdit={canEdit} />}
+    </Modal>
+  )
+}
+
 function ContactDrawer({
-  editing, companies, canBuyer, canSupplier, canEdit, onClose, onDone, onError,
+  editing, companies, canBuyer, canSupplier, canEdit, viewOnly = false, onClose, onDone, onError,
 }: {
+  viewOnly?: boolean
   companies: CompanyOption[]
   editing: NonNullable<Editing>
   canBuyer: boolean
@@ -822,7 +1027,11 @@ function ContactDrawer({
           {formError}
         </div>
       )}
-      {!canEdit && <div className="notice small">You can view this contact; changing it needs permission for each side it has (buyer and supplier).</div>}
+      {viewOnly ? (
+        <div className="notice small">Viewing only. Use Actions → Edit on the list to change this contact.</div>
+      ) : (
+        !canEdit && <div className="notice small">You can view this contact; changing it needs permission for each side it has (buyer and supplier).</div>
+      )}
 
       <fieldset disabled={!canEdit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="form-grid">

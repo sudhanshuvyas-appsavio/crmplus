@@ -14,6 +14,12 @@ import type { JobProcess, Station } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
+import { FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { PendingDocuments } from '../components/documents/PendingDocuments'
+import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
 import { LinkPicker, useLocationOptions } from '../components/LinkPicker'
 import { loadLinkIds, syncLinks } from '../lib/links'
@@ -23,9 +29,18 @@ import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool } fr
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { GST_STATES, errMessage, isGst, isMobile } from '../lib/party'
-import { formatDateTime } from '../lib/format'
+import { formatDate } from '../lib/format'
 
 type Company = { id: string; name: string; is_active: boolean }
+
+/** Where a record's documents (monday's Documents column) are kept. */
+const jobDocStore = (id: string): DocumentStore => ({
+  table: 'job_process_documents',
+  bucket: 'mdm-documents',
+  parentColumn: 'job_process_id',
+  pathPrefix: `job-process/${id}`,
+  noun: 'record',
+})
 
 type Buyer = { id: string; name: string; is_active: boolean }
 
@@ -80,7 +95,7 @@ const fromRow = (r: JobProcess): Form => ({
 
 function problems(f: Form): string[] {
   const out: string[] = []
-  if (!f.name.trim()) out.push('Process name')
+  if (!f.name.trim()) out.push('Name')
   if (f.mobile && !isMobile(f.mobile)) out.push('Mobile (10 digits)')
   if (f.mobile_2 && !isMobile(f.mobile_2)) out.push('Second mobile (10 digits)')
   if (f.gst && !isGst(f.gst)) out.push('GST (15 characters, valid format)')
@@ -112,6 +127,12 @@ export default function JobProcesses() {
   const [stations, setStations] = useState<Station[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [editing, setEditing] = useState<JobProcess | 'new' | null>(null)
+  const [viewing, setViewing] = useState<JobProcess | null>(null)
+  const [deleting, setDeleting] = useState<JobProcess | null>(null)
+  const [docsFor, setDocsFor] = useState<JobProcess | null>(null)
+  const [delErr, setDelErr] = useState<string | null>(null)
+  const [docCounts, setDocCounts] = useState<Record<string, number>>({})
+  const [locationsOf, setLocationsOf] = useState<Record<string, string[]>>({})
   const [search, setSearch] = useState('')
   const [buyerFilter, setBuyerFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -132,6 +153,17 @@ export default function JobProcesses() {
     setStations((s.data ?? []) as Station[])
     setCompanies((c.data ?? []) as Company[])
     setBuyers((b.data ?? []) as Buyer[])
+    const list = (r.data ?? []) as JobProcess[]
+    setDocCounts(await countDocuments('job_process_documents', 'job_process_id', list.map((x) => x.id)))
+    // "Locations" column: the stations each record serves.
+    const links = await supabase.from('location_links').select('owner_id,location_id').eq('owner_type', 'job_process')
+    const names = new Map(((s.data ?? []) as Station[]).map((x) => [x.id, x.name]))
+    const byRow: Record<string, string[]> = {}
+    for (const l of (links.data ?? []) as { owner_id: string; location_id: string }[]) {
+      const n = names.get(l.location_id)
+      if (n) (byRow[l.owner_id] ??= []).push(n)
+    }
+    setLocationsOf(byRow)
   }, [])
   useEffect(() => {
     void load()
@@ -228,6 +260,18 @@ export default function JobProcesses() {
     setBusy(false)
   }
 
+  async function confirmDelete() {
+    if (!deleting) return
+    setBusy(true)
+    setDelErr(null)
+    const { data, error } = await supabase.from('job_processes').delete().eq('id', deleting.id).select('id')
+    setBusy(false)
+    if (error || !data || data.length === 0) return setDelErr(error ? errMessage(error) : 'Your account cannot delete this record.')
+    setBanner({ kind: 'ok', text: `${deleting.name} deleted.` })
+    setDeleting(null)
+    await load()
+  }
+
   if (!canRead) return <div className="card pad narrow-card">Your account does not have access to transportation records.</div>
   if (!rows) return <Loading label="Loading job processes" />
 
@@ -288,46 +332,66 @@ export default function JobProcesses() {
                   <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all job processes" />
                 </th>
               )}
-              <th>Code</th>
-              <th className="left">Job process</th>
-              <th>Buyer</th>
-              <th>Station</th>
-              <th>Contact</th>
-              <th>Mobile</th>
-              <th>GST</th>
-              <th>Company</th>
-              <th>Status</th>
-              <th>Updated</th>
+              <th className="left md-sticky">Name</th>
+              <th>Date</th>
+              <th>Office Address</th>
+              <th>GST No.</th>
+              <th>State</th>
+              <th>Contact Person 1</th>
+              <th>Contact Person 1 Phone</th>
+              <th>Contact Person 1 Email</th>
+              <th>Contact Person 2</th>
+              <th>Contact Person 2 Phone</th>
+              <th>Contact Person 2 Email</th>
+              <th>Remarks 1</th>
+              <th>Documents</th>
+              <th>Locations</th>
+              <th className="md-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 ? (
               <tr>
-                <td className="empty" colSpan={canManage ? 11 : 10}>
+                <td className="empty" colSpan={canManage ? 17 : 16}>
                   {rows.length === 0 ? 'No job processes yet.' : 'No job process matches.'}
                 </td>
               </tr>
             ) : (
               paging.visible.map((x) => (
-                <tr key={x.id} className="clickable" onClick={() => setEditing(x)}>
+                <tr key={x.id}>
                   {canManage && (
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td>
                       <input type="checkbox" checked={selection.isSelected(x.id)} onChange={() => selection.toggle(x.id)} aria-label={`Select ${x.name}`} />
                     </td>
                   )}
-                  <td className="mono small">{x.process_code}</td>
-                  <td className="left">
+                  <td className="left md-sticky">
                     <strong>{x.name}</strong>
-                    {x.short_name && <span className="muted small"> · {x.short_name}</span>}
+                    {!x.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                   </td>
-                  <td className="small">{x.buyer_id ? buyerName.get(x.buyer_id) ?? '—' : '—'}</td>
-                  <td className="small">{x.station_id ? stationName.get(x.station_id) ?? '—' : '—'}</td>
+                  <td className="mono small">{formatDate(x.created_at)}</td>
+                  <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.office_address ?? '—'}</td>
+                  <td className="mono small">{x.gst ?? '—'}</td>
+                  <td className="small">{x.state ?? '—'}</td>
                   <td className="small">{x.contact_person ?? '—'}</td>
                   <td className="mono small">{x.mobile ?? '—'}</td>
-                  <td className="mono small">{x.gst ?? '—'}</td>
-                  <td className="small">{x.company_id ? companyName.get(x.company_id) ?? '—' : '—'}</td>
-                  <td>{x.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
-                  <td className="mono small">{formatDateTime(x.updated_at)}</td>
+                  <td className="small">{x.email_1 ?? '—'}</td>
+                  <td className="small">{x.contact_person_2 ?? '—'}</td>
+                  <td className="mono small">{x.mobile_2 ?? '—'}</td>
+                  <td className="small">{x.email_2 ?? '—'}</td>
+                  <td className="small md-wrap">{x.remarks ?? '—'}</td>
+                  <td className="mono small">{docCounts[x.id] ?? 0}</td>
+                  <td className="small md-wrap">{locationsOf[x.id]?.join(', ') ?? '—'}</td>
+                  <td className="md-actions">
+                    <RowActionMenu
+                      label={x.name}
+                      actions={[
+                        { label: 'View', onSelect: () => setViewing(x) },
+                        { label: 'Edit', onSelect: () => setEditing(x), disabledReason: canManage ? null : 'Needs “Add and edit job processes”' },
+                        { label: 'Documents', onSelect: () => setDocsFor(x) },
+                        { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(x) }, disabledReason: canManage ? null : 'Needs “Add and edit job processes”' },
+                      ]}
+                    />
+                  </td>
                 </tr>
               ))
             )}
@@ -335,10 +399,41 @@ export default function JobProcesses() {
         </table>
       </div>
 
+      {viewing && (
+        <JobProcessDrawer
+          key={`v-${viewing.id}`}
+          row={viewing}
+          rows={rows}
+          canManage={canManage}
+          viewOnly
+          stations={stations}
+          companies={companies}
+          buyers={buyers}
+          onClose={() => setViewing(null)}
+          onDone={() => setViewing(null)}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog title="Delete record" busy={busy} error={delErr} onConfirm={() => void confirmDelete()} onClose={() => setDeleting(null)}>
+          Delete <strong>{deleting.name}</strong>? This cannot be undone.
+        </ConfirmDialog>
+      )}
+      {docsFor && (
+        <DocumentsModal
+          title={docsFor.name}
+          store={jobDocStore(docsFor.id)}
+          parentId={docsFor.id}
+          canEdit={canManage}
+          onClose={() => setDocsFor(null)}
+          onChanged={() => void load()}
+        />
+      )}
+
       {editing && (
         <JobProcessDrawer
           key={editing === 'new' ? 'new' : editing.id}
           row={editing === 'new' ? null : editing}
+          rows={rows}
           canManage={canManage}
           stations={stations}
           companies={companies}
@@ -358,34 +453,71 @@ export default function JobProcesses() {
 }
 
 function JobProcessDrawer({
-  row, canManage, stations, companies, buyers, onClose, onDone,
+  row: existing, rows, canManage: canManageRecords, viewOnly = false, stations, companies, buyers, onClose, onDone,
 }: {
   row: JobProcess | null
+  rows: JobProcess[]
   canManage: boolean
+  viewOnly?: boolean
   stations: Station[]
   buyers: Buyer[]
   companies: Company[]
   onClose: () => void
   onDone: (message: string) => void | Promise<void>
 }) {
-  const [f, setF] = useState<Form>(row ? fromRow(row) : blank)
-  const [tab, setTab] = useState<'account' | 'info' | 'remarks'>('account')
+  const canManage = canManageRecords && !viewOnly
+  // monday's form opens with "Select Action": create a new record or update an existing one.
+  const [action, setAction] = useState<'create' | 'update'>('create')
+  const [pickedId, setPickedId] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const picked = rows.find((r) => r.id === pickedId) ?? null
+  const row = existing ?? (action === 'update' ? picked : null)
+  const [f, setF] = useState<Form>(existing ? fromRow(existing) : blank)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const locationOptions = useLocationOptions()
   const [locationIds, setLocationIds] = useState<string[]>([])
   const [linksLoaded, setLinksLoaded] = useState(!row)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
-  const missing = problems(f)
+  // The monday creation form marks these required; they are asked for on a new record
+  // (an existing record may legitimately lack some of them).
+  const required: [string, string][] = row
+    ? []
+    : [
+        ['Name', f.name], ['GST No.', f.gst], ['State', f.state], ['Office Address', f.office_address],
+        ['Contact Person 1', f.contact_person], ['Contact Person 2', f.contact_person_2],
+        ['Contact Person 1 Phone', f.mobile], ['Contact Person 2 Phone', f.mobile_2],
+        ['Contact Person 1 Email', f.email_1], ['Contact Person 2 Email', f.email_2], ['Remarks 1', f.remarks],
+      ]
+  const missing = [
+    ...required.filter(([, v]) => !v.trim()).map(([k]) => k),
+    ...(!row && files.length === 0 ? ['Documents'] : []),
+    ...problems(f).filter((p) => !required.some(([k]) => p.startsWith(k))),
+  ]
 
   useEffect(() => {
-    if (!row) return
+    if (!row) return undefined
     let live = true
+    setLinksLoaded(false)
     loadLinkIds('location', 'job_process', row.id)
       .then((ids) => { if (live) { setLocationIds(ids); setLinksLoaded(true) } })
       .catch(() => { if (live) setErr("Could not load this record's locations.") })
     return () => { live = false }
   }, [row])
+
+  function chooseAction(next: 'create' | 'update') {
+    setAction(next)
+    setPickedId('')
+    setFiles([])
+    setF(blank)
+    setLocationIds([])
+    setLinksLoaded(true)
+  }
+  function pick(id: string) {
+    setPickedId(id)
+    const r = rows.find((x) => x.id === id)
+    setF(r ? fromRow(r) : blank)
+  }
 
   /** Typing a GSTIN fills the state code, state and PAN that it carries. */
   function setGst(value: string) {
@@ -417,152 +549,187 @@ function JobProcessDrawer({
       setBusy(false)
       return setErr('Your account cannot change this job process.')
     }
+    const savedId = data[0]!.id as string
     const saved = row ? `${f.name.trim()} updated.` : `${f.name.trim()} added.`
-    let linkFailed = false
+    const notes: string[] = []
     if (row ? linksLoaded : locationIds.length > 0) {
       try {
-        await syncLinks('location', 'job_process', data[0]!.id as string, locationIds)
+        await syncLinks('location', 'job_process', savedId, locationIds)
       } catch {
-        linkFailed = true
+        notes.push('its locations could not be saved; open it again to retry')
       }
     }
+    if (!row && files.length > 0) {
+      const failed = await uploadDocuments(jobDocStore(savedId), savedId, files)
+      if (failed.length > 0) notes.push(`some documents were not uploaded (${failed.join('; ')}); use Documents on the list to retry`)
+    }
     setBusy(false)
-    await onDone(linkFailed ? `${saved} The record saved, but its locations could not be saved; open it again to retry.` : saved)
+    await onDone(notes.length > 0 ? `${saved} The record saved, but ${notes.join('; ')}.` : saved)
   }
 
   async function remove() {
-    if (!row) return
+    if (!existing) return
     setBusy(true)
-    const { data, error } = await supabase.from('job_processes').delete().eq('id', row.id).select('id')
+    const { data, error } = await supabase.from('job_processes').delete().eq('id', existing.id).select('id')
     setBusy(false)
     if (error || !data || data.length === 0) return setErr(error ? errMessage(error) : 'Your account cannot delete this job process.')
-    await onDone(`${row.name} deleted.`)
+    await onDone(`${existing.name} deleted.`)
   }
 
+  const showForm = existing || action === 'create' || picked
+
   return (
-    <Drawer title={row ? `${row.process_code} · ${row.name}` : 'New job process'} onClose={onClose}>
+    <Drawer title={existing ? `${existing.process_code} · ${existing.name}` : 'Sizing/Delivery Address Creation Form'} onClose={onClose} readOnly={viewOnly}>
       {err && <div className="alert">{err}</div>}
-      {!canManage && <div className="notice small">You can view this record; changing it needs the “Add and edit job processes” permission.</div>}
-      <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <div className="form-grid">
-          <Field id="t-name" label="Process" required>
-            <input id="t-name" value={f.name} onChange={(e) => set('name', e.target.value)} />
-          </Field>
-          <Field id="t-buyer" label="Buyer" hint="Optional: the buyer whose goods are delivered here.">
-            <select id="t-buyer" value={f.buyer_id} onChange={(e) => set('buyer_id', e.target.value)}>
-              <option value="">—</option>
-              {buyers.filter((b) => b.is_active || b.id === f.buyer_id).map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-            </select>
-          </Field>
-          <Field id="t-short" label="Short name">
-            <input id="t-short" value={f.short_name} onChange={(e) => set('short_name', e.target.value)} />
-          </Field>
-          <Field id="t-station" label="Station">
-            <select id="t-station" value={f.station_id} onChange={(e) => set('station_id', e.target.value)}>
-              <option value="">—</option>
-              {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-            </select>
-          </Field>
-          <Field id="t-email1" label="Email 1">
-            <input id="t-email1" type="email" value={f.email_1} onChange={(e) => set('email_1', e.target.value)} />
-          </Field>
-          <Field id="t-email2" label="Email 2">
-            <input id="t-email2" type="email" value={f.email_2} onChange={(e) => set('email_2', e.target.value)} />
-          </Field>
-          <Field id="t-cp" label="Contact person">
-            <input id="t-cp" value={f.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
-          </Field>
-          <Field id="t-mob" label="Mobile" hint="10 digits.">
-            <input id="t-mob" className="mono" inputMode="numeric" maxLength={10} value={f.mobile} onChange={(e) => set('mobile', e.target.value.replace(/\D/g, ''))} />
-          </Field>
-          <Field id="t-cp2" label="Contact person 2">
-            <input id="t-cp2" value={f.contact_person_2} onChange={(e) => set('contact_person_2', e.target.value)} />
-          </Field>
-          <Field id="t-mob2" label="Mobile 2" hint="10 digits.">
-            <input id="t-mob2" className="mono" inputMode="numeric" maxLength={10} value={f.mobile_2} onChange={(e) => set('mobile_2', e.target.value.replace(/\D/g, ''))} />
-          </Field>
-          <Field id="t-ophone" label="Office phone">
-            <input id="t-ophone" className="mono" value={f.office_phone} onChange={(e) => set('office_phone', e.target.value)} />
-          </Field>
-          <Field id="t-rphone" label="Res. phone">
-            <input id="t-rphone" className="mono" value={f.res_phone} onChange={(e) => set('res_phone', e.target.value)} />
-          </Field>
-        </div>
-        <LinkPicker
-          id="t-locations"
-          label="Locations"
-          hint="Optional: the stations this job process serves."
-          options={locationOptions}
-          value={locationIds}
-          onChange={setLocationIds}
-          disabled={!canManage}
+      {!existing && !viewOnly && (
+        <RecordAction
+          action={action}
+          onAction={chooseAction}
+          pickedId={pickedId}
+          onPick={pick}
+          records={rows.map((r) => ({ id: r.id, label: r.name }))}
+          noun="sizing / delivery address"
         />
-        <Field id="t-oaddr" label="Office address">
-          <textarea id="t-oaddr" rows={3} value={f.office_address} onChange={(e) => set('office_address', e.target.value)} />
-        </Field>
-        <Field id="t-daddr" label="Mill / Factory / Delivery address">
-          <textarea id="t-daddr" rows={3} value={f.delivery_address} onChange={(e) => set('delivery_address', e.target.value)} />
-        </Field>
+      )}
+      {!canManage && !viewOnly && <div className="notice small">You can view this record; changing it needs the “Add and edit job processes” permission.</div>}
+      {showForm && (
+        <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+          <FormSection title="Sizing/Delivery Address Information" count={6}>
+            <Field id="t-name" label="Name" required>
+              <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
+            </Field>
+            <Field id="t-gst" label="GST No." required hint="Fills state code, state and PAN.">
+              <input id="t-gst" className="mono" maxLength={15} value={f.gst} placeholder="Enter GST No." onChange={(ev) => setGst(ev.target.value)} />
+            </Field>
+            <Field id="t-state" label="State" required>
+              <input id="t-state" value={f.state} placeholder="Enter State" onChange={(ev) => set('state', ev.target.value)} />
+            </Field>
+            <Field id="t-oaddr" label="Office Address" required>
+              <textarea id="t-oaddr" rows={3} value={f.office_address} placeholder="Enter Office Address" onChange={(ev) => set('office_address', ev.target.value)} />
+            </Field>
+            <FullWidth>
+              <LinkPicker
+                id="t-locations"
+                label="Locations"
+                hint="Optional: the stations this record serves."
+                options={locationOptions}
+                value={locationIds}
+                onChange={setLocationIds}
+                disabled={!canManage}
+              />
+            </FullWidth>
+          </FormSection>
 
-        <div role="tablist" className="drawer-actions" style={{ marginTop: 8, paddingTop: 0, borderTop: 'none' }}>
-          {(['account', 'info', 'remarks'] as const).map((k) => (
-            <button key={k} role="tab" aria-selected={tab === k} type="button" className={`btn sm${tab === k ? ' primary' : ' ghost'}`} onClick={() => setTab(k)}>
-              {k === 'account' ? 'Account' : k === 'info' ? 'Info' : 'Remarks'}
-            </button>
-          ))}
-        </div>
+          <FormSection title="Contact Details" count={6}>
+            <Field id="t-cp" label="Contact Person 1" required>
+              <input id="t-cp" value={f.contact_person} placeholder="Enter Contact Person 1" onChange={(ev) => set('contact_person', ev.target.value)} />
+            </Field>
+            <Field id="t-cp2" label="Contact Person 2" required>
+              <input id="t-cp2" value={f.contact_person_2} placeholder="Enter Contact Person 2" onChange={(ev) => set('contact_person_2', ev.target.value)} />
+            </Field>
+            <Field id="t-mob" label="Contact Person 1 Phone" required hint="10 digits.">
+              <input id="t-mob" className="mono" inputMode="numeric" maxLength={10} value={f.mobile} placeholder="Contact Person 1 Phone number" onChange={(ev) => set('mobile', ev.target.value.replace(/\D/g, ''))} />
+            </Field>
+            <Field id="t-mob2" label="Contact Person 2 Phone" required hint="10 digits.">
+              <input id="t-mob2" className="mono" inputMode="numeric" maxLength={10} value={f.mobile_2} placeholder="Contact Person 2 Phone number" onChange={(ev) => set('mobile_2', ev.target.value.replace(/\D/g, ''))} />
+            </Field>
+            <Field id="t-email1" label="Contact Person 1 Email" required>
+              <input id="t-email1" type="email" value={f.email_1} placeholder="Enter Contact Person 1 Email" onChange={(ev) => set('email_1', ev.target.value)} />
+            </Field>
+            <Field id="t-email2" label="Contact Person 2 Email" required>
+              <input id="t-email2" type="email" value={f.email_2} placeholder="Enter Contact Person 2 Email" onChange={(ev) => set('email_2', ev.target.value)} />
+            </Field>
+          </FormSection>
 
-        {tab === 'account' && (
-          <div className="form-grid">
-            <Field id="t-gst" label="GST" hint="Fills state code, state and PAN.">
-              <input id="t-gst" className="mono" maxLength={15} value={f.gst} onChange={(e) => setGst(e.target.value)} />
+          <FormSection title="Remarks" count={1}>
+            <FullWidth>
+              <Field id="t-remarks" label="Remarks 1" required>
+                <textarea id="t-remarks" rows={3} value={f.remarks} placeholder="Enter Remarks 1" onChange={(ev) => set('remarks', ev.target.value)} />
+              </Field>
+            </FullWidth>
+          </FormSection>
+
+          {!viewOnly && (
+            <FormSection title="Documents" count={1}>
+              <FullWidth>
+                {row ? (
+                  <DocumentList store={jobDocStore(row.id)} parentId={row.id} canEdit={canManage} />
+                ) : (
+                  <>
+                    <p className="field-hint" style={{ marginBottom: 8 }}>Documents *: at least one file is needed on a new record.</p>
+                    <PendingDocuments files={files} onChange={setFiles} disabled={busy} />
+                  </>
+                )}
+              </FullWidth>
+            </FormSection>
+          )}
+
+          <FormSection title="More details" description="Kept in CRM+ for deliveries; not on the monday form.">
+            <Field id="t-short" label="Short name">
+              <input id="t-short" value={f.short_name} onChange={(ev) => set('short_name', ev.target.value)} />
+            </Field>
+            <Field id="t-buyer" label="Buyer" hint="Optional: the buyer whose goods are delivered here.">
+              <select id="t-buyer" value={f.buyer_id} onChange={(ev) => set('buyer_id', ev.target.value)}>
+                <option value="">—</option>
+                {buyers.filter((b) => b.is_active || b.id === f.buyer_id).map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
+              </select>
+            </Field>
+            <Field id="t-station" label="Station">
+              <select id="t-station" value={f.station_id} onChange={(ev) => set('station_id', ev.target.value)}>
+                <option value="">—</option>
+                {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+              </select>
+            </Field>
+            <Field id="t-company" label="Company">
+              <select id="t-company" value={f.company_id} onChange={(ev) => set('company_id', ev.target.value)}>
+                <option value="">—</option>
+                {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+              </select>
+            </Field>
+            <Field id="t-ophone" label="Office phone">
+              <input id="t-ophone" className="mono" value={f.office_phone} onChange={(ev) => set('office_phone', ev.target.value)} />
+            </Field>
+            <Field id="t-rphone" label="Res. phone">
+              <input id="t-rphone" className="mono" value={f.res_phone} onChange={(ev) => set('res_phone', ev.target.value)} />
             </Field>
             <Field id="t-pan" label="IT PAN" hint="10 characters.">
-              <input id="t-pan" className="mono" maxLength={10} value={f.pan} onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
+              <input id="t-pan" className="mono" maxLength={10} value={f.pan} onChange={(ev) => set('pan', ev.target.value.toUpperCase().replace(/\s+/g, ''))} />
             </Field>
             <Field id="t-sc" label="State code">
-              <input id="t-sc" className="mono" maxLength={2} value={f.state_code} onChange={(e) => set('state_code', e.target.value.replace(/\D/g, ''))} />
+              <input id="t-sc" className="mono" maxLength={2} value={f.state_code} onChange={(ev) => set('state_code', ev.target.value.replace(/\D/g, ''))} />
             </Field>
-            <Field id="t-state" label="State">
-              <input id="t-state" value={f.state} onChange={(e) => set('state', e.target.value)} />
+            <Field id="t-daddr" label="Mill / Factory / Delivery address">
+              <textarea id="t-daddr" rows={3} value={f.delivery_address} onChange={(ev) => set('delivery_address', ev.target.value)} />
             </Field>
             <Field id="t-bank" label="Bank A/c. No.">
-              <textarea id="t-bank" rows={3} value={f.bank_account} onChange={(e) => set('bank_account', e.target.value)} />
+              <textarea id="t-bank" rows={3} value={f.bank_account} onChange={(ev) => set('bank_account', ev.target.value)} />
             </Field>
-          </div>
-        )}
-        {tab === 'info' && (
-          <Field id="t-info" label="Info" hint="Vehicle details, routes served or anything else worth knowing.">
-            <textarea id="t-info" rows={5} value={f.info} onChange={(e) => set('info', e.target.value)} />
-          </Field>
-        )}
-        {tab === 'remarks' && (
-          <Field id="t-remarks" label="Remarks">
-            <textarea id="t-remarks" rows={5} value={f.remarks} onChange={(e) => set('remarks', e.target.value)} />
-          </Field>
-        )}
+            <FullWidth>
+              <Field id="t-info" label="Info" hint="Anything else worth knowing about this address.">
+                <textarea id="t-info" rows={3} value={f.info} onChange={(ev) => set('info', ev.target.value)} />
+              </Field>
+              <label className="check">
+                <input type="checkbox" checked={f.is_active} onChange={(ev) => set('is_active', ev.target.checked)} />
+                <span className="check-body">
+                  <span className="check-label">Active</span>
+                </span>
+              </label>
+            </FullWidth>
+          </FormSection>
+        </fieldset>
+      )}
 
-        <div className="form-grid" style={{ marginTop: 12 }}>
-          <Field id="t-company" label="Company">
-            <select id="t-company" value={f.company_id} onChange={(e) => set('company_id', e.target.value)}>
-              <option value="">—</option>
-              {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-            </select>
-          </Field>
-          <label style={{ alignSelf: 'end' }}>
-            <input type="checkbox" checked={f.is_active} onChange={(e) => set('is_active', e.target.checked)} /> Active
-          </label>
-        </div>
-      </fieldset>
-
-      {missing.length > 0 && <p className="field-hint">Fix: {missing.join(', ')}.</p>}
+      {missing.length > 0 && !viewOnly && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
 
       {canManage && (
         <div className="drawer-actions">
-          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
-            {busy ? 'Saving…' : row ? 'Save changes' : 'Add job process'}
+          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0 || (!existing && action === 'update' && !picked)}>
+            {busy ? 'Saving…' : row ? '✓ Update Item' : '✓ Create Item'}
           </button>
-          {row && <DeleteControl label="Delete" name={row.name} busy={busy} onConfirm={() => void remove()} />}
+          <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          {existing && <DeleteControl label="Delete" name={existing.name} busy={busy} onConfirm={() => void remove()} />}
         </div>
       )}
     </Drawer>

@@ -22,6 +22,13 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
+import { FormSection, FullWidth, RecordAction } from '../components/FormKit'
+import { PendingDocuments } from '../components/documents/PendingDocuments'
+import { DocumentsModal } from '../components/documents/DocumentsModal'
+import { formatDate } from '../lib/format'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
@@ -34,6 +41,15 @@ const LOCATION_CSV_COLUMNS = [
 ] as const
 
 const PHONE_RE = /^[0-9]{6,15}$/
+
+/** Where a location's documents (monday's Documents column) are kept. */
+const locationDocStore = (id: string): DocumentStore => ({
+  table: 'location_documents',
+  bucket: 'mdm-documents',
+  parentColumn: 'station_id',
+  pathPrefix: `location/${id}`,
+  noun: 'location',
+})
 
 type Editing = { mode: 'create' } | { mode: 'edit'; row: StationMaster } | null
 type StatusFilter = 'all' | 'active' | 'inactive'
@@ -74,7 +90,7 @@ function toForm(row: StationMaster): FormState {
 /** What is wrong with the form, as short phrases a person can act on. */
 function problems(f: FormState): string[] {
   const out: string[] = []
-  if (!f.name.replace(/\s+/g, ' ').trim()) out.push('Location name')
+  if (!f.name.replace(/\s+/g, ' ').trim()) out.push('Name')
   const gst = f.gst.trim()
   if (gst && !isGst(gst)) out.push('GST (15 characters, like 24ABCDE1234F1Z5)')
   const phone = f.phone.trim()
@@ -108,6 +124,12 @@ export default function Locations() {
   const canManage = can('settings.manage')
   const [rows, setRows] = useState<StationMaster[] | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
+  const [viewing, setViewing] = useState<StationMaster | null>(null)
+  const [deleting, setDeleting] = useState<StationMaster | null>(null)
+  const [docsFor, setDocsFor] = useState<StationMaster | null>(null)
+  const [delErr, setDelErr] = useState<string | null>(null)
+  const [docCounts, setDocCounts] = useState<Record<string, number>>({})
+  const [parties, setParties] = useState<Record<string, string[]>>({})
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [zone, setZone] = useState('')
@@ -122,7 +144,24 @@ export default function Locations() {
       setRows([])
       return
     }
-    setRows((data ?? []) as StationMaster[])
+    const list = (data ?? []) as StationMaster[]
+    setRows(list)
+    setDocCounts(await countDocuments('location_documents', 'station_id', list.map((r) => r.id)))
+    // "Buyers & Suppliers" column: the parties that use each location.
+    const [links, buyers, suppliers] = await Promise.all([
+      supabase.from('location_links').select('owner_type,owner_id,location_id').in('owner_type', ['buyer', 'supplier']),
+      supabase.from('buyer_master').select('id,name'),
+      supabase.from('supplier_master').select('id,name'),
+    ])
+    const names = new Map<string, string>()
+    for (const b of (buyers.data ?? []) as { id: string; name: string }[]) names.set(`buyer:${b.id}`, b.name)
+    for (const s of (suppliers.data ?? []) as { id: string; name: string }[]) names.set(`supplier:${s.id}`, s.name)
+    const byLocation: Record<string, string[]> = {}
+    for (const l of (links.data ?? []) as { owner_type: string; owner_id: string; location_id: string }[]) {
+      const n = names.get(`${l.owner_type}:${l.owner_id}`)
+      if (n) (byLocation[l.location_id] ??= []).push(n)
+    }
+    setParties(byLocation)
   }, [])
 
   useEffect(() => {
@@ -197,6 +236,20 @@ export default function Locations() {
     setBusy(false)
   }
 
+  async function confirmDelete() {
+    if (!deleting) return
+    setBusy(true)
+    setDelErr(null)
+    const { data, error } = await supabase.from('station_master').delete().eq('id', deleting.id).select('id')
+    setBusy(false)
+    if (error || !data || data.length === 0) {
+      return setDelErr(error ? errMessage(error) : 'Your account does not have permission to delete this.')
+    }
+    setBanner({ kind: 'ok', text: `${deleting.name} deleted.` })
+    setDeleting(null)
+    await load()
+  }
+
   if (!rows) return <Loading label="Loading locations" />
 
   const activeCount = rows.filter((r) => r.is_active).length
@@ -208,12 +261,32 @@ export default function Locations() {
         <LocationDrawer
           key={editing.mode === 'edit' ? editing.row.id : 'create'}
           row={editing.mode === 'edit' ? editing.row : null}
+          rows={rows}
           onClose={() => setEditing(null)}
           onDone={async (text) => {
             setBanner({ kind: 'ok', text })
             setEditing(null)
             await load()
           }}
+        />
+      )}
+
+      {viewing && (
+        <LocationDrawer key={`v-${viewing.id}`} row={viewing} rows={rows} readOnly onClose={() => setViewing(null)} onDone={() => setViewing(null)} />
+      )}
+      {deleting && (
+        <ConfirmDialog title="Delete location" busy={busy} error={delErr} onConfirm={() => void confirmDelete()} onClose={() => setDeleting(null)}>
+          Delete <strong>{deleting.name}</strong>? A location that is still used cannot be deleted; switch it off instead.
+        </ConfirmDialog>
+      )}
+      {docsFor && (
+        <DocumentsModal
+          title={docsFor.name}
+          store={locationDocStore(docsFor.id)}
+          parentId={docsFor.id}
+          canEdit={canManage}
+          onClose={() => setDocsFor(null)}
+          onChanged={() => void load()}
         />
       )}
 
@@ -304,22 +377,26 @@ export default function Locations() {
                   />
                 </th>
               )}
-              <th className="left">Location</th>
-              <th>Zone</th>
+              <th className="left md-sticky">Name</th>
               <th>State</th>
+              <th>Date</th>
+              <th>Buyers &amp; Suppliers</th>
+              <th>Address</th>
+              <th>GST Number</th>
               <th>Phone</th>
-              <th>Status</th>
+              <th>Email</th>
+              <th>Contact Person (MD)</th>
+              <th>Accounts Dept Phone</th>
+              <th>Zone</th>
+              <th>Documents</th>
+              <th className="md-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {paging.visible.map((r) => (
-              <tr
-                key={r.id}
-                className={canManage ? 'clickable' : ''}
-                onClick={() => canManage && setEditing({ mode: 'edit', row: r })}
-              >
+              <tr key={r.id}>
                 {canManage && (
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td>
                     <input
                       type="checkbox"
                       checked={selection.isSelected(r.id)}
@@ -328,20 +405,37 @@ export default function Locations() {
                     />
                   </td>
                 )}
-                <td className="left">
+                <td className="left md-sticky">
                   <strong>{r.name}</strong>
+                  {!r.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                 </td>
-                <td className="small">{zoneLabel(r.zone)}</td>
                 <td className="small">{r.state ?? '—'}</td>
+                <td className="mono small">{formatDate(r.created_at)}</td>
+                <td className="small md-wrap">{parties[r.id]?.join(', ') ?? '—'}</td>
+                <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{r.address ?? '—'}</td>
+                <td className="mono small">{r.gst ?? '—'}</td>
                 <td className="mono small">{r.phone ?? '—'}</td>
-                <td>
-                  {r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}
+                <td className="small">{r.email ?? '—'}</td>
+                <td className="small">{r.md_contact ?? '—'}</td>
+                <td className="mono small">{r.accounts_phone ?? '—'}</td>
+                <td className="small">{zoneLabel(r.zone)}</td>
+                <td className="mono small">{docCounts[r.id] ?? 0}</td>
+                <td className="md-actions">
+                  <RowActionMenu
+                    label={r.name}
+                    actions={[
+                      { label: 'View', onSelect: () => setViewing(r) },
+                      { label: 'Edit', onSelect: () => setEditing({ mode: 'edit', row: r }), disabledReason: canManage ? null : 'Needs “Change system settings”' },
+                      { label: 'Documents', onSelect: () => setDocsFor(r) },
+                      { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canManage ? null : 'Needs “Change system settings”' },
+                    ]}
+                  />
                 </td>
               </tr>
             ))}
             {shown.length === 0 && (
               <tr>
-                <td className="empty" colSpan={canManage ? 6 : 5}>
+                <td className="empty" colSpan={canManage ? 15 : 14}>
                   {rows.length === 0
                     ? `No locations yet.${canManage ? ' Add one, or import a CSV with a name column.' : ''}`
                     : 'No location matches that search.'}
@@ -412,18 +506,40 @@ function UsedBy({ locationId }: { locationId: string }) {
 }
 
 function LocationDrawer({
-  row,
+  row: existing,
+  rows,
   onClose,
   onDone,
+  readOnly = false,
 }: {
   row: StationMaster | null
+  rows: StationMaster[]
   onClose: () => void
   onDone: (message: string) => void | Promise<void>
+  readOnly?: boolean
 }) {
-  const [form, setForm] = useState<FormState>(row ? toForm(row) : BLANK)
+  // monday's form opens with "Select Action": create a new record or update an existing one.
+  const [action, setAction] = useState<'create' | 'update'>('create')
+  const [pickedId, setPickedId] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const picked = rows.find((r) => r.id === pickedId) ?? null
+  const row = existing ?? (action === 'update' ? picked : null)
+  const [form, setForm] = useState<FormState>(existing ? toForm(existing) : BLANK)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const missing = problems(form)
+  const missing = [...problems(form), ...(!row && !form.address.trim() ? ['Address'] : [])]
+
+  function chooseAction(next: 'create' | 'update') {
+    setAction(next)
+    setPickedId('')
+    setFiles([])
+    setForm(BLANK)
+  }
+  function pick(id: string) {
+    setPickedId(id)
+    const r = rows.find((x) => x.id === id)
+    setForm(r ? toForm(r) : BLANK)
+  }
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -448,12 +564,26 @@ function LocationDrawer({
     setBusy(true)
     setErr(null)
     const payload = toPayload(form)
-    const { error } = row
-      ? await supabase.from('station_master').update(payload).eq('id', row.id)
-      : await supabase.from('station_master').insert(payload)
+    let newId: string | null = null
+    let error: { message: string } | null
+    if (row) {
+      error = (await supabase.from('station_master').update(payload).eq('id', row.id)).error
+    } else {
+      const res = await supabase.from('station_master').insert(payload).select('id').single()
+      error = res.error
+      newId = (res.data as { id: string } | null)?.id ?? null
+    }
+    if (error) {
+      setBusy(false)
+      return setErr(errMessage(error, 'Could not save this location'))
+    }
+    const failed = newId && files.length > 0 ? await uploadDocuments(locationDocStore(newId), newId, files) : []
     setBusy(false)
-    if (error) return setErr(errMessage(error, 'Could not save this location'))
-    await onDone(`${payload.name} ${row ? 'updated' : 'added'}.`)
+    await onDone(
+      failed.length > 0
+        ? `${payload.name} added, but some documents were not uploaded (${failed.join('; ')}). Use Documents on the list to retry.`
+        : `${payload.name} ${row ? 'updated' : 'added'}.`,
+    )
   }
 
   async function remove() {
@@ -469,75 +599,97 @@ function LocationDrawer({
   }
 
   return (
-    <Drawer title={row ? row.name : 'Add a location'} onClose={onClose}>
+    <Drawer title={existing ? existing.name : 'Location Creation Form'} onClose={onClose} readOnly={readOnly}>
       {err && <div className="alert">{err}</div>}
-      <p className="muted small">Fields marked * are required.</p>
-      <div className="form-grid">
-        <Field id="loc-name" label="Location name" required hint="Must be unique; capitals and spacing are ignored when checking.">
-          <input id="loc-name" value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
-        </Field>
-        <Field id="loc-zone" label="Zone">
-          <select id="loc-zone" value={form.zone} onChange={(e) => set('zone', e.target.value)}>
-            <option value="">—</option>
-            {ZONES.map((z) => (
-              <option key={z.value} value={z.value}>
-                {z.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field id="loc-gst" label="GST" hint="Optional. The state is filled from the first two digits.">
-          <input id="loc-gst" className="mono" value={form.gst} onChange={(e) => setGst(e.target.value)} maxLength={15} />
-        </Field>
-        <Field id="loc-state" label="State">
-          <input id="loc-state" value={form.state} onChange={(e) => set('state', e.target.value)} />
-        </Field>
-        <Field id="loc-address" label="Address">
-          <textarea id="loc-address" rows={3} value={form.address} onChange={(e) => set('address', e.target.value)} />
-        </Field>
-        <Field id="loc-phone" label="Phone" hint="6 to 15 digits.">
-          <input
-            id="loc-phone"
-            inputMode="numeric"
-            className="mono"
-            value={form.phone}
-            onChange={(e) => set('phone', e.target.value.replace(/\D/g, ''))}
-          />
-        </Field>
-        <Field id="loc-acc-phone" label="Accounts phone" hint="6 to 15 digits.">
-          <input
-            id="loc-acc-phone"
-            inputMode="numeric"
-            className="mono"
-            value={form.accounts_phone}
-            onChange={(e) => set('accounts_phone', e.target.value.replace(/\D/g, ''))}
-          />
-        </Field>
-        <Field id="loc-email" label="Email">
-          <input id="loc-email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
-        </Field>
-        <Field id="loc-md" label="MD contact">
-          <input id="loc-md" value={form.md_contact} onChange={(e) => set('md_contact', e.target.value)} />
-        </Field>
-      </div>
-      <label className="check">
-        <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-        <span className="check-body">
-          <span className="check-label">Active</span>
-          <span className="check-hint">Inactive locations stay on existing records but are no longer offered on new ones.</span>
-        </span>
-      </label>
+      {!existing && !readOnly && (
+        <RecordAction
+          action={action}
+          onAction={chooseAction}
+          pickedId={pickedId}
+          onPick={pick}
+          records={rows.map((r) => ({ id: r.id, label: r.name }))}
+          noun="location"
+        />
+      )}
+      {(existing || action === 'create' || picked) && (
+        <>
+          <FormSection title="Location Details" count={11}>
+            <Field id="loc-name" label="Name" required hint="Must be unique; capitals and spacing are ignored when checking.">
+              <input id="loc-name" value={form.name} placeholder="Enter Name" onChange={(e) => set('name', e.target.value)} autoFocus />
+            </Field>
+            <Field id="loc-state" label="State">
+              <input id="loc-state" value={form.state} placeholder="Enter State" onChange={(e) => set('state', e.target.value)} />
+            </Field>
+            <Field id="loc-zone" label="Zone">
+              <select id="loc-zone" value={form.zone} onChange={(e) => set('zone', e.target.value)}>
+                <option value="">-- Select Zone --</option>
+                {ZONES.map((z) => (
+                  <option key={z.value} value={z.value}>
+                    {z.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field id="loc-gst" label="GST Number" hint="Optional. The state is filled from the first two digits.">
+              <input id="loc-gst" className="mono" value={form.gst} placeholder="Enter GST Number" onChange={(e) => setGst(e.target.value)} maxLength={15} />
+            </Field>
+            <Field id="loc-phone" label="Phone" hint="6 to 15 digits.">
+              <input id="loc-phone" inputMode="numeric" className="mono" value={form.phone} placeholder="Phone number" onChange={(e) => set('phone', e.target.value.replace(/\D/g, ''))} />
+            </Field>
+            <Field id="loc-email" label="Email">
+              <input id="loc-email" type="email" value={form.email} placeholder="Enter Email" onChange={(e) => set('email', e.target.value)} />
+            </Field>
+            <Field id="loc-md" label="Contact Person (MD)">
+              <input id="loc-md" value={form.md_contact} placeholder="Enter Contact Person (MD)" onChange={(e) => set('md_contact', e.target.value)} />
+            </Field>
+            <Field id="loc-acc-phone" label="Accounts Dept Phone" hint="6 to 15 digits.">
+              <input id="loc-acc-phone" inputMode="numeric" className="mono" value={form.accounts_phone} placeholder="Accounts Dept Phone number" onChange={(e) => set('accounts_phone', e.target.value.replace(/\D/g, ''))} />
+            </Field>
+            <FullWidth>
+              <Field id="loc-address" label="Address" required>
+                <textarea id="loc-address" rows={3} value={form.address} placeholder="Enter Address" onChange={(e) => set('address', e.target.value)} />
+              </Field>
+            </FullWidth>
+            {row ? (
+              <FullWidth>
+                <UsedBy locationId={row.id} />
+              </FullWidth>
+            ) : (
+              <FullWidth>
+                <p className="field-hint">Buyers & Suppliers: link a buyer or supplier to this location from that record's Location MDM field.</p>
+              </FullWidth>
+            )}
+            <FullWidth>
+              <label className="check">
+                <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
+                <span className="check-body">
+                  <span className="check-label">Active</span>
+                  <span className="check-hint">Inactive locations stay on existing records but are no longer offered on new ones.</span>
+                </span>
+              </label>
+            </FullWidth>
+          </FormSection>
+
+          {!readOnly && (
+            <FormSection title="Documents" count={1}>
+              <FullWidth>
+                {row ? <DocumentList store={locationDocStore(row.id)} parentId={row.id} canEdit /> : <PendingDocuments files={files} onChange={setFiles} disabled={busy} />}
+              </FullWidth>
+            </FormSection>
+          )}
+        </>
+      )}
+
       {missing.length > 0 && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
       <div className="drawer-actions">
-        <button className="btn primary" type="button" disabled={busy || missing.length > 0} onClick={() => void save()}>
-          {busy ? 'Saving…' : row ? 'Save changes' : 'Add the location'}
+        <button className="btn primary" type="button" disabled={busy || missing.length > 0 || (!existing && action === 'update' && !picked)} onClick={() => void save()}>
+          {busy ? 'Saving…' : row ? '✓ Update Item' : '✓ Create Item'}
         </button>
         <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
           Cancel
         </button>
-        {row && <DeleteControl label="Delete this location" name={row.name} busy={busy} onConfirm={() => void remove()} />}
+        {existing && <DeleteControl label="Delete this location" name={existing.name} busy={busy} onConfirm={() => void remove()} />}
       </div>
-      {row && <UsedBy locationId={row.id} />}
     </Drawer>
   )
 }

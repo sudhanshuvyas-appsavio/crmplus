@@ -17,6 +17,8 @@ import type { BuyerMaster, SupplierMaster } from '../api/types'
 import { Drawer } from './Drawer'
 import { Field } from './PartyForms'
 import { PhoneField } from './PhoneField'
+import { ActionChoice, FormSection, FullWidth } from './FormKit'
+import { PendingDocuments } from './documents/PendingDocuments'
 import { DocumentsPanel, useProfileNames } from './PartyExtras'
 import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
 import { loadLinkIds, syncLinks } from '../lib/links'
@@ -38,7 +40,6 @@ const COMMISSION_TYPES: { value: string; label: string }[] = [
   { value: 'per_bag', label: 'BAG' },
 ]
 
-const MAX_FILES = 10
 const BUCKET = 'party-documents'
 
 interface CompanyOption {
@@ -75,6 +76,17 @@ type FormState = {
   commission_value: string
   remark_1: string
   remark_2: string
+  // "Incase of Buyer / Supplier" questions
+  fabric_producing: string
+  no_of_looms: string
+  reed_pick: string
+  width: string
+  machine_type: string
+  counts_supplying: string
+  spindles: string
+  monthly_production: string
+  qty_bags: string
+  qty_kgs: string
 }
 
 const nowLocal = (): string => {
@@ -95,6 +107,8 @@ const blank = (type: Side): FormState => ({
   company_id: '', default_commission: 'pct', category: '', messenger_id: '', pan: '',
   c1_name: '', c1_phone: '', c1_email: '', c2_name: '', c2_phone: '', c2_email: '', c3_name: '', c3_phone: '', c3_email: '',
   commission_type: 'pct', commission_value: '', remark_1: '', remark_2: '',
+  fabric_producing: '', no_of_looms: '', reed_pick: '', width: '', machine_type: '', counts_supplying: '',
+  spindles: '', monthly_production: '', qty_bags: '', qty_kgs: '',
 })
 
 /** A stored 10-digit mobile shown with its country code. */
@@ -129,6 +143,16 @@ function fromRow(side: Side, r: BuyerMaster | SupplierMaster): FormState {
     commission_value: r.commission_value === null ? '' : String(r.commission_value),
     remark_1: r.notes ?? '',
     remark_2: r.remarks_2 ?? '',
+    fabric_producing: 'fabric_producing' in r ? r.fabric_producing ?? '' : '',
+    no_of_looms: 'no_of_looms' in r && r.no_of_looms !== null ? String(r.no_of_looms) : '',
+    reed_pick: 'reed_pick' in r ? r.reed_pick ?? '' : '',
+    width: 'width' in r ? r.width ?? '' : '',
+    machine_type: 'machine_type' in r ? r.machine_type ?? '' : '',
+    counts_supplying: 'counts_supplying' in r && r.counts_supplying !== null ? String(r.counts_supplying) : '',
+    spindles: 'spindles' in r && r.spindles !== null ? String(r.spindles) : '',
+    monthly_production: 'monthly_production' in r && r.monthly_production !== null ? String(r.monthly_production) : '',
+    qty_bags: r.qty_bags_month === null || r.qty_bags_month === undefined ? '' : String(r.qty_bags_month),
+    qty_kgs: r.qty_kgs_month === null || r.qty_kgs_month === undefined ? '' : String(r.qty_kgs_month),
   }
 }
 
@@ -171,6 +195,12 @@ export function problemsOf(f: FormState, countIds: string[]): string[] {
     if (email.trim() && !isEmail(email)) out.push(`${label} Email (needs an @, or leave blank)`)
   }
   if (f.commission_value.trim() && numOrNull(f.commission_value) === null) out.push('Commission Value (a number)')
+  for (const [label, v] of [
+    ['No. of Looms', f.no_of_looms], ['Counts Supplying', f.counts_supplying], ['Supplier No. of Roters & Spindles', f.spindles],
+    ['Monthly Production Quantity', f.monthly_production], ['Qty(Bags/month)', f.qty_bags], ['Qty(Kgs/month)', f.qty_kgs],
+  ] as const) {
+    if (v.trim() && numOrNull(v) === null) out.push(`${label} (a number, or leave blank)`)
+  }
   return out
 }
 
@@ -207,6 +237,21 @@ function payloadOf(f: FormState) {
     notes: orNull(f.remark_1),
     remarks_2: orNull(f.remark_2),
     company_id: f.company_id || null,
+    qty_bags_month: numOrNull(f.qty_bags),
+    qty_kgs_month: numOrNull(f.qty_kgs),
+    ...(f.type === 'buyer'
+      ? {
+          fabric_producing: orNull(f.fabric_producing),
+          no_of_looms: numOrNull(f.no_of_looms),
+          reed_pick: orNull(f.reed_pick),
+          width: orNull(f.width),
+        }
+      : {
+          machine_type: orNull(f.machine_type),
+          counts_supplying: numOrNull(f.counts_supplying),
+          spindles: numOrNull(f.spindles),
+          monthly_production: numOrNull(f.monthly_production),
+        }),
     // the masters' own required details; the Contacts list marks what is still missing
     incomplete: !(pan.length === 10 && contact && mobile),
   }
@@ -346,7 +391,7 @@ export function BuyerSupplierForm({
     setBusy(true)
     setError(null)
     const table = form.type === 'buyer' ? 'buyer_master' : 'supplier_master'
-    const payload = payloadOf(form)
+    const payload: Record<string, unknown> = payloadOf(form)
     let ownerId: string
     if (action === 'create') {
       const { data, error: e } = await supabase.from(table).insert(payload).select('id').single()
@@ -399,37 +444,34 @@ export function BuyerSupplierForm({
         </div>
       )}
 
-      <h3 className="section-title">Select Action</h3>
-      <div className="drawer-actions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
-        <label className="check">
-          <input type="radio" name="bs-action" checked={action === 'create'} onChange={() => chooseAction('create')} />
-          <span className="check-body">
-            <span className="check-label">Create New Record</span>
-          </span>
-        </label>
-        <label className="check">
-          <input type="radio" name="bs-action" checked={action === 'update'} onChange={() => chooseAction('update')} />
-          <span className="check-body">
-            <span className="check-label">Update Existing Record</span>
-          </span>
-        </label>
-      </div>
+      <ActionChoice
+        label="Select Action"
+        value={action}
+        onChange={chooseAction}
+        options={[
+          { value: 'create', label: 'Create New Record', hint: 'Add a new buyer or supplier.' },
+          { value: 'update', label: 'Update Existing Record', hint: 'Pick a record and change its details.' },
+        ]}
+      />
       {action === 'update' && (
-        <div className="field">
-          <label htmlFor="bs-target">Record to update</label>
-          <select id="bs-target" value={target} onChange={(e) => setTarget(e.target.value)}>
-            <option value="">— Select a record —</option>
-            {records.map((r) => (
-              <option key={r.key} value={r.key}>
-                {r.row.name} ({r.side === 'buyer' ? 'Buyer' : 'Supplier'})
-              </option>
-            ))}
-          </select>
-        </div>
+        <FormSection title="Record to update">
+          <FullWidth>
+            <Field id="bs-target" label="Record" required hint="Its details are loaded below for you to change.">
+              <select id="bs-target" value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value="">— Select a record —</option>
+                {records.map((r) => (
+                  <option key={r.key} value={r.key}>
+                    {r.row.name} ({r.side === 'buyer' ? 'Buyer' : 'Supplier'})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </FullWidth>
+        </FormSection>
       )}
 
       <fieldset disabled={updatingNothing} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <div className="form-grid">
+        <FormSection title="Buyer & Supplier Details" count={14}>
           <Field id="bs-name" label="Name" required>
             <input id="bs-name" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Enter Name" autoFocus />
           </Field>
@@ -450,6 +492,12 @@ export function BuyerSupplierForm({
             <input id="bs-email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="Enter Email" />
           </Field>
           <PhoneField id="bs-ophone" label="Office Phone" required value={form.office_phone} onChange={(v) => set('office_phone', v)} />
+          <Field id="bs-address" label="Office Address" required>
+            <textarea id="bs-address" rows={3} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Enter Office Address" />
+          </Field>
+          <Field id="bs-mill" label="Mill/Factory/Delivery Address">
+            <textarea id="bs-mill" rows={3} value={form.mill_address} onChange={(e) => set('mill_address', e.target.value)} placeholder="Enter Mill/Factory/Delivery Address" />
+          </Field>
           <Field id="bs-state" label="State">
             <input id="bs-state" value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="Enter State" />
           </Field>
@@ -483,9 +531,18 @@ export function BuyerSupplierForm({
                 ))}
             </select>
           </Field>
+          <LinkPicker
+            id="bs-locs"
+            label="Location MDM"
+            options={locationOptions}
+            value={locationIds}
+            onChange={setLocationIds}
+            disabled={!linksReady}
+            placeholder="-- Select Location MDM --"
+          />
           <Field id="bs-defcomm" label="Default Commision Percentage" required>
             <select id="bs-defcomm" value={form.default_commission} onChange={(e) => set('default_commission', e.target.value)}>
-              <option value="">—</option>
+              <option value="">-- Select Default Commision Percentage --</option>
               {DEFAULT_COMMISSIONS.map((c) => (
                 <option key={c.value} value={c.value}>
                   {c.label}
@@ -495,7 +552,7 @@ export function BuyerSupplierForm({
           </Field>
           <Field id="bs-cat" label="Category">
             <select id="bs-cat" value={form.category} onChange={(e) => set('category', e.target.value)}>
-              <option value="">—</option>
+              <option value="">-- Select Category --</option>
               {CATEGORIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -514,28 +571,34 @@ export function BuyerSupplierForm({
               ))}
             </select>
           </Field>
+        </FormSection>
+
+        <FormSection title="Account Details" count={1}>
           <Field id="bs-pan" label="IT Pan" hint="10 characters, upper case.">
             <input id="bs-pan" className="mono" maxLength={10} value={form.pan} onChange={(e) => set('pan', e.target.value.toUpperCase())} placeholder="Enter IT Pan" />
           </Field>
-        </div>
+        </FormSection>
 
-        <Field id="bs-address" label="Office Address" required>
-          <textarea id="bs-address" rows={3} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Enter Office Address" />
-        </Field>
-        <Field id="bs-mill" label="Mill/Factory/Delivery Address">
-          <textarea id="bs-mill" rows={3} value={form.mill_address} onChange={(e) => set('mill_address', e.target.value)} placeholder="Enter Mill/Factory/Delivery Address" />
-        </Field>
+        {([
+          [1, 'MD Information'],
+          [2, 'Account Information'],
+          [3, 'Dispatch Information'],
+        ] as const).map(([n, title]) => {
+          const k = `c${n}` as 'c1' | 'c2' | 'c3'
+          return (
+            <FormSection key={n} title={title} count={3}>
+              <Field id={`bs-${k}n`} label={`Contact Person ${n}`}>
+                <input id={`bs-${k}n`} value={form[`${k}_name`]} onChange={(e) => set(`${k}_name`, e.target.value)} placeholder={`Enter Contact Person ${n}`} />
+              </Field>
+              <PhoneField id={`bs-${k}p`} label={`Contact Person ${n} Phone`} value={form[`${k}_phone`]} onChange={(v) => set(`${k}_phone`, v)} />
+              <Field id={`bs-${k}e`} label={`Contact Person ${n} Email`}>
+                <input id={`bs-${k}e`} type="email" value={form[`${k}_email`]} onChange={(e) => set(`${k}_email`, e.target.value)} placeholder={`Enter Contact Person ${n} Email`} />
+              </Field>
+            </FormSection>
+          )
+        })}
 
-        <div className="form-grid">
-          <LinkPicker
-            id="bs-locs"
-            label="Location MDM"
-            options={locationOptions}
-            value={locationIds}
-            onChange={setLocationIds}
-            disabled={!linksReady}
-            placeholder="-- Select Location MDM --"
-          />
+        <FormSection title="Product Configuration" count={3}>
           <LinkPicker
             id="bs-counts"
             label="Counts *"
@@ -545,28 +608,6 @@ export function BuyerSupplierForm({
             disabled={!linksReady}
             placeholder="-- Select Counts --"
           />
-        </div>
-
-        <h3 className="section-title">Contact Persons</h3>
-        <div className="form-grid">
-          {([1, 2, 3] as const).map((n) => {
-            const k = `c${n}` as 'c1' | 'c2' | 'c3'
-            return (
-              <div key={n} style={{ display: 'contents' }}>
-                <Field id={`bs-${k}n`} label={`Contact Person ${n}`}>
-                  <input id={`bs-${k}n`} value={form[`${k}_name`]} onChange={(e) => set(`${k}_name`, e.target.value)} placeholder={`Enter Contact Person ${n}`} />
-                </Field>
-                <PhoneField id={`bs-${k}p`} label={`Contact Person ${n} Phone`} value={form[`${k}_phone`]} onChange={(v) => set(`${k}_phone`, v)} />
-                <Field id={`bs-${k}e`} label={`Contact Person ${n} Email`}>
-                  <input id={`bs-${k}e`} type="email" value={form[`${k}_email`]} onChange={(e) => set(`${k}_email`, e.target.value)} placeholder={`Enter Contact Person ${n} Email`} />
-                </Field>
-              </div>
-            )
-          })}
-        </div>
-
-        <h3 className="section-title">{form.type === 'buyer' ? 'Buyer' : 'Supplier'} commission</h3>
-        <div className="form-grid">
           <Field id="bs-ctype" label={`${form.type === 'buyer' ? 'Buyer' : 'Supplier'} Commission Type`}>
             <select id="bs-ctype" value={form.commission_type} onChange={(e) => set('commission_type', e.target.value)}>
               {COMMISSION_TYPES.map((c) => (
@@ -585,50 +626,70 @@ export function BuyerSupplierForm({
               placeholder={`Enter ${form.type === 'buyer' ? 'Buyer' : 'Supplier'} Commission Value`}
             />
           </Field>
-        </div>
+        </FormSection>
 
-        <Field id="bs-r1" label="Remark 1">
-          <textarea id="bs-r1" rows={2} value={form.remark_1} onChange={(e) => set('remark_1', e.target.value)} placeholder="Enter Remark 1" />
-        </Field>
-        <Field id="bs-r2" label="Remark 2">
-          <textarea id="bs-r2" rows={2} value={form.remark_2} onChange={(e) => set('remark_2', e.target.value)} placeholder="Enter Remark 2" />
-        </Field>
-
-        <h3 className="section-title">Documents</h3>
-        {action === 'update' && current ? (
-          <DocumentsPanel partyType={current.side} partyId={current.row.id} canEdit />
+        {form.type === 'buyer' ? (
+          <FormSection title="Incase of Buyer / Supplier" description="Shown for a Buyer." count={6}>
+            <Field id="bs-fabric" label="Fabric Producing">
+              <input id="bs-fabric" value={form.fabric_producing} onChange={(e) => set('fabric_producing', e.target.value)} placeholder="Enter Fabric Producing" />
+            </Field>
+            <Field id="bs-looms" label="No. of Looms">
+              <input id="bs-looms" inputMode="numeric" value={form.no_of_looms} onChange={(e) => set('no_of_looms', e.target.value)} placeholder="Enter No. of Looms" />
+            </Field>
+            <Field id="bs-qbags" label="Buyer Qty(Bags/month)">
+              <input id="bs-qbags" inputMode="decimal" value={form.qty_bags} onChange={(e) => set('qty_bags', e.target.value)} placeholder="Enter Buyer Qty(Bags/month)" />
+            </Field>
+            <Field id="bs-qkgs" label="Buyer Qty(Kgs/month)">
+              <input id="bs-qkgs" inputMode="decimal" value={form.qty_kgs} onChange={(e) => set('qty_kgs', e.target.value)} placeholder="Enter Buyer Qty(Kgs/month)" />
+            </Field>
+            <Field id="bs-reed" label="Reed * Pick">
+              <input id="bs-reed" value={form.reed_pick} onChange={(e) => set('reed_pick', e.target.value)} placeholder="Enter Reed * Pick" />
+            </Field>
+            <Field id="bs-width" label="Width">
+              <input id="bs-width" value={form.width} onChange={(e) => set('width', e.target.value)} placeholder="Enter Width" />
+            </Field>
+          </FormSection>
         ) : (
-          <>
-            <div className="drawer-actions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
-              <input
-                type="file"
-                multiple
-                aria-label="Attach files"
-                disabled={files.length >= MAX_FILES}
-                onChange={(e) => {
-                  const picked = Array.from(e.target.files ?? [])
-                  e.target.value = ''
-                  setFiles((prev) => [...prev, ...picked].slice(0, MAX_FILES))
-                }}
-              />
-              <span className="muted small">
-                📎 Attach files ({files.length}/{MAX_FILES})
-              </span>
-            </div>
-            {files.length > 0 && (
-              <ul className="small" style={{ margin: '8px 0', paddingLeft: 18 }}>
-                {files.map((f, i) => (
-                  <li key={`${f.name}-${i}`}>
-                    {f.name}{' '}
-                    <button className="btn ghost sm" type="button" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}>
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
+          <FormSection title="Incase of Buyer / Supplier" description="Shown for a Supplier." count={6}>
+            <Field id="bs-mtype" label="Supplier Machine Type">
+              <input id="bs-mtype" value={form.machine_type} onChange={(e) => set('machine_type', e.target.value)} placeholder="Enter Supplier Machine Type" />
+            </Field>
+            <Field id="bs-csup" label="Counts Supplying">
+              <input id="bs-csup" inputMode="numeric" value={form.counts_supplying} onChange={(e) => set('counts_supplying', e.target.value)} placeholder="Enter Counts Supplying" />
+            </Field>
+            <Field id="bs-spindles" label="Supplier No. of Roters & Spindles">
+              <input id="bs-spindles" inputMode="numeric" value={form.spindles} onChange={(e) => set('spindles', e.target.value)} placeholder="Enter Supplier No. of Roters & Spindles" />
+            </Field>
+            <Field id="bs-mprod" label="Monthly Production Quantity">
+              <input id="bs-mprod" inputMode="decimal" value={form.monthly_production} onChange={(e) => set('monthly_production', e.target.value)} placeholder="Enter Monthly Production Quantity" />
+            </Field>
+            <Field id="bs-qkgs" label="Supplier Qty(Kgs/month)">
+              <input id="bs-qkgs" inputMode="decimal" value={form.qty_kgs} onChange={(e) => set('qty_kgs', e.target.value)} placeholder="Enter Supplier Qty(Kgs/month)" />
+            </Field>
+            <Field id="bs-qbags" label="Supplier Qty(Bags/month)">
+              <input id="bs-qbags" inputMode="decimal" value={form.qty_bags} onChange={(e) => set('qty_bags', e.target.value)} placeholder="Enter Supplier Qty(Bags/month)" />
+            </Field>
+          </FormSection>
         )}
+
+        <FormSection title="Remarks" count={2}>
+          <Field id="bs-r1" label="Remark 1">
+            <textarea id="bs-r1" rows={3} value={form.remark_1} onChange={(e) => set('remark_1', e.target.value)} placeholder="Enter Remark 1" />
+          </Field>
+          <Field id="bs-r2" label="Remark 2">
+            <textarea id="bs-r2" rows={3} value={form.remark_2} onChange={(e) => set('remark_2', e.target.value)} placeholder="Enter Remark 2" />
+          </Field>
+        </FormSection>
+
+        <FormSection title="Documents" count={1}>
+          <FullWidth>
+            {action === 'update' && current ? (
+              <DocumentsPanel partyType={current.side} partyId={current.row.id} canEdit />
+            ) : (
+              <PendingDocuments files={files} onChange={setFiles} disabled={busy} />
+            )}
+          </FullWidth>
+        </FormSection>
       </fieldset>
 
       {problems.length > 0 && !updatingNothing && <p className="field-hint">Still needed: {problems.join(', ')}.</p>}
