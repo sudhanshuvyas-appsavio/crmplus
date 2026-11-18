@@ -20,7 +20,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { useSelection } from '../components/ListTools'
 import { Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
-import { MIRROR_PARTY_COLS, cell, partyMirrors } from '../components/board/mirrors'
+import { MIRROR_PARTY_COLS, cell } from '../components/board/mirrors'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
@@ -61,11 +61,10 @@ export default function SalesConfirmations() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [exec, setExec] = useState<Map<string, { exec_status: string; dispatched_qty: number }>>(new Map())
   const [bulk, setBulk] = useState(false)
-  const [people, setPeople] = useState<Map<string, string>>(new Map())
   const [dealNos, setDealNos] = useState<Map<string, string>>(new Map())
 
   const load = useCallback(async () => {
-    const [r, s, b, c, k, t, ex, tr, jp, o, pp, dl] = await Promise.all([
+    const [r, s, b, c, k, t, ex, tr, jp, o, dl] = await Promise.all([
       supabase.from('sales_confirmations').select('*').order('confirmed_at', { ascending: false }),
       supabase.from('supplier_master').select(MIRROR_PARTY_COLS).order('name'),
       supabase.from('buyer_master').select(MIRROR_PARTY_COLS).order('name'),
@@ -76,10 +75,8 @@ export default function SalesConfirmations() {
       supabase.from('transporters').select('*').order('name'),
       supabase.from('job_processes').select('*').order('name'),
       supabase.from('orders').select('id,order_no,dispatch_status,sales_confirmation_id').neq('status', 'cancelled'),
-      supabase.from('profiles').select('id,name'),
       supabase.from('crm_deals').select('id,deal_no'),
     ])
-    setPeople(new Map(((pp.data ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name])))
     setDealNos(new Map(((dl.data ?? []) as { id: string; deal_no: string }[]).map((x) => [x.id, x.deal_no])))
     setExec(new Map(((ex.data ?? []) as { sc_id: string; exec_status: string; dispatched_qty: number }[]).map((x) => [x.sc_id, x])))
     if (r.error) setBanner({ kind: 'bad', text: errMessage(r.error, 'Could not load sales confirmations') })
@@ -184,45 +181,35 @@ export default function SalesConfirmations() {
     return canCancel && x.status !== 'draft' ? [...opts, scStage('cancelled')] : opts
   }
 
-  const buyerById = new Map(buyers.map((x) => [x.id, x]))
-  const supplierById = new Map(suppliers.map((x) => [x.id, x]))
-  const ctx = { people, companies: new Map(companies.map((c) => [c.id, c])) }
   const termName = new Map(terms.map((t) => [t.id, t.name]))
-  const buyerOf = (x: ScRow) => (x.buyer_id ? buyerById.get(x.buyer_id) : undefined)
-  const supplierOf = (x: ScRow) => (x.supplier_id ? supplierById.get(x.supplier_id) : undefined)
   const sentCell = (at: string | null) => (at ? <span className="chip good small">Sent {formatDateTime(at)}</span> : <span className="muted small">Not sent</span>)
-  // Columns in the order of the monday Sales Confirmation board.
+  // Columns: the confirmation fields in the lead's "Changes needed" document.
   const columns: BoardColumn<ScRow>[] = [
     { key: 'no', label: 'Confirmation No', width: 150, render: (x) => <span className="mono">{x.sc_no}</span> },
-    { key: 'date', label: 'Created Date', render: (x) => cell(formatDateTime(x.confirmed_at)) },
-    { key: 'supplier', label: 'Supplier', render: (x) => <strong>{x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : '—'}</strong> },
-    { key: 'buyer', label: 'Buyer', render: (x) => (x.buyer_id ? buyerName.get(x.buyer_id) ?? '—' : '—') },
-    { key: 'count', label: 'Counts', render: (x) => cell(x.count_id ? countName.get(x.count_id) : null) },
-    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => cell(x.quantity, { mono: true }) },
-    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
-    { key: 'to-supplier', label: 'Send To Supplier', render: (x) => sentCell(x.supplier_notified_at) },
-    { key: 'to-buyer', label: 'Send To Buyer', render: (x) => sentCell(x.buyer_notified_at) },
     {
       key: 'stage', label: 'Status', width: 190, interactive: true,
       render: (x) => <StatusPicker current={scStage(scGroup(x))} options={stageOptions(x)} onPick={(s) => void setStage(x, s)} />,
     },
-    { key: 'type', label: 'Type', render: (x) => cell(saleTypeLabel(x.sale_type)) },
-    { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.delivery_address, { clip: true }) },
-    { key: 'schedule', label: 'Delivery Schedule', render: (x) => cell(x.delivery_schedule, { clip: true }) },
+    { key: 'date', label: 'Created Date', render: (x) => cell(formatDateTime(x.confirmed_at)) },
     {
-      key: 'deal', label: 'Link to Deals', interactive: true,
+      key: 'deal', label: 'Link to Deal', interactive: true,
       render: (x) => (x.deal_id ? <Link className="mono small" to={`/deals?open=${x.deal_id}`}>{dealNos.get(x.deal_id) ?? 'open'}</Link> : cell(null)),
     },
-    ...partyMirrors<ScRow>('Buyer', buyerOf, ['unitPhone', 'messenger', 'officeAddress', 'officePhone', 'gst', 'unit', 'cp1', 'cp1Phone', 'cp1Email', 'cp2Phone', 'cp2Email', 'pan', 'email'], ctx),
-    ...partyMirrors<ScRow>('Supplier', supplierOf, ['messenger', 'officeAddress', 'millAddress', 'officePhone', 'gst', 'unit', 'cp1', 'cp1Phone', 'cp1Email', 'cp2', 'cp2Phone', 'cp2Email', 'pan', 'email', 'unitPhone'], ctx),
-    { key: 'uom', label: 'UOM', render: (x) => cell(uomLabel(x.uom)) },
+    { key: 'supplier', label: 'Supplier', render: (x) => <strong>{x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : '—'}</strong> },
+    { key: 'buyer', label: 'Buyer', render: (x) => (x.buyer_id ? buyerName.get(x.buyer_id) ?? '—' : '—') },
+    { key: 'count', label: 'Count', render: (x) => cell(x.count_id ? countName.get(x.count_id) : null) },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => cell(x.quantity, { mono: true }) },
+    { key: 'uom', label: 'Unit', render: (x) => cell(uomLabel(x.uom)) },
+    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
     { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => <span className="mono">{inr(x.rate)}</span> },
     { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
-    { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'INCLUDED' : 'EXCLUDED') },
-    { key: 'remarks', label: 'Remarks', render: (x) => cell(x.remarks, { clip: true }) },
-    { key: 'driver', label: 'Driver Contact Phone', render: (x) => cell(x.driver_phone, { mono: true }) },
+    { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
+    { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.delivery_address, { clip: true }) },
     { key: 'transporter', label: 'Transporter Name', render: (x) => cell(x.transporter_id ? transporterName.get(x.transporter_id) : null) },
     { key: 'vehicle', label: 'Vehicle Number', render: (x) => cell(x.vehicle_no, { mono: true }) },
+    { key: 'driver', label: 'Driver Contact Phone', render: (x) => cell(x.driver_phone, { mono: true }) },
+    { key: 'to-supplier', label: 'Sent to Supplier', render: (x) => sentCell(x.supplier_notified_at) },
+    { key: 'to-buyer', label: 'Sent to Buyer', render: (x) => sentCell(x.buyer_notified_at) },
     {
       key: 'dnb', label: 'Dispatch and Billing', interactive: true,
       render: (x) => {
@@ -232,7 +219,6 @@ export default function SalesConfirmations() {
         return <Link className="small" to={`/orders?open=${it.id}`}>{it.order_no} · {st.label}</Link>
       },
     },
-    { key: 'weight', label: 'Total Weight (kg)', align: 'right', render: (x) => cell(x.total_weight, { mono: true }) },
   ]
 
   const chosen = selection.chosen.length

@@ -8,7 +8,7 @@ import { StatusPicker } from '../board/Board'
 import { errMessage, numOrNull } from '../../lib/party'
 import { formatDateTime } from '../../lib/format'
 import {
-  SALE_TYPES, SC_STAGES, UOMS, dispatchStatus, inr, scGroup, scStage, totalWeight,
+  SC_STAGES, UOMS, dispatchStatus, inr, scGroup, scStage, totalWeight,
 } from '../../lib/deals'
 import { CancelControl, NotificationLog } from './NotificationLog'
 import { SendPanel } from './SendPanel'
@@ -364,19 +364,11 @@ export function ConfirmationDrawer({
 
         <h3 className="section-title">Delivery</h3>
         <div className="form-grid">
-          <Field id="sc-type" label="Type">
-            <select id="sc-type" value={f.sale_type} onChange={(e) => set('sale_type', e.target.value as Form['sale_type'])}>
-              {SALE_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
-            </select>
-          </Field>
           <Field id="sc-job" label="Sizing/Delivery Address" hint="Blank = the buyer’s own address.">
             <select id="sc-job" value={f.job_process_id} onChange={(e) => pickJob(e.target.value)}>
               <option value="">Buyer’s address</option>
               {jobs.filter((j) => j.is_active || j.id === f.job_process_id).map((j) => (<option key={j.id} value={j.id}>{j.name}</option>))}
             </select>
-          </Field>
-          <Field id="sc-sched" label="Delivery Schedule">
-            <input id="sc-sched" value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} />
           </Field>
         </div>
         <div className="form-grid">
@@ -444,7 +436,6 @@ export function ConfirmationDrawer({
         <SendPanel sc={sc} names={names} supplier={suppliers.find((x) => x.id === sc.supplier_id) ?? null} buyer={buyers.find((x) => x.id === sc.buyer_id) ?? null} onSent={(text) => onDone(text, sc.id)} />
       )}
       {sc && <ScDocuments scId={sc.id} kind="buyer" canEdit={canChange} />}
-      {sc && <ScDocuments scId={sc.id} kind="supplier" canEdit={canChange} />}
       {sc && <NotificationLog sc={sc} canManage={canManage} />}
     </Drawer>
   )

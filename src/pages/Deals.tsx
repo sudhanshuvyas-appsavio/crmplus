@@ -19,7 +19,7 @@ import { Field } from '../components/PartyForms'
 import { useSelection } from '../components/ListTools'
 import { ActivityPanel, useProfileNames } from '../components/PartyExtras'
 import { Avatar, Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
-import { MIRROR_PARTY_COLS, cell, partyMirrors, type MirrorParty } from '../components/board/mirrors'
+import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
@@ -73,6 +73,7 @@ export default function Deals() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [people, setPeople] = useState<Person[]>([])
   const [scNos, setScNos] = useState<Map<string, string>>(new Map())
+  const [leadNos, setLeadNos] = useState<Map<string, string>>(new Map())
   const [editing, setEditing] = useState<Deal | 'new' | null>(null)
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useStoredState('deals.owner', '')
@@ -82,7 +83,7 @@ export default function Deals() {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const load = useCallback(async () => {
-    const [d, b, s, c, t, co, p, sc] = await Promise.all([
+    const [d, b, s, c, t, co, p, sc, ld] = await Promise.all([
       supabase.from('crm_deals').select('*').order('created_at', { ascending: false }),
       supabase.from('buyer_master').select(PARTY_COLS).order('name'),
       supabase.from('supplier_master').select(PARTY_COLS).order('name'),
@@ -91,6 +92,7 @@ export default function Deals() {
       supabase.from('companies').select('id,name,is_home,is_active,phone_1,mobile').order('name'),
       supabase.from('profiles').select('id,name').eq('is_active', true).order('name'),
       supabase.from('sales_confirmations').select('id,sc_no'),
+      supabase.from('leads').select('id,lead_no'),
     ])
     if (d.error) setBanner({ kind: 'bad', text: errMessage(d.error, 'Could not load deals') })
     setDeals((d.data ?? []) as Deal[])
@@ -101,6 +103,7 @@ export default function Deals() {
     setCompanies((co.data ?? []) as Company[])
     setPeople((p.data ?? []) as Person[])
     setScNos(new Map(((sc.data ?? []) as { id: string; sc_no: string }[]).map((x) => [x.id, x.sc_no])))
+    setLeadNos(new Map(((ld.data ?? []) as { id: string; lead_no: string }[]).map((x) => [x.id, x.lead_no])))
   }, [])
   useEffect(() => {
     void load()
@@ -185,15 +188,10 @@ export default function Deals() {
   if (!deals) return <Loading label="Loading deals" />
 
   const groups: BoardGroup[] = DEAL_GROUPS
-  const buyerById = new Map(buyers.map((x) => [x.id, x]))
-  const supplierById = new Map(suppliers.map((x) => [x.id, x]))
-  const ctx = { people: personName, companies: new Map(companies.map((c) => [c.id, c])) }
   const termName = new Map(terms.map((t) => [t.id, t.name]))
-  const basisLabel = (b: string | null) => COMM_BASES.find((x) => x.value === b)?.label ?? null
-  // Columns in the order of the monday Deals board.
+  // Columns: the deal fields in the lead's "Changes needed" document.
   const columns: BoardColumn<Deal>[] = [
     { key: 'deal', label: 'Deal No', width: 120, render: (x) => <span className="mono">{x.deal_no}</span> },
-    { key: 'owner', label: 'Owner', render: (x) => <Avatar name={x.owner_id ? personName.get(x.owner_id) : undefined} /> },
     {
       key: 'status', label: 'Status', width: 160, interactive: true,
       render: (x) => {
@@ -202,34 +200,28 @@ export default function Deals() {
         return <StatusPicker current={cur} options={opts} onPick={(s) => void moveStatus(x, s)} />
       },
     },
+    { key: 'buyer', label: 'Buyer', render: (x) => x.buyer_id ? <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> : <span className="muted">not picked</span> },
+    { key: 'supplier', label: 'Supplier', render: (x) => (x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : <span className="muted">not set</span>) },
+    { key: 'count', label: 'Count', render: (x) => cell(countName.get(x.count_id)) },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => <span className="mono">{inr(x.quantity)}</span> },
+    { key: 'uom', label: 'Unit', render: (x) => cell(uomLabel(x.uom)) },
+    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => <span className="mono">{inr(x.final_rate)}</span> },
+    { key: 'bcomm', label: 'Buyer Commission', render: (x) => cell(commTerms(x.buyer_comm_basis, x.buyer_comm_value)) },
+    { key: 'scomm', label: 'Supplier Commission', render: (x) => cell(commTerms(x.supplier_comm_basis, x.supplier_comm_value)) },
+    { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
+    { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
+    { key: 'owner', label: 'Owner', render: (x) => <Avatar name={x.owner_id ? personName.get(x.owner_id) : undefined} /> },
     { key: 'manager', label: 'Manager', render: (x) => <Avatar name={x.manager_id ? personName.get(x.manager_id) : undefined} /> },
     { key: 'created', label: 'Created Date', render: (x) => cell(formatDateTime(x.created_at)) },
     { key: 'approved', label: 'Approval Date', render: (x) => cell(x.approved_at ? x.approved_at.slice(0, 10) : null) },
+    { key: 'lead', label: 'Lead', interactive: true, render: (x) => (x.lead_id ? <Link className="mono small" to="/leads">{leadNos.get(x.lead_id) ?? 'open'}</Link> : cell(null)) },
     {
       key: 'sc', label: 'Sales Confirmation', interactive: true,
       render: (x) => (x.sales_confirmation_id
         ? <Link className="mono small" to={`/sales-confirmations?open=${x.sales_confirmation_id}`}>{scNos.get(x.sales_confirmation_id) ?? 'open'}</Link>
         : cell(null)),
     },
-    { key: 'count', label: 'Counts', render: (x) => cell(countName.get(x.count_id)) },
-    { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
-    { key: 'buyer', label: 'Buyer', render: (x) => x.buyer_id ? <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> : <span className="muted">not picked</span> },
-    ...partyMirrors<Deal>('Buyer', (x) => (x.buyer_id ? buyerById.get(x.buyer_id) : undefined),
-      ['messenger', 'cp1', 'cp1Phone', 'officeAddress', 'millAddress', 'gst', 'pan', 'unit'], ctx),
-    { key: 'bctype', label: 'Buyer Commission Type', render: (x) => cell(basisLabel(x.buyer_comm_basis)) },
-    { key: 'bcval', label: 'Buyer Commission Value', align: 'right', render: (x) => cell(x.buyer_comm_value, { mono: true }) },
-    { key: 'supplier', label: 'Supplier', render: (x) => (x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : <span className="muted">not set</span>) },
-    ...partyMirrors<Deal>('Supplier', (x) => (x.supplier_id ? supplierById.get(x.supplier_id) : undefined),
-      ['messenger', 'cp1', 'cp2', 'officeAddress', 'millAddress', 'gst', 'pan', 'unit'], ctx),
-    { key: 'sctype', label: 'Supplier Commission Type', render: (x) => cell(basisLabel(x.supplier_comm_basis)) },
-    { key: 'scval', label: 'Supplier Commission Value', align: 'right', render: (x) => cell(x.supplier_comm_value, { mono: true }) },
-    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => <span className="mono">{inr(x.quantity)}</span> },
-    { key: 'uom', label: 'UOM', render: (x) => cell(uomLabel(x.uom)) },
-    { key: 'bag', label: 'Bags Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => <span className="mono">{inr(x.final_rate)}</span> },
-    { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
-    { key: 'mode', label: 'Mode', render: (x) => cell(x.price_basis === 'net' ? 'Net' : 'Ex-Mill') },
-    { key: 'remarks', label: 'Remarks', render: (x) => cell(x.notes, { clip: true }) },
   ]
 
   const chosen = selection.chosen.length
@@ -651,12 +643,6 @@ function DealPanel({
         <div className="form-grid">
           <Field id="d-rate" label="Final rate (₹ per kg)">
             <input id="d-rate" className="mono" inputMode="decimal" value={f.final_rate} onChange={(e) => set('final_rate', e.target.value)} />
-          </Field>
-          <Field id="d-mode" label="Mode">
-            <select id="d-mode" value={f.price_basis} onChange={(e) => set('price_basis', e.target.value as Form['price_basis'])}>
-              <option value="ex_mill">Ex-Mill</option>
-              <option value="net">Net</option>
-            </select>
           </Field>
           <Field id="d-freight" label="Freight">
             <select id="d-freight" value={f.freight} onChange={(e) => set('freight', e.target.value as Form['freight'])}>

@@ -67,7 +67,6 @@ export function messageFor(who: 'supplier' | 'buyer', sc: ScRow, n: Names): { su
   if (sc.price_basis) lines.push(`Basis: ${sc.price_basis === 'net' ? 'Net' : 'Ex-mill'}`)
   if (sc.rate !== null) lines.push(`Rate: ${num(sc.rate)} per kg`)
   if (n.term) lines.push(`Payment terms: ${n.term}`)
-  lines.push(`Type: ${sc.sale_type === 'export' ? 'Export' : 'Local'}`)
   if (n.deliveryTo) lines.push(`Deliver to: ${n.deliveryTo}`)
   if (sc.delivery_schedule) lines.push(`Delivery schedule: ${sc.delivery_schedule}`)
   if (n.transporter || sc.vehicle_no || sc.driver_phone) {
