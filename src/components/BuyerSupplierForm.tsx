@@ -365,7 +365,7 @@ export function BuyerSupplierForm({
   }
 
   return (
-    <Drawer title="Buyers & Suppliers creation form" onClose={onClose}>
+    <Drawer title="Buyers & Suppliers Creation Form" onClose={onClose}>
       <ErrorBanner message={error} />
 
       <FieldErrorsProvider value={visibleErrors}>

@@ -18,7 +18,7 @@ import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { findDuplicate, focusFirstError, isEmail, isStateCode, nameKey, requireText, type FieldErrors } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, isStateCode, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
@@ -202,7 +202,7 @@ export default function Transporters() {
     [rows],
   )
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = searchKey(search)
     return (rows ?? []).filter((x) => {
       if (typeFilter && x.transporter_type !== typeFilter) return false
       if (statusFilter && (statusFilter === 'active') !== x.is_active) return false
@@ -216,7 +216,7 @@ export default function Transporters() {
         x.office_address, x.delivery_address, x.office_phone, x.res_phone, x.gst, x.state, x.state_code, x.bank_account,
         x.bank_account_2, x.pan, x.contact_person, x.mobile, x.contact_person_2, x.mobile_2, x.vehicle_no_1, x.vehicle_no_2,
         x.vehicle_no_3, x.remarks, (locationsOf[x.id] ?? []).join(' '), x.company_id ? companyName.get(x.company_id) : '',
-      ].some((v) => (v ?? '').toLowerCase().includes(q))
+      ].some((v) => searchKey(v).includes(q))
     })
   }, [rows, search, typeFilter, statusFilter, vehicleFilter, stateFilter, companyFilter, locationsOf, companyName])
 

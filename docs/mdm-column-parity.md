@@ -61,3 +61,6 @@ Differences from monday, on purpose or by necessity:
 - **Buyers & Suppliers** on a Location form is not editable at creation; link a party to a location from the party's Location MDM field.
 - Buyers & Suppliers fields without a CRM+ column are not asked: Quantity, Type (text) and the Current Machines fields.
 - A new Buyer or Supplier shows only its own commission pair and its own "Incase of" fields.
+- **Edit / View of a Buyer or Supplier** use the same sections, labels and order as the creation form, plus a final "More details" card for monday columns its form does not ask for (Short Name, Customer Code, State Code, Res Phone, Website URL, Map Location, Bank Account Details 1-2, Sales Person, Collection Staff). GST verification, documents, MD contact numbers and history stay below the form.
+- **Counts** options are shown in title case (Ring Spun, Cotton) as in monday; the stored value stays upper case. "OEKO TEX" corrects monday's "OKEA TEX" typo, and monday's "None" option is the empty choice.
+- **Category** options are 1-4 as in monday; "Bagwise Rate" drops the stray full stop of monday's label.

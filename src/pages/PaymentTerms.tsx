@@ -15,7 +15,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBanner } from '../components/FormKit'
 import { Field } from '../components/PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
-import { findDuplicate, focusFirstError, nameKey, type FieldErrors } from '../lib/validate'
+import { findDuplicate, focusFirstError, nameKey, type FieldErrors, searchKey } from '../lib/validate'
 
 type Form = { name: string; days: string; is_active: boolean }
 const blank: Form = { name: '', days: '0', is_active: true }
@@ -60,11 +60,11 @@ export default function PaymentTerms() {
 
   // Search covers every column the grid shows: Name and Days.
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = searchKey(search)
     return (rows ?? []).filter(
       (r) =>
         (!statusFilter || (statusFilter === 'active') === r.is_active) &&
-        (!q || [r.name, String(r.days)].some((v) => v.toLowerCase().includes(q))),
+        (!q || [r.name, String(r.days)].some((v) => searchKey(v).includes(q))),
     )
   }, [rows, search, statusFilter])
   const paging = usePaging(shown, `${search}|${statusFilter}`)

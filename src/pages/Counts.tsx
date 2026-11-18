@@ -21,7 +21,7 @@ import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { focusFirstError, type FieldErrors } from '../lib/validate'
+import { focusFirstError, type FieldErrors, searchKey } from '../lib/validate'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
@@ -88,7 +88,7 @@ const FILTERS: FilterDef[] = [
     name: 'machine',
     label: 'Machine',
     allLabel: 'All machines',
-    options: COUNT_MACHINES.map((m) => ({ value: m, label: m })),
+    options: COUNT_MACHINES.map((m) => ({ value: m, label: countLabel(m) })),
   },
 ]
 
@@ -122,7 +122,7 @@ export default function Counts() {
   }, [load])
 
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = searchKey(search)
     return (rows ?? []).filter((r) => {
       if (filterValues.dup === 'dup' && !r.is_duplicate) return false
       if (filterValues.status && (filterValues.status === 'active') !== r.is_active) return false
@@ -130,11 +130,11 @@ export default function Counts() {
       if (!q) return true
       const overall = overallOf(r)
       // Every column the grid shows.
-      return [
+      return searchKey([
         r.name ?? '', formatDateTime(r.created_at), r.display_name, String(r.count_no), r.machine, r.yarn_1, String(r.yarn_1_pct),
         r.yarn_2 ?? '', r.yarn_2_pct === null ? '' : String(r.yarn_2_pct), overall.composition, overall.yarn, r.ply ?? '',
         r.process ?? '', r.certification ?? '', r.yarn_type, String(r.item_no), r.is_duplicate ? 'duplicate' : '', r.duplicate_error ?? '',
-      ].join(' ').toLowerCase().includes(q)
+      ].join(' ')).includes(q)
     })
   }, [rows, search, filterValues])
 
@@ -381,17 +381,17 @@ export default function Counts() {
                   <td className="mono small">{formatDateTime(r.created_at)}</td>
                   <td className="left small">{r.display_name}</td>
                   <td className="mono small">{r.count_no}</td>
-                  <td className="small">{r.machine}</td>
-                  <td className="small">{r.yarn_1}</td>
+                  <td className="small">{countLabel(r.machine)}</td>
+                  <td className="small">{countLabel(r.yarn_1)}</td>
                   <td className="mono small">{fmtPct(Number(r.yarn_1_pct))}</td>
-                  <td className="small">{r.yarn_2 || none}</td>
+                  <td className="small">{r.yarn_2 ? countLabel(r.yarn_2) : none}</td>
                   <td className="mono small">{r.yarn_2 ? fmtPct(Number(r.yarn_2_pct)) : none}</td>
                   <td className="small">{overall.composition}</td>
                   <td className="small">{overall.yarn}</td>
-                  <td className="small muted">{r.ply ?? '—'}</td>
-                  <td className="small muted">{r.process ?? '—'}</td>
-                  <td className="small muted">{r.certification ?? '—'}</td>
-                  <td className="small">{r.yarn_type}</td>
+                  <td className="small muted">{r.ply ? countLabel(r.ply) : '—'}</td>
+                  <td className="small muted">{r.process ? countLabel(r.process) : '—'}</td>
+                  <td className="small muted">{r.certification ? countLabel(r.certification) : '—'}</td>
+                  <td className="small">{countLabel(r.yarn_type)}</td>
                   <td className="mono small">{r.item_no}</td>
                   <td>{r.is_duplicate ? <span className="chip warn">Duplicate</span> : none}</td>
                   <td className="small md-wrap">{r.duplicate_error ?? '—'}</td>
@@ -546,7 +546,7 @@ function CountDrawer({
       <option value="">{blank}</option>
       {options.map((o) => (
         <option key={o} value={o}>
-          {o}
+          {countLabel(o)}
         </option>
       ))}
     </select>

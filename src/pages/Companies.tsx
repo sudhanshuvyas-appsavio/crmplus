@@ -8,7 +8,7 @@
  * the app's own branding and the deal reference-number prefix, enforced by
  * a partial unique index in the database, not just client-side care. */
 
-import { CompanyDocuments, COMPANY_DOC_LIMIT, companyDocStore } from '../components/CompanyDocuments'
+import { COMPANY_DOC_LIMIT, companyDocStore } from '../components/CompanyDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Drawer } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
@@ -16,7 +16,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Field } from '../components/PartyForms'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
-import { uploadDocuments } from '../components/documents/DocumentList'
+import { DocumentList, uploadDocuments } from '../components/documents/DocumentList'
 import { PhoneField } from '../components/PhoneField'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -29,7 +29,7 @@ import { downloadCSV, parseCSV, toCSV } from '../lib/csv'
 import { formatDateTime } from '../lib/format'
 import { GST_STATES, errMessage, isGst } from '../lib/party'
 import { companyErrors } from '../lib/companyRules'
-import { focusFirstError } from '../lib/validate'
+import { focusFirstError, searchKey } from '../lib/validate'
 import { todayIST } from '../lib/tasks'
 import { compactPhone, formatPhone } from '../lib/phone'
 
@@ -193,7 +193,7 @@ export default function Companies() {
   ]
 
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = searchKey(search)
     return (companies ?? []).filter((c) => {
       if (stateFilter && c.state !== stateFilter) return false
       if (statusFilter && (statusFilter === 'active') !== c.is_active) return false
@@ -202,7 +202,7 @@ export default function Companies() {
       return [
         c.name, c.trade_name, c.legal_name, c.record_date, c.tax_id, c.email, c.state, c.address, c.fax, c.mobile,
         c.phone_1, c.phone_2, c.phone_3, c.pan_number, c.bank_account_1, c.bank_account_2, c.short_name, c.ref_prefix,
-      ].some((v) => (v ?? '').toLowerCase().includes(q))
+      ].some((v) => searchKey(v).includes(q))
     })
   }, [companies, search, stateFilter, statusFilter])
   const paging = usePaging(shown, [search, stateFilter, statusFilter].join('|'))
@@ -770,7 +770,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
   }
 
   return (
-    <Drawer title={creating ? 'Add a company' : existing?.name ?? 'Edit company'} onClose={onClose} readOnly={readOnly}>
+    <Drawer title={creating ? 'Business Units Creation Form' : existing?.name ?? 'Edit company'} onClose={onClose} readOnly={readOnly}>
       <ErrorBanner message={serverError} />
       <>
           <FormSection title="Board Information" count={11}>
@@ -848,10 +848,18 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
             </Field>
           </FormSection>
 
-          {creating && !readOnly && (
-            <FormSection title="Documents" count={1} description="GST certificate, PAN card, cancelled cheque and similar. They are uploaded when you save.">
+          {!readOnly && (
+            <FormSection
+              title="Documents"
+              count={1}
+              description={creating ? 'GST certificate, PAN card, cancelled cheque and similar. They are uploaded when you save.' : 'GST certificate, PAN card, cancelled cheque and similar.'}
+            >
               <FullWidth>
-                <PendingDocuments files={files} onChange={setFiles} disabled={busy} />
+                {creating ? (
+                  <PendingDocuments files={files} onChange={setFiles} disabled={busy} />
+                ) : (
+                  target && <DocumentList store={companyDocStore(target.id)} parentId={target.id} canEdit onChanged={onDocsChanged} />
+                )}
               </FullWidth>
             </FormSection>
           )}
@@ -915,7 +923,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
           onClick={() => void save()}
           disabled={busy}
         >
-          {busy ? 'Saving…' : creating ? 'Create the company' : 'Save changes'}
+          {busy ? 'Saving…' : creating ? '✓ Create Item' : 'Save changes'}
         </button>
         <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
           Cancel
@@ -940,7 +948,6 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
           </>
         )}
       </div>
-      {target && !readOnly && <CompanyDocuments companyId={target.id} canEdit onChanged={onDocsChanged} />}
     </Drawer>
   )
 }

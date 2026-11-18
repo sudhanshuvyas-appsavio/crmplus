@@ -39,7 +39,7 @@ import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pic
 import type { BulkDeleteResult, CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, isGst, isMobile, numOrNull } from '../lib/party'
-import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { formatDate } from '../lib/format'
 import '../styles/cheque-board.css'
 
@@ -532,7 +532,7 @@ export default function Contacts() {
   }
 
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = searchKey(search)
     return contacts.filter((c) => {
       if (roleFilter && c.role !== roleFilter) return false
       if (statusFilter && (statusFilter === 'active') !== c.active) return false
@@ -545,10 +545,10 @@ export default function Contacts() {
       if (countFilter && !countIdsOf(c).includes(countFilter)) return false
       if (!q) return true
       // Every column the grid shows, plus the record codes.
-      const text = [
+      const text = searchKey([
         c.name, c.supplier?.supplier_code, c.buyer?.buyer_code,
         ...visibleCols.map((col) => nodeText(col.render(c))),
-      ].join(' ').toLowerCase()
+      ].join(' '))
       return text.includes(q)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -574,7 +574,7 @@ export default function Contacts() {
     { name: 'role', label: 'Role', allLabel: 'All roles', options: ROLES },
     { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
     { name: 'company', label: 'Business Unit', allLabel: 'All business units', options: companies.map((c) => ({ value: c.id, label: c.name })) },
-    { name: 'category', label: 'Category', allLabel: 'All categories', options: CATEGORIES.map((c) => ({ value: c, label: `Category ${c}` })) },
+    { name: 'category', label: 'Category', allLabel: 'All categories', options: CATEGORIES.map((c) => ({ value: c, label: c })) },
     { name: 'state', label: 'State', allLabel: 'All states', options: stateOptions.map((s) => ({ value: s, label: s })) },
     { name: 'comm', label: 'Default Commission', allLabel: 'All', options: DEFAULT_COMMISSIONS.map((d) => ({ value: d.value, label: d.label })) },
     { name: 'location', label: 'Location MDM', allLabel: 'All locations', options: [...stationNames.values()].sort((x, y) => x.localeCompare(y)).map((s) => ({ value: s, label: s })) },
@@ -1146,32 +1146,12 @@ function ContactDrawer({
   const codes = [existing?.supplier?.supplier_code, existing?.buyer?.buyer_code].filter(Boolean).join(' / ')
 
   return (
-    <Drawer title={existing ? `${codes} · ${existing.name}` : 'Add a contact'} onClose={onClose} readOnly={viewOnly}>
+    <Drawer title={existing ? `${codes} · ${existing.name}` : 'Buyers & Suppliers Creation Form'} onClose={onClose} readOnly={viewOnly}>
       <ErrorBanner message={formError} />
       {!viewOnly && !canEdit && <div className="notice small">You can view this contact; changing it needs permission for each side it has (buyer and supplier).</div>}
 
       <FieldErrorsProvider value={visibleErrors}>
       <fieldset disabled={!canEdit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <div className="form-grid">
-          <Field
-            id={`${p}-role`}
-            label="Role"
-            required
-            hint={
-              existing && existing.role !== form.role
-                ? 'Saving adds the missing record, or marks the dropped side inactive. Nothing is deleted.'
-                : 'Both keeps a buyer record and a supplier record, linked by PAN.'
-            }
-          >
-            <select id={`${p}-role`} value={form.role} onChange={(e) => set('role', e.target.value as Role)}>
-              {ROLES.map((r) => (
-                <option key={r.value} value={r.value} disabled={!roleAllowed(r.value) && r.value !== form.role}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
         <PartyProfileSections
           idPrefix={p}
           form={form}
@@ -1185,10 +1165,32 @@ function ContactDrawer({
           onCountIds={setCountIds}
           linksDisabled={!canEdit || !linksReady}
           linksNote={linksNote}
+          typeField={
+            <Field
+              id={`${p}-role`}
+              label="Type"
+              required
+              hint={
+                existing && existing.role !== form.role
+                  ? 'Saving adds the missing record, or marks the dropped side inactive. Nothing is deleted.'
+                  : form.role === 'both'
+                    ? 'Both keeps a buyer record and a supplier record, linked by PAN.'
+                    : undefined
+              }
+            >
+              <select id={`${p}-role`} value={form.role} onChange={(e) => set('role', e.target.value as Role)}>
+                {ROLES.map((r) => (
+                  <option key={r.value} value={r.value} disabled={!roleAllowed(r.value) && r.value !== form.role}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          }
           businessUnit={
-            <Field id={`${p}-company`} label="Business Unit" required hint="The business unit this contact belongs to.">
+            <Field id={`${p}-company`} label="Business Unit" required>
               <select id={`${p}-company`} value={form.company_id} onChange={(e) => set('company_id', e.target.value)}>
-                <option value="">—</option>
+                <option value="">-- Select Business Unit --</option>
                 {companies
                   .filter((c) => c.is_active || c.id === form.company_id)
                   .map((c) => (
