@@ -7,6 +7,8 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 import { BrandMark } from './BrandMark'
+import NotificationBell from './NotificationBell'
+import { ToastHost } from './Toast'
 
 interface NavItem {
   to: string
@@ -39,11 +41,9 @@ const NAV: (NavItem | { heading: string })[] = [
   { to: '/staff-expenses', label: 'Staff expenses', icon: 'M12 3v18M17 7H9.5a2.5 2.5 0 0 0 0 5h5a2.5 2.5 0 0 1 0 5H6', anyOf: ['order.manage', 'report.view'] },
   { heading: 'Money' },
   { to: '/staff-performance', label: 'Staff performance', icon: 'M4 19V9M10 19V5M16 19v-7M3 19h18M18 5l2 2-2 2', permission: 'report.view' },
-  { to: '/cheque-collections', label: 'Cheque collection', icon: 'M3 7h18v10H3zM6 11h6M6 14h4M16 11h2', anyOf: ['order.read', 'order.manage'] },
-  { to: '/cheque-deposits', label: 'Cheques deposited', icon: 'M4 10l8-5 8 5M6 10v7M10 10v7M14 10v7M18 10v7M4 19h16', anyOf: ['order.read', 'order.manage'] },
   { to: '/collection-activity', label: 'Collection activity', icon: 'M4 19V9M10 19V5M16 19v-7M3 19h18', anyOf: ['order.read', 'order.manage'] },
   { to: '/office-activity', label: 'Office activity', icon: 'M4 19V9M10 19V5M16 19v-7M3 19h18', anyOf: ['order.read', 'order.manage'] },
-  { to: '/collection-tasks', label: 'Collection tasks', icon: 'M5 4h14v16H5zM8 9l2 2 3-3M8 15h8', anyOf: ['order.read', 'order.manage'] },
+  { to: '/tasks', label: 'Tasks', icon: 'M5 4h14v16H5zM8 9l2 2 3-3M8 15h8', anyOf: ['task.read', 'task.work', 'task.manage', 'order.read', 'order.manage'] },
   { to: '/ledger', label: 'Commission ledger', icon: 'M12 4v16M8 8h6.5a2.5 2.5 0 0 1 0 5H9a2.5 2.5 0 0 0 0 5h7', permission: 'report.view', soon: true },
   { heading: 'Reference' },
   { to: '/master-data', label: 'Master data', icon: 'M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2zM4 6v6c0 1.1 3.6 2 8 2s8-.9 8-2V6M4 12v6c0 1.1 3.6 2 8 2s8-.9 8-2v-6' },
@@ -74,8 +74,9 @@ export function AppShell() {
   return (
     <div className="shell">
       <aside className="rail">
-        <div className="rail-brand">
+        <div className="rail-brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <BrandMark org={meta?.org} />
+          <NotificationBell />
         </div>
         <nav className="nav" aria-label="Main">
           {NAV.map((item, index) => {
@@ -116,6 +117,7 @@ export function AppShell() {
       <main className="content">
         <Outlet />
       </main>
+      <ToastHost />
     </div>
   )
 }

@@ -1,0 +1,37 @@
+/* Tasks module: sending messages, message log, rules and templates. */
+
+.msg-form { display: grid; gap: 0 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.msg-form .field { margin-bottom: 14px; }
+.msg-form .msg-wide { grid-column: 1 / -1; }
+@media (max-width: 560px) { .msg-form { grid-template-columns: 1fr; } }
+
+.msg-vars { display: grid; gap: 0 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 560px) { .msg-vars { grid-template-columns: 1fr; } }
+
+.msg-preview-label { margin: 4px 0 6px; font: 600 12px/1.3 var(--body); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.msg-preview { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--ink); font: 400 14px/1.5 var(--body); white-space: pre-wrap; word-break: break-word; }
+.msg-preview .msg-subject { display: block; margin-bottom: 6px; font-weight: 600; }
+
+.msg-outcome { display: grid; gap: 10px; margin-top: 4px; }
+.msg-outcome .btn { justify-self: start; text-decoration: none; }
+
+.msg-status-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.msg-cell-err { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--crit); font-size: 12px; }
+.msg-cell-actions { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.msg-cell-actions .btn { text-decoration: none; }
+.msg-dir { margin-left: 6px; font-size: 11px; color: var(--ink-3); }
+
+.msg-body-full { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); font: 400 14px/1.5 var(--body); white-space: pre-wrap; word-break: break-word; color: var(--ink); }
+
+/* Rules and templates */
+.msg-rules-input { width: 9.5rem; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: 400 14px/1 var(--body); text-align: center; }
+.msg-rules-input.narrow { width: 5rem; }
+.msg-rules-input:disabled { background: var(--surface-3); color: var(--ink-3); cursor: not-allowed; }
+.msg-rules-input[aria-invalid='true'] { border-color: var(--crit); }
+.msg-rule-error { display: block; margin-top: 4px; font-size: 12px; color: var(--crit); }
+.msg-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.msg-var-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.msg-var-chips code { padding: 2px 8px; border-radius: 99px; background: var(--surface-3); color: var(--ink-2); font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.msg-section-gap { margin-top: 16px; }
+.msg-template-body { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 13px; }

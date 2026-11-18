@@ -201,6 +201,8 @@ App: `order_trips` (trip sheets with mileage, fuel, costs, trip cost, only for o
 
 ## 7. Block E: Field and collection tasks
 
+> **Status (built):** this block is implemented as the Tasks module at `/tasks` (queues per task type, cheque register, proof photos, GPS check-in, payment lines, notifications bell, scheduled reminders and 30/45/60-day escalation, WhatsApp and e-mail sender with a message log, field view at `/tasks/my`). The old Collection tasks, Cheque collection and Cheques deposited screens were removed; the tables are archived. See the migrations `20261118100000`-`20261118100200` and the README section "Tasks module setup".
+
 | monday board | Items | Purpose and rules | App today | Features |
 |---|---|---|---|---|
 | **Mill Invoice Delivery** | 26 | Task per mill invoice: delivery mode (Hand/Courier), proof upload, GPS, invoice status (Not Delivered/Delivered). Proof upload sets Delivered and notifies accounts. A second generic status never changes | `collection_tasks` type `invoice_delivery`, `delivery_note`, `order_dispatches` POD fields | **E-01** Delivery task with mode, proof photo, GPS, status; auto-complete on proof; one status only |

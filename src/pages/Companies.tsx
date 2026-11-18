@@ -9,6 +9,8 @@
  * a partial unique index in the database, not just client-side care. */
 
 import { CompanyContacts } from '../components/CompanyContacts'
+import { CompanyDocuments, COMPANY_DOC_LIMIT } from '../components/CompanyDocuments'
+import { PhoneField } from '../components/PhoneField'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { COMPANY_CSV_COLUMNS } from '../api/types'
@@ -19,10 +21,13 @@ import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
 import { downloadCSV, parseCSV, toCSV } from '../lib/csv'
 import { formatDateTime } from '../lib/format'
 import { GST_STATES, isGst, isMobile } from '../lib/party'
+import { todayIST } from '../lib/tasks'
+import { formatPhone, joinPhone, phoneProblem, splitPhone } from '../lib/phone'
 
 type Editing = { mode: 'create' } | { mode: 'edit'; company: Company } | null
 
 type FormState = {
+  record_date: string
   name: string
   trade_name: string
   legal_name: string
@@ -51,6 +56,7 @@ type FormState = {
 }
 
 const BLANK_FORM: FormState = {
+  record_date: '',
   name: '',
   trade_name: '',
   legal_name: '',
@@ -80,6 +86,7 @@ const BLANK_FORM: FormState = {
 
 function toForm(company: Company): FormState {
   return {
+    record_date: company.record_date ?? '',
     name: company.name,
     trade_name: company.trade_name ?? '',
     legal_name: company.legal_name ?? '',
@@ -149,6 +156,7 @@ export default function Companies() {
   const [search, setSearch] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
+  const [docCounts, setDocCounts] = useState<Map<string, number>>(new Map())
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const canManage = can('settings.manage')
@@ -157,6 +165,11 @@ export default function Companies() {
     try {
       const rows = await loadCompanies()
       setCompanies(rows)
+      // Documents column: how many files each business unit holds (people without access see 0).
+      const docs = await supabase.from('company_documents').select('company_id')
+      const counts = new Map<string, number>()
+      for (const d of (docs.data ?? []) as { company_id: string }[]) counts.set(d.company_id, (counts.get(d.company_id) ?? 0) + 1)
+      setDocCounts(counts)
       setSelected((prev) => new Set([...prev].filter((id) => rows.some((r) => r.id === id))))
     } catch (caught) {
       setBanner({ kind: 'bad', text: caught instanceof Error ? caught.message : 'Could not load companies' })
@@ -263,12 +276,12 @@ export default function Companies() {
         const shortName = (get('short_name') ?? '').trim()
         const refPrefix = (get('ref_prefix') ?? '').trim()
         const rowNum = i + 2 // account for the header row, 1-indexed for humans
-        if (!name || !shortName || !refPrefix) {
+        if (!name || !shortName || !refPrefix || !(get('bank_account_1') ?? '').trim()) {
           results.push({
             row: rowNum,
             name: name || '(blank)',
             status: 'error',
-            detail: 'name, short_name and ref_prefix are required',
+            detail: 'name, short_name, ref_prefix and bank_account_1 are required',
           })
           continue
         }
@@ -296,9 +309,9 @@ export default function Companies() {
             ref_prefix: refPrefix,
             address: optional('address'),
             phone_numbers: phones.length ? phones : null,
-            phone_1: optional('phone_1'),
-            phone_2: optional('phone_2'),
-            phone_3: optional('phone_3'),
+            phone_1: joinPhone(splitPhone(get('phone_1'))) || null,
+            phone_2: joinPhone(splitPhone(get('phone_2'))) || null,
+            phone_3: joinPhone(splitPhone(get('phone_3'))) || null,
             mobile: optional('mobile'),
             fax: optional('fax'),
             email: optional('email'),
@@ -484,14 +497,22 @@ export default function Companies() {
                 </th>
               )}
               <th className="left">Name</th>
+              <th>Trade name</th>
+              <th>Legal name</th>
               <th>Brand / group</th>
-              <th>GST number</th>
               <th>State</th>
+              <th>GST number</th>
+              <th>Phone 1</th>
+              <th>Phone 2</th>
+              <th>Phone 3</th>
+              <th>Bank account 1</th>
+              <th>Bank account 2</th>
+              <th>Documents</th>
               <th>Short name</th>
               <th>Ref prefix</th>
               <th>Role</th>
               <th>Status</th>
-              <th>Opened</th>
+              <th>Record date</th>
             </tr>
           </thead>
           <tbody>
@@ -514,13 +535,18 @@ export default function Companies() {
                 <td className="left">
                   <strong>{company.name}</strong>
                   {company.is_home && <span className="chip brand" style={{ marginLeft: 8 }}>Home</span>}
-                  {company.legal_name && company.legal_name !== company.name && (
-                    <div className="small muted">{company.legal_name}</div>
-                  )}
                 </td>
+                <td className="small">{company.trade_name || '—'}</td>
+                <td className="small">{company.legal_name || '—'}</td>
                 <td className="small muted">{company.brand_name || '—'}</td>
-                <td className="mono small">{company.tax_id || '—'}</td>
                 <td className="small">{company.state || '—'}</td>
+                <td className="mono small">{company.tax_id || '—'}</td>
+                <td className="mono small">{formatPhone(company.phone_1) || '—'}</td>
+                <td className="mono small">{formatPhone(company.phone_2) || '—'}</td>
+                <td className="mono small">{formatPhone(company.phone_3) || '—'}</td>
+                <td className="small" style={{ maxWidth: 220, whiteSpace: 'pre-line' }}>{company.bank_account_1 || '—'}</td>
+                <td className="small" style={{ maxWidth: 220, whiteSpace: 'pre-line' }}>{company.bank_account_2 || '—'}</td>
+                <td className="mono small">{docCounts.get(company.id) ?? 0}/{COMPANY_DOC_LIMIT}</td>
                 <td className="mono">{company.short_name}</td>
                 <td className="mono">{company.ref_prefix}</td>
                 <td>
@@ -549,7 +575,7 @@ export default function Companies() {
             ))}
             {shown.length === 0 && (
               <tr>
-                <td className="empty" colSpan={canManage ? 10 : 9}>
+                <td className="empty" colSpan={canManage ? 18 : 17}>
                   {companies.length === 0
                     ? `No business units yet.${canManage ? ' Add one, or import a CSV to bring in several at once.' : ''}`
                     : 'No business unit matches that search.'}
@@ -576,7 +602,8 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
   const creating = editing.mode === 'create'
   const existing = editing.mode === 'edit' ? editing.company : null
 
-  const [form, setForm] = useState<FormState>(existing ? toForm(existing) : BLANK_FORM)
+  // monday sets the Date to today when a business unit is created; it stays editable.
+  const [form, setForm] = useState<FormState>(existing ? toForm(existing) : { ...BLANK_FORM, record_date: todayIST() })
   const [busy, setBusy] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
@@ -588,6 +615,7 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
     setBusy(true)
     try {
       const payload = {
+        record_date: form.record_date || todayIST(),
         name: form.name.trim(),
         trade_name: form.trade_name.trim() || null,
         legal_name: form.legal_name.trim() || null,
@@ -600,9 +628,9 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
           .split(',')
           .map((n) => n.trim())
           .filter(Boolean),
-        phone_1: form.phone_1.trim() || null,
-        phone_2: form.phone_2.trim() || null,
-        phone_3: form.phone_3.trim() || null,
+        phone_1: joinPhone(splitPhone(form.phone_1)) || null,
+        phone_2: joinPhone(splitPhone(form.phone_2)) || null,
+        phone_3: joinPhone(splitPhone(form.phone_3)) || null,
         mobile: form.mobile.trim() || null,
         fax: form.fax.trim() || null,
         email: form.email.trim() || null,
@@ -643,6 +671,11 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
   return (
     <Drawer title={creating ? 'Add a company' : existing?.name ?? 'Edit company'} onClose={onClose}>
       <div className="form-grid">
+        <div className="field">
+          <label htmlFor="c-date">Date</label>
+          <input id="c-date" type="date" value={form.record_date} onChange={(e) => set('record_date', e.target.value)} />
+          <p className="field-hint">Set to today for a new business unit; change it if the record belongs to another day.</p>
+        </div>
         <div className="field">
           <label htmlFor="c-name">Company name</label>
           <input id="c-name" value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
@@ -695,18 +728,9 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
           <input id="c-phones" value={form.phone_numbers} onChange={(e) => set('phone_numbers', e.target.value)} />
           <p className="field-hint">Comma-separated if there's more than one.</p>
         </div>
-        <div className="field">
-          <label htmlFor="c-phone1">Phone 1</label>
-          <input id="c-phone1" value={form.phone_1} onChange={(e) => set('phone_1', e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="c-phone2">Phone 2</label>
-          <input id="c-phone2" value={form.phone_2} onChange={(e) => set('phone_2', e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="c-phone3">Phone 3</label>
-          <input id="c-phone3" value={form.phone_3} onChange={(e) => set('phone_3', e.target.value)} />
-        </div>
+        <PhoneField id="c-phone1" label="Phone 1" value={form.phone_1} onChange={(v) => set('phone_1', v)} />
+        <PhoneField id="c-phone2" label="Phone 2" value={form.phone_2} onChange={(v) => set('phone_2', v)} />
+        <PhoneField id="c-phone3" label="Phone 3" value={form.phone_3} onChange={(v) => set('phone_3', v)} />
         <div className="field">
           <label htmlFor="c-mobile">Mobile</label>
           <input id="c-mobile" inputMode="numeric" value={form.mobile} onChange={(e) => set('mobile', e.target.value)} />
@@ -768,12 +792,15 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
           </select>
         </div>
         <div className="field">
-          <label htmlFor="c-bank1">Bank account 1</label>
-          <input id="c-bank1" value={form.bank_account_1} onChange={(e) => set('bank_account_1', e.target.value)} />
+          <label htmlFor="c-bank1">
+            Bank account details 1<span aria-hidden="true"> *</span>
+          </label>
+          <textarea id="c-bank1" rows={3} value={form.bank_account_1} onChange={(e) => set('bank_account_1', e.target.value)} />
+          <p className="field-hint">Bank, branch, account number and IFSC. Required.</p>
         </div>
         <div className="field">
-          <label htmlFor="c-bank2">Bank account 2</label>
-          <input id="c-bank2" value={form.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
+          <label htmlFor="c-bank2">Bank account details 2</label>
+          <textarea id="c-bank2" rows={3} value={form.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
         </div>
         <div className="field">
           <label htmlFor="c-pan">PAN number</label>
@@ -842,7 +869,7 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
           className="btn primary"
           type="button"
           onClick={() => void save()}
-          disabled={busy || !form.name.trim() || !form.short_name.trim() || !form.ref_prefix.trim()}
+          disabled={busy || !form.name.trim() || !form.short_name.trim() || !form.ref_prefix.trim() || !form.bank_account_1.trim() || [form.phone_1, form.phone_2, form.phone_3].some((v) => phoneProblem(v) !== null)}
         >
           {busy ? 'Saving…' : creating ? 'Create the company' : 'Save changes'}
         </button>
@@ -869,6 +896,7 @@ function CompanyDrawer({ editing, onClose, onDelete, onSaved, onError }: DrawerP
           </>
         )}
       </div>
+      {!creating && existing && <CompanyDocuments companyId={existing.id} canEdit />}
       {!creating && existing && <CompanyContacts companyId={existing.id} />}
     </Drawer>
   )

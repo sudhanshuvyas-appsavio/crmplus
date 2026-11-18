@@ -1,0 +1,65 @@
+/* Extra rules for the Tasks queue, overview and form. The shared Tasks theme
+   lives in index.css; only what those screens add is here. */
+
+/* Sticky Actions column in the queue */
+.tk-card td.tk-actions,
+.tk-card th.tk-actions { position: sticky; right: 0; background: var(--surface); box-shadow: -1px 0 0 var(--surface-3); }
+.tk-card tbody tr:hover td.tk-actions { background: var(--surface-2); }
+.tk-card td.tk-actions { white-space: nowrap; }
+
+.tk-task-no { display: block; font-size: 12px; color: var(--ink-3); }
+.tk-sub { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-3); }
+.tk-due { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; white-space: nowrap; }
+.tk-money { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk-clear-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: 13px; color: var(--ink-2); }
+.tk-clear-note a { color: var(--brand); font-weight: 500; text-decoration: none; }
+.tk-card .tk-banner { margin: 12px 20px 0; }
+
+.bulk-bar .bulk-count { font-size: 14px; font-weight: 600; margin-right: 4px; }
+.bulk-bar .bulk-sep { flex: 1; }
+.bulk-bar select { color: var(--ink); background: var(--surface); border: 1px solid var(--border-strong); }
+
+.tk-modal-field { display: grid; gap: 6px; }
+.tk-modal-field select { height: 40px; }
+
+/* Header of the Tasks page */
+.tk-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.tk-head-link { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--ink-2); font-size: 14px; font-weight: 500; text-decoration: none; }
+.tk-head-link:hover { background: var(--surface-3); color: var(--ink); }
+
+/* Needs attention card */
+.tk-todo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.tk-todo-head h2 { font-size: 16px; font-weight: 600; margin: 0; }
+.tk-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.tk-seg button { height: 30px; padding: 0 12px; border: 0; border-right: 1px solid var(--border-strong); background: var(--surface); color: var(--ink-2); font: 500 13px/1 var(--body); cursor: pointer; }
+.tk-seg button:last-child { border-right: 0; }
+.tk-seg button:hover:not(.on) { background: var(--surface-2); }
+.tk-seg button.on { background: var(--brand); color: var(--brand-ink); }
+.tk-todo { list-style: none; margin: 0; padding: 0; }
+.tk-todo li { border-top: 1px solid var(--surface-3); }
+.tk-todo li:first-child { border-top: 0; }
+.tk-todo-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 6px; border-radius: 6px; color: inherit; text-decoration: none; }
+.tk-todo-row:hover { background: var(--surface-2); }
+.tk-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
+.tk-dot.danger { background: var(--crit); }
+.tk-dot.warn { background: #d97706; }
+.tk-dot.info { background: #0284c7; }
+.tk-todo-title { display: block; font-size: 14px; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-todo-buyer { font-weight: 400; color: var(--ink-3); }
+.tk-todo-meta { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-3); }
+.tk-open-chip { padding: 3px 10px; border-radius: 99px; background: var(--surface-3); color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.tk-todo-row:hover .tk-open-chip { background: var(--brand); color: var(--brand-ink); }
+.tk-more { margin-top: 6px; border-top: 1px solid var(--surface-3); }
+.tk-more > summary { padding: 10px 6px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--brand); }
+.tk-clear { padding: 24px 8px; text-align: center; color: var(--ink-3); font-size: 14px; }
+.tk-clear strong { display: block; color: var(--ink); font-size: 15px; margin-bottom: 2px; }
+
+/* Board tables: monday-style wide tables with one line per cell */
+.tk-board th, .tk-board td { white-space: nowrap; }
+.tk-board td.left { white-space: normal; min-width: 180px; }
+.tk-board td .tk-sub { margin-top: 1px; }
+.tk-clip { display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.tk-links { display: inline-flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.tk-links a, .tk-board td a { color: var(--brand); font-weight: 500; text-decoration: none; }
+.tk-links a:hover, .tk-board td a:hover { text-decoration: underline; }
+.tk-late { color: var(--crit); font-weight: 600; }

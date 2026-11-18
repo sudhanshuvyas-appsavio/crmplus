@@ -1,0 +1,59 @@
+/* Task detail dialog and cheque screens: only what index.css does not already have. */
+
+/* The tab row uses buttons, the existing .sub-tab rules were written for links. */
+button.sub-tab {
+  background: none;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.td-body { min-height: 46vh; }
+.td-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.td-section { margin: 0 0 22px; }
+.td-section:last-child { margin-bottom: 0; }
+.td-section > h3 { font: 600 14px/1.3 var(--body); margin: 0 0 10px; }
+.td-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.td-head-row h3 { font: 600 14px/1.3 var(--body); margin: 0; }
+.td-notes { margin: 0; white-space: pre-wrap; font-size: 14px; color: var(--ink); }
+.td-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.td-hint { margin: 0 0 14px; padding: 10px 14px; border: 1px solid #fde68a; border-radius: 6px; background: #fffbeb; color: #92400e; font-size: 13px; }
+.td-money { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 18px; }
+.td-money > div { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.td-money span { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.td-money strong { display: block; margin-top: 4px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.td-pay-form { display: grid; gap: 0 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; }
+.td-pay-form .field { margin-bottom: 10px; }
+@media (max-width: 760px) {
+  .td-pay-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .td-money { grid-template-columns: 1fr; }
+}
+.td-table { border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; background: var(--surface); }
+.td-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.td-table th { padding: 8px 12px; text-align: left; font: 600 12px/1 var(--body); color: var(--ink-3); border-bottom: 1px solid var(--border); background: var(--surface); }
+.td-table td { padding: 9px 12px; text-align: left; color: var(--ink-2); border-top: 1px solid var(--surface-3); vertical-align: top; }
+.td-table tbody tr:first-child td { border-top: 0; }
+.td-table td.num, .td-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.td-empty { margin: 0; padding: 18px 0; color: var(--ink-3); font-size: 13px; }
+.td-comment { display: grid; gap: 8px; margin-top: 16px; }
+.td-comment textarea { padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: 400 14px/1.4 var(--body); resize: vertical; }
+.td-comment textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 15%, transparent); }
+.td-comment .btn { justify-self: start; }
+.td-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.td-msg { padding: 10px 0; border-bottom: 1px solid var(--surface-3); display: grid; gap: 4px; font-size: 13px; }
+.td-msg:last-child { border-bottom: 0; }
+.td-msg-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.td-msg-body { margin: 0; color: var(--ink-2); white-space: pre-wrap; }
+.td-msg-err { margin: 0; color: var(--crit); font-size: 12px; }
+.td-followup { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); display: grid; gap: 10px; }
+.td-followup h3 { margin: 0; font: 600 14px/1.3 var(--body); }
+.td-followup p { margin: 0; font-size: 13px; color: var(--ink-2); }
+.cq-photo { color: var(--good); font-weight: 600; }
+.cq-dep { font-size: 12px; color: var(--ink-2); line-height: 1.4; }
+.cq-actions-cell { white-space: nowrap; }
+
+/* Task form: a full-width row inside the four column grid (checkbox with hint, long text). */
+.form-grid > .tk-wide { grid-column: 1 / -1; }
+.check-hint { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-3); }

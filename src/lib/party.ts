@@ -37,7 +37,6 @@ export function errMessage(caught: unknown, fallback = 'Something went wrong. Tr
   const text = `${e.message ?? ''} ${e.details ?? ''}`
 
   if (e.code === '23505' || /duplicate key/i.test(text)) {
-    if (/count_master_display_uq/.test(text)) return 'A count with this exact specification already exists.'
     if (/_gst_uq/.test(text)) return 'A record with this GST number already exists.'
     if (/_name_uq/.test(text)) return 'A record with this name already exists.'
     return 'That record already exists.'
@@ -48,8 +47,11 @@ export function errMessage(caught: unknown, fallback = 'Something went wrong. Tr
     if (/mobile_check/.test(text)) return 'Mobile must be exactly 10 digits.'
     if (/pan_check/.test(text)) return 'PAN must be 10 upper-case characters.'
     if (/count_no_check/.test(text)) return 'Count must be between 6 and 120.'
-    if (/blended_rule/.test(text)) return 'Choose the blend only when the composition is BLENDED (and then it is required).'
-    if (/ratio_check/.test(text)) return 'Ratio looks like 100% or 60/40.'
+    if (/count_master_pct_total/.test(text)) return 'Yarn 1 and Yarn 2 percentages must add up to 100.'
+    if (/count_master_pct_range/.test(text)) return 'A yarn percentage must be more than 0 and at most 100.'
+    if (/count_master_yarn_pair_check/.test(text)) return 'Yarn 2 must be a different yarn from Yarn 1.'
+    if (/count_master_yarn_2_rule/.test(text)) return 'Yarn 2 and its percentage go together: set both or neither.'
+    if (/count_master_yarn_[12]_check/.test(text)) return 'Choose a yarn from the list.'
     if (/quantity_check/.test(text)) return 'Quantity must be more than zero.'
     if (/bags_need_weight/.test(text)) return 'Bag weight is required when the unit is BAGS.'
   }
