@@ -21,13 +21,16 @@ import { Loading } from '../components/Loading'
 import { Drawer } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { OrderExecution } from '../components/OrderExecution'
-import { Avatar, Board, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { BoardTabs } from '../components/board/BoardTabs'
+import { DnbCreationForm } from '../components/DnbCreationForm'
+import { DnbReports } from '../components/DnbReports'
+import { Avatar, Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { cell } from '../components/board/mirrors'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DNB_GROUPS, TRANSPORT_TYPES, dnbGroup, commTerms, dispatchStatus, inr, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
+  COMM_BASES, DNB_GROUPS, TRANSPORT_TYPES, dnbGroup, commTerms, dispatchStatus, inr, rateText, saleTypeLabel, totalAmount, transportTypeLabel, uomLabel,
 } from '../lib/deals'
 
 type Named = { id: string; name: string }
@@ -55,6 +58,7 @@ export default function DispatchAndBilling() {
   const [people, setPeople] = useState<Named[]>([])
   const [scs, setScs] = useState<Map<string, string>>(new Map())
   const [editing, setEditing] = useState<Order | null>(null)
+  const [tab, setTab] = useState<'table' | 'reports' | 'form' | 'duplicates'>('table')
   const [search, setSearch] = useState('')
   const [view, setView] = useStoredState<'table' | 'kanban'>('dnb.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
@@ -111,6 +115,7 @@ export default function DispatchAndBilling() {
         !q ||
         x.order_no.toLowerCase().includes(q) ||
         (x.invoice_no ?? '').toLowerCase().includes(q) ||
+        x.order_date.includes(q) ||
         (scs.get(x.sales_confirmation_id) ?? '').toLowerCase().includes(q) ||
         (buyerName.get(x.buyer_id) ?? '').toLowerCase().includes(q) ||
         (supplierName.get(x.supplier_id) ?? '').toLowerCase().includes(q) ||
@@ -194,6 +199,17 @@ export default function DispatchAndBilling() {
         </div>
       </header>
 
+      <BoardTabs
+        tabs={[
+          { key: 'table', label: 'Main table' },
+          { key: 'reports', label: 'Reports' },
+          ...(canManage ? [{ key: 'form', label: 'Dispatch & Billing Creation Form' }] : []),
+          { key: 'duplicates', label: `Duplicate Checks${rows.some((x) => x.is_duplicate) ? ` (${rows.filter((x) => x.is_duplicate).length})` : ''}` },
+        ]}
+        active={tab}
+        onChange={(k) => setTab(k as 'table' | 'reports' | 'form' | 'duplicates')}
+      />
+
       {banner && (
         <div className={banner.kind === 'ok' ? 'notice' : 'alert'} role="status">
           {banner.text}{' '}
@@ -201,24 +217,52 @@ export default function DispatchAndBilling() {
         </div>
       )}
 
+      {tab === 'reports' && (
+        <DnbReports
+          rows={rows}
+          buyerName={buyerName}
+          onPick={(text) => {
+            setSearch(text)
+            setTab('table')
+          }}
+        />
+      )}
+
+      {tab === 'form' && (
+        <DnbCreationForm
+          canCreate={canManage}
+          buyerName={buyerName}
+          supplierName={supplierName}
+          countName={countName}
+          onCreated={async (orderId, text) => {
+            setBanner({ kind: 'ok', text })
+            await load()
+            const { data } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle()
+            setTab('table')
+            if (data) setEditing(data as Order)
+          }}
+        />
+      )}
+
+      {(tab === 'table' || tab === 'duplicates') && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search" placeholder="Search item, invoice, SC, buyer, supplier, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <span className="push" />
         <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
-          Export {shown.length === rows.length ? 'all' : `${shown.length} shown`}
+          <DownloadIcon />Export {shown.length === rows.length ? 'all' : `${shown.length} shown`}
         </button>
+        <span className="push" />
       </div>
 
       <Board
-        rows={shown}
+        rows={tab === 'duplicates' ? shown.filter((x) => x.is_duplicate) : shown}
         groups={DNB_GROUPS}
         groupOf={dnbGroup}
         columns={columns}
         rowKey={(x) => x.id}
         onOpen={(x) => setEditing(x)}
         view={view}
-        emptyText={rows.length === 0 ? 'Nothing yet. Open a complete Sales Confirmation and choose “Create Dispatch and Billing”.' : 'No item matches.'}
+        emptyText={tab === 'duplicates' ? 'No duplicate invoice numbers.' : rows.length === 0 ? 'Nothing yet. Open a complete Sales Confirmation and choose “Create Dispatch and Billing”.' : 'No item matches.'}
         card={(x) => (
           <>
             <span className="kcard-top">
@@ -235,6 +279,7 @@ export default function DispatchAndBilling() {
           </>
         )}
       />
+      </>)}
 
       {editing && (
         <ItemPanel
@@ -424,7 +469,7 @@ function ItemPanel({
         <dt>Supplier</dt><dd>{names.supplier}</dd>
         <dt>Count</dt><dd>{count?.display_name ?? '—'}</dd>
         <dt>Quantity</dt><dd className="mono">{inr(order.quantity)} {uomLabel(order.uom)}{order.bag_weight ? ` · ${inr(order.bag_weight)} kg each` : ''}</dd>
-        <dt>Final rate</dt><dd className="mono">₹{inr(order.final_rate)} per kg</dd>
+        <dt>Final rate</dt><dd className="mono">₹{rateText(order.final_rate)} per kg</dd>
         <dt>Commission</dt><dd>Buyer {commTerms(order.buyer_comm_basis, order.buyer_comm_value)} · Supplier {commTerms(order.supplier_comm_basis, order.supplier_comm_value)}</dd>
         <dt>Sale Type</dt><dd>{saleTypeLabel(order.sale_type)}</dd>
       </dl>

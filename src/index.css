@@ -111,7 +111,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
 }
 .btn:hover:not(:disabled) { background: var(--surface-3); }
 .btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
-.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+/* keep the brand colour on hover (the generic .btn:hover rule above would grey it out and make the text unreadable) */
+.btn.primary:hover:not(:disabled) { background: var(--brand); border-color: var(--brand); filter: brightness(1.08); }
 .btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
 .btn.ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--ink); }
 .btn.danger { border-color: var(--crit); color: var(--crit); }
@@ -1312,6 +1313,60 @@ a.summary-card:hover { box-shadow: var(--shadow); }
 .lines-table .num-in { width: 90px; text-align: right; }
 .lines-list { display: grid; gap: 2px; }
 
+/* board view tabs (Main table / Creation Form / Duplicate Checks), as on monday.com */
+.board-tabs { display: flex; gap: 2px; margin: 0 0 16px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.board-tab { border: 0; background: none; padding: 9px 14px; font: inherit; font-size: 14px; color: var(--ink-3); cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: 6px 6px 0 0; }
+.board-tab:hover { color: var(--ink); background: var(--surface-3); }
+.board-tab.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--brand); }
+
+/* a creation form shown on the page (same form as the drawer) */
+.inline-form { max-width: 1000px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.inline-form-head { padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.inline-form-head h2 { font-size: 16px; font-weight: 600; }
+.inline-form-body { padding: 18px 22px 24px; }
+
+/* Reports tab: chart cards and ranked bars */
+.viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.viz-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px 12px; }
+.viz-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
+.viz-card-head h3 { font-size: 15px; font-weight: 600; }
+.viz-empty { padding: 18px 0; }
+.rbars { display: grid; gap: 2px; }
+.rbar { display: grid; grid-template-columns: minmax(96px, 36%) 1fr; align-items: center; gap: 10px; width: 100%; padding: 4px 6px; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: 6px; cursor: pointer; }
+.rbar:disabled, .rbar.other { cursor: default; }
+.rbar:not(:disabled):hover, .rbar:not(:disabled):focus-visible { background: var(--surface-3); outline: none; }
+.rbar-label { font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rbar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rbar-fill { height: 16px; min-width: 3px; background: var(--c1); border-radius: 0 4px 4px 0; transition: width 0.2s ease; }
+.rbar:not(:disabled):hover .rbar-fill, .rbar:not(:disabled):focus-visible .rbar-fill { filter: brightness(1.12); }
+.rbar-value { font-size: 12.5px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rbar.other .rbar-fill { background: var(--ink-3); opacity: 0.5; }
+.viz-table-toggle { margin-top: 6px; }
+.viz-table { width: 100%; margin-top: 6px; font-size: 13px; }
+.viz-table td { padding: 4px 6px; border-top: 1px solid var(--border); }
+
+/* headline numbers above the report charts */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat-tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 4px; }
+.stat-label { font-size: 12.5px; color: var(--ink-3); }
+.stat-value { font-size: 26px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+
+/* Leads: follow-ups panel */
+.followups { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 16px; margin-bottom: 16px; }
+.followups > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: 600; list-style: none; }
+.followups > summary::-webkit-details-marker { display: none; }
+.followups > summary::before { content: ''; width: 7px; height: 7px; border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3); transform: rotate(45deg) translateY(-2px); transition: transform 0.15s ease; }
+.followups:not([open]) > summary::before { transform: rotate(-45deg); }
+
+/* board toolbars: every control the same height and text size (the buttons were 29px / 12px beside
+   34-38px / 14px inputs, so "Export all" looked like it floated) */
+.board-toolbar > .seg, .board-toolbar > .toolbar-search, .board-toolbar > select, .board-toolbar .btn { height: 36px; box-sizing: border-box; }
+.board-toolbar > .seg button { height: 100%; }
+.board-toolbar > .toolbar-search, .board-toolbar > select { padding-top: 0; padding-bottom: 0; font-size: 14px; }
+.board-toolbar .btn, .board-toolbar .btn.sm { padding: 0 14px; font-size: 14px; }
+.board-toolbar .toolbar-confirm { display: inline-flex; align-items: center; gap: 8px; }
+.board-toolbar .btn svg { flex: none; }
+
 
 /* Master data: Actions column, view-only drawer, document preview */
 .md-pane th.md-actions, .md-pane td.md-actions { position: sticky; right: 0; z-index: 4; width: 1%; white-space: nowrap; background: var(--surface); box-shadow: -1px 0 0 var(--border); }
@@ -1372,3 +1427,11 @@ a.summary-card:hover { box-shadow: var(--shadow); }
 .field.has-error input:focus, .field.has-error select:focus, .field.has-error textarea:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--crit) 18%, transparent); }
 .field .field-warn { margin: 0; color: var(--crit); font-size: 12px; }
 .phone-fixed-code { display: inline-flex; align-items: center; justify-content: center; width: 56px; flex: 0 0 auto; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-3); color: var(--ink-2); font: 500 14px/1 var(--body); }
+
+/* a panel that holds a counts table (deal, Sales Confirmation) is wide enough to show every column */
+.drawer:has(.lines-table) { width: min(1020px, 100%); }
+/* compact counts table so every column fits in the panel */
+.lines-table th { white-space: normal; line-height: 1.25; vertical-align: bottom; padding: 6px 6px; }
+.lines-table td { padding: 6px 6px; }
+.lines-table select { min-width: 150px; max-width: 210px; }
+.lines-table .num-in { width: 78px; }

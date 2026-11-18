@@ -6,7 +6,7 @@
 
 import type { CountRow } from '../api/types'
 import { numOrNull } from '../lib/party'
-import { UOMS, commission, inr, needsUnitWeight, totalWeight, uomLabel } from '../lib/deals'
+import { UOMS, commission, inr, needsUnitWeight, rateText, totalWeight, uomLabel } from '../lib/deals'
 
 export type LineForm = { count_id: string; quantity: string; uom: string; bag_weight: string; rate: string }
 export type LineRow = { count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }
@@ -134,5 +134,5 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
 
 /** Read-only text of the rows, one per line, for tables and messages. */
 export function linesText(rows: LineRow[], countName: (id: string) => string) {
-  return rows.map((r) => `${countName(r.count_id)}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${inr(r.rate)}/kg` : ''}`)
+  return rows.map((r) => `${countName(r.count_id)}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${rateText(r.rate)}/kg` : ''}`)
 }

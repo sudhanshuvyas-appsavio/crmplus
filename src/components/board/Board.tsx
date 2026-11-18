@@ -273,6 +273,15 @@ export function StatusPicker({
 }
 
 /** Table / Kanban switch for the board toolbar. */
+/** Small download arrow for Export buttons. */
+export function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />
+    </svg>
+  )
+}
+
 export function ViewSwitch({ view, onChange }: { view: BoardView; onChange: (v: BoardView) => void }) {
   return (
     <div className="seg" role="group" aria-label="View">

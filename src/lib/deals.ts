@@ -119,5 +119,7 @@ export function totalAmount(value: number | null, cgst: number | null, ins: numb
   return value + (value * (cgst ?? 0)) / 100 + (value * (ins ?? 0)) / 100 + (add ?? 0) - (deduct ?? 0)
 }
 
+/** A rate per kg: up to 4 decimals, so 1.221 is not shown as 1.22 (amounts use inr and 2). */
+export const rateText = (n: number | null | undefined) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 4 }))
 export const inr = (n: number | null | undefined, digits = 2) =>
   n === null || n === undefined ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: digits })

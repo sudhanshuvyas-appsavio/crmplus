@@ -13,7 +13,7 @@
  *  If the party is not in a master yet, the Qualify panel lets the user
  *  create the master record there and then, with its required fields. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { LEAD_ROLES, LEAD_SOURCES, LEAD_STATUSES, LEAD_UOMS } from '../api/types'
 import { uomLabel } from '../lib/deals'
@@ -24,7 +24,8 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
-import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
+import { ImportIssues, useSelection } from '../components/ListTools'
+import { Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, pickOne } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -48,6 +49,14 @@ const STATUS_CHIP: Record<LeadStatus, string> = {
   qualified: 'chip good',
   lost: 'chip bad',
 }
+
+/** Board groups, one per lead status, coloured like the other boards. */
+const LEAD_GROUPS: BoardGroup[] = [
+  { value: 'new', label: 'New', tone: 'blue' },
+  { value: 'contacted', label: 'Contacted', tone: 'orange' },
+  { value: 'qualified', label: 'Qualified', tone: 'green' },
+  { value: 'lost', label: 'Lost', tone: 'red' },
+]
 
 function statusLabel(status: LeadStatus): string {
   return LEAD_STATUSES.find((s) => s.value === status)?.label ?? status
@@ -86,6 +95,9 @@ export default function Leads() {
     navigate(`/deals?open=${data as string}`)
   }
   const [statusFilter, setStatusFilter] = useState<'all' | LeadStatus>('all')
+  const [view, setView] = useStoredState<'table' | 'kanban'>('leads.view', 'table')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const importInput = useRef<HTMLInputElement>(null)
   const [search, setSearch] = useState('')
   const [banner, setBanner] = useState<Banner>(null)
   const [busy, setBusy] = useState(false)
@@ -277,6 +289,51 @@ export default function Leads() {
 
   if (!leads) return <Loading label="Loading leads" />
 
+  const columns: BoardColumn<Lead>[] = [
+    { key: 'no', label: 'Lead', width: 130, render: (l) => <span className="mono">{l.lead_no}</span> },
+    {
+      key: 'party', label: 'Party',
+      render: (l) => (
+        <>
+          <strong>{l.party_name}</strong>
+          <span className="chip" style={{ marginLeft: 8 }}>{roleLabel(l.party_role)}</span>
+          {l.station && <div className="small muted">{l.station}</div>}
+        </>
+      ),
+    },
+    { key: 'count', label: 'Count', render: (l) => <span className="small">{(l.count_id ? countById.get(l.count_id)?.display_name : '') || <span className="muted">—</span>}</span> },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (l) => <span className="mono">{l.quantity !== null ? `${l.quantity} ${l.uom ?? ''}` : '—'}</span> },
+    { key: 'status', label: 'Status', width: 140, render: (l) => <StatusPill label={statusLabel(l.status)} tone={LEAD_GROUPS.find((g) => g.value === l.status)?.tone ?? 'grey'} /> },
+    { key: 'follow', label: 'Follow-up', render: (l) => <span className="mono small">{formatDate(l.follow_up_date)}</span> },
+    { key: 'staff', label: 'Sales staff', render: (l) => <span className="small">{l.sales_staff_id ? staffById.get(l.sales_staff_id) ?? '—' : '—'}</span> },
+    {
+      key: 'action', label: 'Change status', interactive: true,
+      render: (l) => {
+        const open = (l.status === 'new' || l.status === 'contacted') && !l.converted_deal_id
+        return (
+          <>
+            {canQualify && open && (
+              <button className="btn sm" type="button" onClick={() => setQualifying(l)} style={{ marginRight: 8 }}>Qualify</button>
+            )}
+            {l.converted_deal_id && <span className="chip good">Converted to deal</span>}
+            {(canManage || canQualify) && !l.converted_deal_id && (
+              <StatusMover
+                lead={l}
+                canQualify={canQualify}
+                onQualify={setQualifying}
+                onChanged={async (text) => {
+                  setBanner({ kind: 'ok', text })
+                  await load()
+                }}
+                onError={(text) => setBanner({ kind: 'bad', text })}
+              />
+            )}
+          </>
+        )
+      },
+    },
+  ]
+
   return (
     <>
       <header className="page-head">
@@ -303,128 +360,85 @@ export default function Leads() {
         </div>
       )}
 
-      <ListTools
-        plural="leads"
-        canImport={canManage}
-        canDelete={canManage}
-        selectedCount={selection.chosen.length}
-        exportLabel={`Export ${selection.chosen.length > 0 ? `${selection.chosen.length} selected` : shown.length === leads.length ? 'all' : `${shown.length} shown`} as CSV`}
-        exportDisabled={shown.length === 0}
-        busy={busy}
-        onImport={(f) => void importCSV(f)}
-        onExport={() => void exportCSV()}
-        onDelete={deleteSelected}
-      />
       <ImportIssues results={importResults} />
 
       <FollowUps leads={leads} onOpen={(l) => canManage && setEditing({ mode: 'edit', lead: l })} />
 
-      <div className="page-head" style={{ marginBottom: 12 }}>
-        <div className="drawer-actions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
-          <input
-            aria-label="Search leads"
-            placeholder="Search lead no., party, station or count"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ minWidth: 280 }}
-          />
-          <select
-            aria-label="Filter by status"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | LeadStatus)}
-          >
-            <option value="all">All statuses</option>
-            {LEAD_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="board-toolbar">
+        <ViewSwitch view={view} onChange={setView} />
+        <input
+          className="toolbar-search"
+          aria-label="Search leads"
+          placeholder="Search lead no., party, station or count"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | LeadStatus)}>
+          <option value="all">All statuses</option>
+          {LEAD_STATUSES.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+        {canManage && (
+          <>
+            <input
+              ref={importInput}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) void importCSV(file)
+              }}
+            />
+            <button className="btn sm" type="button" disabled={busy} onClick={() => importInput.current?.click()}>Import CSV</button>
+          </>
+        )}
+        <button className="btn sm" type="button" disabled={shown.length === 0 || busy} onClick={() => void exportCSV()}>
+          <DownloadIcon />{`Export ${selection.chosen.length > 0 ? `${selection.chosen.length} selected` : shown.length === leads.length ? 'all' : `${shown.length} shown`}`}
+        </button>
+        <span className="push" />
+        {canManage && selection.chosen.length > 0 && (
+          confirmDelete ? (
+            <span className="toolbar-confirm">
+              <span className="field-warn">Delete {selection.chosen.length} selected? This can’t be undone.</span>
+              <button className="btn danger sm" type="button" disabled={busy} onClick={async () => { await deleteSelected(); setConfirmDelete(false) }}>
+                {busy ? 'Deleting…' : 'Yes, delete'}
+              </button>
+              <button className="btn ghost sm" type="button" onClick={() => setConfirmDelete(false)}>No</button>
+            </span>
+          ) : (
+            <button className="btn danger sm" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Delete {selection.chosen.length} selected</button>
+          )
+        )}
       </div>
 
-      {shown.length === 0 ? (
-        <div className="card pad empty">
-          {leads.length === 0 ? 'No leads yet.' : 'No lead matches that filter.'}
-          {leads.length === 0 && canManage ? ' Add the first inquiry.' : ''}
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {canManage && (
-                  <th style={{ width: 32 }}>
-                    <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all leads" />
-                  </th>
-                )}
-                <th>Lead</th>
-                <th>Party</th>
-                <th>Count</th>
-                <th className="right">Quantity</th>
-                <th>Status</th>
-                <th>Follow-up</th>
-                <th>Sales staff</th>
-                <th>Change status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((l) => {
-                const count = l.count_id ? countById.get(l.count_id) : undefined
-                const open = (l.status === 'new' || l.status === 'contacted') && !l.converted_deal_id
-                return (
-                  <tr
-                    key={l.id}
-                    className={canManage ? 'clickable' : ''}
-                    onClick={() => canManage && setEditing({ mode: 'edit', lead: l })}
-                  >
-                    {canManage && (
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={selection.isSelected(l.id)} onChange={() => selection.toggle(l.id)} aria-label={`Select ${l.lead_no}`} />
-                      </td>
-                    )}
-                    <td className="mono">{l.lead_no}</td>
-                    <td>
-                      <strong>{l.party_name}</strong>
-                      <span className="chip" style={{ marginLeft: 8 }}>
-                        {roleLabel(l.party_role)}
-                      </span>
-                      {l.station && <div className="small muted">{l.station}</div>}
-                    </td>
-                    <td className="small">{count ? count.display_name : <span className="muted">—</span>}</td>
-                    <td className="right mono">{l.quantity !== null ? `${l.quantity} ${l.uom ?? ''}` : '—'}</td>
-                    <td>
-                      <span className={STATUS_CHIP[l.status]}>{statusLabel(l.status)}</span>
-                    </td>
-                    <td className="mono small">{formatDate(l.follow_up_date)}</td>
-                    <td className="small">{l.sales_staff_id ? staffById.get(l.sales_staff_id) ?? '—' : '—'}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {canQualify && open && (
-                        <button className="btn sm" type="button" onClick={() => setQualifying(l)} style={{ marginRight: 8 }}>
-                          Qualify
-                        </button>
-                      )}
-                      {l.converted_deal_id && <span className="chip good">Converted to deal</span>}
-                      {(canManage || canQualify) && !l.converted_deal_id && (
-                        <StatusMover
-                          lead={l}
-                          canQualify={canQualify}
-                          onQualify={setQualifying}
-                          onChanged={async (text) => {
-                            setBanner({ kind: 'ok', text })
-                            await load()
-                          }}
-                          onError={(text) => setBanner({ kind: 'bad', text })}
-                        />
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <Board
+        rows={shown}
+        groups={LEAD_GROUPS}
+        groupOf={(l) => l.status}
+        columns={columns}
+        rowKey={(l) => l.id}
+        onOpen={(l) => canManage && setEditing({ mode: 'edit', lead: l })}
+        view={view}
+        selection={canManage ? { isSelected: selection.isSelected, toggle: selection.toggle } : undefined}
+        emptyText={leads.length === 0 ? `No leads yet.${canManage ? ' Add the first inquiry.' : ''}` : 'No lead matches that filter.'}
+        card={(l) => (
+          <>
+            <span className="kcard-top">
+              <span className="mono small">{l.lead_no}</span>
+              <span className="small muted">{formatDate(l.follow_up_date)}</span>
+            </span>
+            <strong className="kcard-title">{l.party_name}</strong>
+            <span className="small muted">{(l.count_id ? countById.get(l.count_id)?.display_name : '') || 'no count'}</span>
+            <span className="kcard-foot mono small">
+              <span>{l.quantity !== null ? `${l.quantity} ${l.uom ?? ''}` : '—'}</span>
+              <span>{l.sales_staff_id ? staffById.get(l.sales_staff_id) ?? '' : ''}</span>
+            </span>
+          </>
+        )}
+      />
 
       {editing && canManage && (
         <LeadDrawer
@@ -1347,8 +1361,8 @@ function FollowUps({ leads, onOpen }: { leads: Lead[]; onOpen: (lead: Lead) => v
   const todayIso = iso(today)
 
   return (
-    <details className="card pad" style={{ marginBottom: 16 }} open>
-      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Follow-ups ({total})</summary>
+    <details className="followups" open>
+      <summary>Follow-ups <span className="muted small">({total})</span></summary>
       <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
         {tasks.map((t) => {
           const l = byId.get(t.entity_id)

@@ -19,15 +19,17 @@ import type { CountRow, JobProcess, PaymentTerm, Transporter } from '../api/type
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { useSelection } from '../components/ListTools'
-import { Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { Board, DownloadIcon, StatusPicker, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell } from '../components/board/mirrors'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
 import { formatDateTime } from '../lib/format'
-import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
+import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, rateText, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
 import { ConfirmationDrawer } from '../components/sc/ConfirmationDrawer'
 import { BulkSendDrawer } from '../components/sc/BulkSendDrawer'
+import { ScReports } from '../components/sc/ScReports'
+import { BoardTabs } from '../components/board/BoardTabs'
 import type { Company, Party, ScRow } from '../components/sc/scShared'
 
 const CSV_COLUMNS = [
@@ -56,7 +58,7 @@ export default function SalesConfirmations() {
   const [scLines, setScLines] = useState<Map<string, ScLineRow[]>>(new Map())
   const [editing, setEditing] = useState<ScRow | 'new' | null>(null)
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useStoredState('sc.type', '')
+  const [tab, setTab] = useState<'table' | 'reports'>('table')
   const [view, setView] = useStoredState<'table' | 'kanban'>('sc.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -117,20 +119,22 @@ export default function SalesConfirmations() {
   const countName = useMemo(() => new Map(counts.map((x) => [x.id, x.display_name])), [counts])
   const transporterName = useMemo(() => nm(transporters), [transporters])
   const jobName = useMemo(() => nm(jobs), [jobs])
+  const termNameMap = useMemo(() => nm(terms), [terms])
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
     return (rows ?? []).filter(
       (x) =>
-        (!typeFilter || x.sale_type === typeFilter) &&
         (!q ||
           x.sc_no.toLowerCase().includes(q) ||
           (x.supplier_id ? supplierName.get(x.supplier_id) ?? '' : '').toLowerCase().includes(q) ||
           (x.buyer_id ? buyerName.get(x.buyer_id) ?? '' : '').toLowerCase().includes(q) ||
           (x.count_id ? countName.get(x.count_id) ?? '' : '').toLowerCase().includes(q) ||
+          (scLines.get(x.id) ?? []).some((l) => (countName.get(l.count_id) ?? '').toLowerCase().includes(q)) ||
+          (x.payment_term_id ? termNameMap.get(x.payment_term_id) ?? '' : '').toLowerCase().includes(q) ||
           (x.vehicle_no ?? '').toLowerCase().includes(q)),
     )
-  }, [rows, search, typeFilter, supplierName, buyerName, countName])
+  }, [rows, search, supplierName, buyerName, countName, termNameMap, scLines])
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
 
@@ -215,7 +219,7 @@ export default function SalesConfirmations() {
     { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => cell(r.quantity, { mono: true })) },
     { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
     { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.rate)}</span>) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{rateText(r.rate)}</span>) },
     { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
     { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
     { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.delivery_address, { clip: true }) },
@@ -261,14 +265,30 @@ export default function SalesConfirmations() {
         </div>
       )}
 
+      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }, { key: 'reports', label: 'Reports' }]} active={tab} onChange={(k) => setTab(k as 'table' | 'reports')} />
+
+      {tab === 'reports' && (
+        <ScReports
+          rows={rows}
+          lines={scLines}
+          buyerName={buyerName}
+          supplierName={supplierName}
+          countName={countName}
+          termName={termNameMap}
+          onPick={(text) => {
+            setSearch(text)
+            setTab('table')
+          }}
+        />
+      )}
+
+      {tab === 'table' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search confirmations" placeholder="Search no., supplier, buyer, count, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select aria-label="Type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-          <option value="">Local and export</option>
-          <option value="local">Local</option>
-          <option value="export">Export</option>
-        </select>
+        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
+          <DownloadIcon />Export {chosen > 0 ? `${chosen} selected` : shown.length === rows.length ? 'all' : `${shown.length} shown`}
+        </button>
         <span className="push" />
         {canManage && chosen > 0 && (
           <button className="btn primary sm" type="button" onClick={() => setBulk(true)}>Send {chosen} selected</button>
@@ -284,9 +304,6 @@ export default function SalesConfirmations() {
             <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
           )
         )}
-        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
-          Export {chosen > 0 ? `${chosen} selected` : shown.length === rows.length ? 'all' : `${shown.length} shown`}
-        </button>
       </div>
 
       <Board
@@ -315,6 +332,7 @@ export default function SalesConfirmations() {
           </>
         )}
       />
+      </>)}
 
       {editing && (
         <ConfirmationDrawer

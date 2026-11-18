@@ -18,15 +18,17 @@ import { Drawer, DeleteControl } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { useSelection } from '../components/ListTools'
 import { ActivityPanel, useProfileNames } from '../components/PartyExtras'
-import { Avatar, Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
+import { Avatar, Board, DownloadIcon, StatusPicker, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
+import { BoardTabs } from '../components/board/BoardTabs'
+import { DealsReports } from '../components/DealsReports'
 import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from '../components/CountLines'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DEAL_GROUPS, commTerms, dealStatus, inr, uomLabel,
+  COMM_BASES, DEAL_GROUPS, commTerms, dealStatus, inr, rateText, uomLabel,
 } from '../lib/deals'
 
 type Party = MirrorParty
@@ -78,6 +80,7 @@ export default function Deals() {
   const [leadNos, setLeadNos] = useState<Map<string, string>>(new Map())
   const [dealLines, setDealLines] = useState<Map<string, DealLineRow[]>>(new Map())
   const [editing, setEditing] = useState<Deal | 'new' | null>(null)
+  const [tab, setTab] = useState<'table' | 'reports'>('table')
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useStoredState('deals.owner', '')
   const [view, setView] = useStoredState<'table' | 'kanban'>('deals.view', 'table')
@@ -121,13 +124,14 @@ export default function Deals() {
   const wantNew = params.get('new')
   useEffect(() => {
     if (wantNew && canCreate) {
+      setTab('table')
       setEditing('new')
       setParams({}, { replace: true })
       return
     }
     if (!openId || !deals) return
     const found = deals.find((x) => x.id === openId)
-    if (found) setEditing(found)
+    if (found) { setTab('table'); setEditing(found) }
     setParams({}, { replace: true })
   }, [openId, wantNew, deals, setParams, canCreate])
 
@@ -217,7 +221,7 @@ export default function Deals() {
     { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.quantity)}</span>) },
     { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
     { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.final_rate)}</span>) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{rateText(r.final_rate)}</span>) },
     { key: 'bcomm', label: 'Buyer Commission', render: (x) => cell(commTerms(x.buyer_comm_basis, x.buyer_comm_value)) },
     { key: 'scomm', label: 'Supplier Commission', render: (x) => cell(commTerms(x.supplier_comm_basis, x.supplier_comm_value)) },
     { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
@@ -245,7 +249,7 @@ export default function Deals() {
           <p className="page-sub">Every trade from enquiry to approval. Approved deals become Sales Confirmations.</p>
         </div>
         {canCreate && (
-          <button className="btn primary" type="button" onClick={() => setEditing('new')}>
+          <button className="btn primary" type="button" onClick={() => { setTab('table'); setEditing('new') }}>
             + New deal
           </button>
         )}
@@ -258,6 +262,20 @@ export default function Deals() {
         </div>
       )}
 
+      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }, { key: 'reports', label: 'Reports' }]} active={tab} onChange={(k) => setTab(k as 'table' | 'reports')} />
+
+      {tab === 'reports' && (
+        <DealsReports
+          deals={deals}
+          buyerName={buyerName}
+          onPick={(text) => {
+            setSearch(text)
+            setTab('table')
+          }}
+        />
+      )}
+
+      {tab === 'table' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search deals" placeholder="Search deal, buyer, supplier, count" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -266,6 +284,9 @@ export default function Deals() {
           {me && <option value={me.id}>My deals</option>}
           {people.filter((p) => p.id !== me?.id).map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
         </select>
+        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
+          <DownloadIcon />Export {chosen > 0 ? `${chosen} selected` : shown.length === deals.length ? 'all' : `${shown.length} shown`}
+        </button>
         <span className="push" />
         {canCreate && chosen > 0 && (
           confirmDelete ? (
@@ -278,9 +299,6 @@ export default function Deals() {
             <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
           )
         )}
-        <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
-          Export {chosen > 0 ? `${chosen} selected` : shown.length === deals.length ? 'all' : `${shown.length} shown`}
-        </button>
       </div>
 
       <Board
@@ -309,6 +327,7 @@ export default function Deals() {
           </>
         )}
       />
+      </>)}
 
       {editing && (
         <DealPanel
