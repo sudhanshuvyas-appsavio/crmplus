@@ -200,7 +200,6 @@ export default function SalesConfirmations() {
     { key: 'count', label: 'Counts', render: (x) => cell(x.count_id ? countName.get(x.count_id) : null) },
     { key: 'qty', label: 'Quantity', align: 'right', render: (x) => cell(x.quantity, { mono: true }) },
     { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
-    { key: 'net', label: 'Net Quantity', align: 'right', render: (x) => cell(x.net_quantity, { mono: true }) },
     { key: 'to-supplier', label: 'Send To Supplier', render: (x) => sentCell(x.supplier_notified_at) },
     { key: 'to-buyer', label: 'Send To Buyer', render: (x) => sentCell(x.buyer_notified_at) },
     {

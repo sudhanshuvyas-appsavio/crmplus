@@ -431,9 +431,7 @@ function ItemPanel({
         <dt>Quantity</dt><dd className="mono">{inr(order.quantity)} {uomLabel(order.uom)}{order.bag_weight ? ` · ${inr(order.bag_weight)} kg each` : ''}</dd>
         <dt>Final rate</dt><dd className="mono">₹{inr(order.final_rate)} per kg</dd>
         <dt>Commission</dt><dd>Buyer {commTerms(order.buyer_comm_basis, order.buyer_comm_value)} · Supplier {commTerms(order.supplier_comm_basis, order.supplier_comm_value)}</dd>
-        <dt>Type</dt><dd>{saleTypeLabel(order.sale_type)} · {order.price_basis === 'net' ? 'Net' : 'Ex-mill'} · freight {order.freight === 'included' ? 'included' : 'excluded'}</dd>
-        <dt>Payment terms</dt><dd>{names.term}</dd>
-        <dt>Our company</dt><dd>{names.company}</dd>
+        <dt>Sale Type</dt><dd>{saleTypeLabel(order.sale_type)}</dd>
       </dl>
       <div className="figures">
         <div><span>Total weight</span><strong className="mono">{order.total_weight === null ? '—' : `${inr(order.total_weight)} kg`}</strong></div>
@@ -445,13 +443,13 @@ function ItemPanel({
       <fieldset disabled={!editable} className="plain-fieldset">
         <h3 className="section-title">Billing</h3>
         <div className="form-grid">
-          <Field id="b-inv" label="Invoice no."><input id="b-inv" className="mono" value={f.invoice_no} onChange={(e) => set('invoice_no', e.target.value)} /></Field>
-          <Field id="b-invd" label="Invoice date"><input id="b-invd" type="date" value={f.invoice_date} onChange={(e) => set('invoice_date', e.target.value)} /></Field>
-          <Field id="b-cgst" label="CGST %"><input id="b-cgst" className="mono" inputMode="decimal" value={f.cgst_pct} onChange={(e) => set('cgst_pct', e.target.value)} /></Field>
-          <Field id="b-ins" label="Insurance %"><input id="b-ins" className="mono" inputMode="decimal" value={f.insurance_pct} onChange={(e) => set('insurance_pct', e.target.value)} /></Field>
-          <Field id="b-add" label="Add (₹)"><input id="b-add" className="mono" inputMode="decimal" value={f.add_amount} onChange={(e) => set('add_amount', e.target.value)} /></Field>
-          <Field id="b-ded" label="Deduct (₹)"><input id="b-ded" className="mono" inputMode="decimal" value={f.deduct_amount} onChange={(e) => set('deduct_amount', e.target.value)} /></Field>
-          <Field id="b-round" label="Round off (₹)"><input id="b-round" className="mono" inputMode="decimal" value={f.round_off} onChange={(e) => set('round_off', e.target.value)} /></Field>
+          <Field id="b-inv" label="Invoice No."><input id="b-inv" className="mono" value={f.invoice_no} onChange={(e) => set('invoice_no', e.target.value)} /></Field>
+          <Field id="b-invd" label="Invoice Date"><input id="b-invd" type="date" value={f.invoice_date} onChange={(e) => set('invoice_date', e.target.value)} /></Field>
+          <Field id="b-cgst" label="CGST"><input id="b-cgst" className="mono" inputMode="decimal" value={f.cgst_pct} onChange={(e) => set('cgst_pct', e.target.value)} /></Field>
+          <Field id="b-ins" label="Insurance Tax"><input id="b-ins" className="mono" inputMode="decimal" value={f.insurance_pct} onChange={(e) => set('insurance_pct', e.target.value)} /></Field>
+          <Field id="b-add" label="Add"><input id="b-add" className="mono" inputMode="decimal" value={f.add_amount} onChange={(e) => set('add_amount', e.target.value)} /></Field>
+          <Field id="b-ded" label="Deduct"><input id="b-ded" className="mono" inputMode="decimal" value={f.deduct_amount} onChange={(e) => set('deduct_amount', e.target.value)} /></Field>
+          <Field id="b-round" label="Round off"><input id="b-round" className="mono" inputMode="decimal" value={f.round_off} onChange={(e) => set('round_off', e.target.value)} /></Field>
         </div>
         <div className="figures">
           <div><span>Total amount</span><strong className="mono">₹{inr(total, 2)}</strong></div>
@@ -460,39 +458,36 @@ function ItemPanel({
 
         <h3 className="section-title">Transport and delivery</h3>
         <div className="form-grid">
-          <Field id="b-tt" label="Transport type">
+          <Field id="b-tt" label="Transport Type">
             <select id="b-tt" value={f.transport_type} onChange={(e) => set('transport_type', e.target.value)}>
               <option value="">—</option>
               {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
             </select>
           </Field>
-          <Field id="b-tr" label="Transport company">
+          <Field id="b-tr" label="Transporter Name">
             <select id="b-tr" value={f.transporter_id} onChange={(e) => set('transporter_id', e.target.value)}>
               <option value="">—</option>
               {transporters.filter((t) => t.is_active || t.id === f.transporter_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
             </select>
           </Field>
-          <Field id="b-veh" label="Vehicle number"><input id="b-veh" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} /></Field>
-          <Field id="b-drv" label="Driver phone"><input id="b-drv" inputMode="tel" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} /></Field>
+          <Field id="b-veh" label="Vehicle Number"><input id="b-veh" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} /></Field>
+          <Field id="b-drv" label="Driver Contact Phone"><input id="b-drv" inputMode="tel" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} /></Field>
           <Field id="b-person" label="Person">
             <select id="b-person" value={f.person_id} onChange={(e) => set('person_id', e.target.value)}>
               <option value="">—</option>
               {people.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
             </select>
           </Field>
-          <Field id="b-date" label="Planned dispatch date"><input id="b-date" type="date" value={f.tentative_dispatch_date} onChange={(e) => set('tentative_dispatch_date', e.target.value)} /></Field>
-          <Field id="b-job" label="Sizing / delivery address">
+          <Field id="b-date" label="Dispatch Date"><input id="b-date" type="date" value={f.tentative_dispatch_date} onChange={(e) => set('tentative_dispatch_date', e.target.value)} /></Field>
+          <Field id="b-job" label="Sizing/Delivery Address">
             <select id="b-job" value={f.job_process_id} onChange={(e) => pickJob(e.target.value)}>
               <option value="">Buyer’s address</option>
               {jobs.filter((j) => j.is_active || j.id === f.job_process_id).map((j) => (<option key={j.id} value={j.id}>{j.name}</option>))}
             </select>
           </Field>
         </div>
-        {(f.job_process_id || f.alt_delivery_address) && (
-          <Field id="b-addr" label="Delivery address"><textarea id="b-addr" rows={2} value={f.alt_delivery_address} onChange={(e) => set('alt_delivery_address', e.target.value)} /></Field>
-        )}
-        <Field id="b-sched" label="Delivery schedule"><textarea id="b-sched" rows={2} value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} /></Field>
-        <Field id="b-instr" label="Special instructions"><textarea id="b-instr" rows={2} value={f.special_instructions} onChange={(e) => set('special_instructions', e.target.value)} /></Field>
+        <Field id="b-sched" label="Delivery Schedule"><textarea id="b-sched" rows={2} value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} /></Field>
+        <Field id="b-instr" label="Remark 1"><textarea id="b-instr" rows={2} value={f.special_instructions} onChange={(e) => set('special_instructions', e.target.value)} /></Field>
       </fieldset>
 
       {bad.length > 0 && <p className="field-hint">Check: {bad.join(', ')}.</p>}

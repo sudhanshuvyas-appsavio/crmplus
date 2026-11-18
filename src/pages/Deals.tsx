@@ -25,7 +25,7 @@ import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import {
-  COMM_BASES, DEAL_STATUSES, UOMS, commTerms, commission, dealStatus, inr, needsUnitWeight, totalWeight, uomLabel,
+  COMM_BASES, DEAL_STATUSES, UOMS, commTerms, dealStatus, inr, needsUnitWeight, uomLabel,
 } from '../lib/deals'
 
 type Party = MirrorParty
@@ -301,7 +301,7 @@ export default function Deals() {
             <span className="small">{countName.get(x.count_id) ?? ''}</span>
             <span className="kcard-foot mono small">
               <span>{inr(x.quantity)} {uomLabel(x.uom)}</span>
-              <span>₹{inr(x.deal_value, 0)}</span>
+              <span>{inr(x.quantity)} {uomLabel(x.uom)}</span>
             </span>
           </>
         )}
@@ -411,8 +411,6 @@ function DealPanel({
   const [f, setF] = useState<Form>(toForm(deal, companies, me?.id))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [lostReason, setLostReason] = useState('')
-  const [askLost, setAskLost] = useState(false)
   const [problems, setProblems] = useState<string[] | null>(null)
   const [sc, setSc] = useState<{ id: string; sc_no: string | null } | null>(null)
   const [orderId, setOrderId] = useState<string | null>(null)
@@ -459,10 +457,7 @@ function DealPanel({
   const unitW = numOrNull(f.bag_weight)
   const bVal = numOrNull(f.buyer_comm_value)
   const sVal = numOrNull(f.supplier_comm_value)
-  const weight = totalWeight(f.uom, qty, unitW)
-  const value = weight !== null && rate !== null ? weight * rate : null
-  const bComm = commission(f.buyer_comm_basis || null, bVal, value, f.uom, qty, weight, unitW)
-  const sComm = commission(f.supplier_comm_basis || null, sVal, value, f.uom, qty, weight, unitW)
+  const basisName = (b: string) => COMM_BASES.find((x) => x.value === b)?.label ?? '—'
   const count = counts.find((c) => c.id === f.count_id)
   const buyer = buyers.find((x) => x.id === f.buyer_id)
   const supplier = suppliers.find((x) => x.id === f.supplier_id)
@@ -473,8 +468,6 @@ function DealPanel({
   if (qty === null || qty <= 0) missing.push('Quantity (above zero)')
   if (f.uom === 'BAGS' && (unitW === null || unitW <= 0)) missing.push('Bag weight')
   if (f.final_rate && (rate === null || rate < 0)) missing.push('Final rate (a number)')
-  if (f.buyer_comm_value && bVal === null) missing.push('Buyer commission (a number)')
-  if (f.supplier_comm_value && sVal === null) missing.push('Supplier commission (a number)')
 
   async function save(thenStatus?: string) {
     setBusy(true)
@@ -590,7 +583,7 @@ function DealPanel({
       {err && <div className="alert">{err}</div>}
       {!canEdit && <div className="notice small">You can view this deal; changing it needs the “Edit deals” permission.</div>}
       {deal?.status === 'closed_lost' && (
-        <div className="notice small">Closed lost{deal.lost_reason ? `: ${deal.lost_reason}` : ''}.</div>
+        <div className="notice small">Closed Lost.</div>
       )}
       {approved && (
         <div className="notice small">
@@ -612,12 +605,6 @@ function DealPanel({
             <select id="d-supplier" value={f.supplier_id} onChange={(e) => pickSupplier(e.target.value)}>
               <option value="">—</option>
               {suppliers.filter((x) => x.is_active || x.id === f.supplier_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
-            </select>
-          </Field>
-          <Field id="d-company" label="Our company">
-            <select id="d-company" value={f.company_id} onChange={(e) => set('company_id', e.target.value)}>
-              <option value="">—</option>
-              {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}{c.is_home ? ' (home)' : ''}</option>))}
             </select>
           </Field>
           <Field id="d-term" label="Payment terms">
@@ -678,17 +665,11 @@ function DealPanel({
             </select>
           </Field>
         </div>
-        <div className="comm-grid">
-          <CommEditor label="Buyer commission" idp="d-bc" basis={f.buyer_comm_basis} value={f.buyer_comm_value}
-            onBasis={(v) => set('buyer_comm_basis', v)} onValue={(v) => set('buyer_comm_value', v)} amount={bComm} />
-          <CommEditor label="Supplier commission" idp="d-sc" basis={f.supplier_comm_basis} value={f.supplier_comm_value}
-            onBasis={(v) => set('supplier_comm_basis', v)} onValue={(v) => set('supplier_comm_value', v)} amount={sComm} />
-        </div>
-        <div className="figures">
-          <div><span>Total weight</span><strong className="mono">{weight === null ? '—' : `${inr(weight)} kg`}</strong></div>
-          <div><span>Value</span><strong className="mono">₹{inr(value, 0)}</strong></div>
-          <div><span>Total commission</span><strong className="mono">₹{inr(bComm === null && sComm === null ? null : (bComm ?? 0) + (sComm ?? 0), 0)}</strong></div>
-        </div>
+        <dl className="kv">
+          <dt>Buyer Commission</dt><dd>{basisName(f.buyer_comm_basis)} · {f.buyer_comm_value || '—'}</dd>
+          <dt>Supplier Commission</dt><dd>{basisName(f.supplier_comm_basis)} · {f.supplier_comm_value || '—'}</dd>
+        </dl>
+        <p className="field-hint">Commission type and value come from the Buyers &amp; Suppliers master.</p>
       </fieldset>
 
       <fieldset disabled={!editable} className="plain-fieldset">
@@ -745,8 +726,8 @@ function DealPanel({
         {deal?.status === 'closed_lost' && canEdit && (
           <button className="btn" type="button" disabled={busy} onClick={() => void move('new_deal')}>Reopen as New Deal</button>
         )}
-        {deal && nexts.includes('closed_lost') && !askLost && (
-          <button className="btn ghost" type="button" disabled={busy} onClick={() => setAskLost(true)}>Close as lost</button>
+        {deal && nexts.includes('closed_lost') && (
+          <button className="btn ghost" type="button" disabled={busy} onClick={() => void move('closed_lost')}>Close as lost</button>
         )}
         {deal && canDelete && deal.status === 'new_deal' && !deal.sales_confirmation_id && (
           <DeleteControl label="Delete" name={deal.deal_no} busy={busy} onConfirm={() => void remove()} />
@@ -754,17 +735,6 @@ function DealPanel({
       </div>
       {deal?.status === 'manager_approval' && canApprove && dirty && <p className="field-hint">Save your changes before approving.</p>}
 
-      {askLost && deal && (
-        <div className="notice">
-          <Field id="d-lost" label="Why was it lost?" hint="Optional, e.g. price, delivery time, quality.">
-            <input id="d-lost" value={lostReason} onChange={(e) => setLostReason(e.target.value)} />
-          </Field>
-          <p>
-            <button className="btn danger" type="button" disabled={busy} onClick={() => void move('closed_lost', { lost_reason: lostReason.trim() || null })}>Close as lost</button>{' '}
-            <button className="btn ghost" type="button" onClick={() => setAskLost(false)}>Cancel</button>
-          </p>
-        </div>
-      )}
 
       {deal && approved && !deal.sales_confirmation_id && (
         <div className="notice">
@@ -829,30 +799,6 @@ function PartyLookup({ title, p, unit }: { title: string; p: Party; unit?: strin
   )
 }
 
-function CommEditor({ label, idp, basis, value, onBasis, onValue, amount }: {
-  label: string
-  idp: string
-  basis: string
-  value: string
-  onBasis: (v: string) => void
-  onValue: (v: string) => void
-  amount: number | null
-}) {
-  return (
-    <div className="comm-box">
-      <span className="comm-label">{label}</span>
-      <div className="comm-row">
-        <select id={`${idp}-basis`} aria-label={`${label} type`} value={basis} onChange={(e) => onBasis(e.target.value)}>
-          <option value="">None</option>
-          {COMM_BASES.map((b) => (<option key={b.value} value={b.value}>{b.label}</option>))}
-        </select>
-        <input id={`${idp}-value`} aria-label={`${label} value`} className="mono" inputMode="decimal" placeholder={basis === 'pct' ? '%' : '₹'}
-          disabled={!basis} value={value} onChange={(e) => onValue(e.target.value)} />
-      </div>
-      <span className="comm-amount mono">= ₹{inr(amount, 0)}</span>
-    </div>
-  )
-}
 
 const CHANGE_LABEL: Record<string, string> = {
   final_rate: 'Final rate',

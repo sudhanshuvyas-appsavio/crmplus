@@ -8,7 +8,7 @@ import { StatusPicker } from '../board/Board'
 import { errMessage, numOrNull } from '../../lib/party'
 import { formatDateTime } from '../../lib/format'
 import {
-  COMM_BASES, SALE_TYPES, SC_STAGES, UOMS, commTerms, commission, dispatchStatus, inr, scGroup, scStage, totalWeight,
+  SALE_TYPES, SC_STAGES, UOMS, dispatchStatus, inr, scGroup, scStage, totalWeight,
 } from '../../lib/deals'
 import { CancelControl, NotificationLog } from './NotificationLog'
 import { SendPanel } from './SendPanel'
@@ -114,30 +114,32 @@ export function ConfirmationDrawer({
   const bVal = numOrNull(f.buyer_comm_value)
   const sVal = numOrNull(f.supplier_comm_value)
   const weight = totalWeight(f.uom, qty, bag)
-  const value = weight !== null && rate !== null ? weight * rate : null
-  const bComm = commission(f.buyer_comm_basis || null, bVal, value, f.uom, qty, weight, bag)
-  const sComm = commission(f.supplier_comm_basis || null, sVal, value, f.uom, qty, weight, bag)
 
   const problems: string[] = []
   if (!f.supplier_id) problems.push('Supplier')
-  if (!f.supplier_company_id) problems.push('Supplier company')
+  if (f.supplier_id && !f.supplier_company_id) problems.push('Supplier Business Unit (set it on the supplier in Buyers & Suppliers)')
   if (!f.buyer_id) problems.push('Buyer')
-  if (!f.buyer_company_id) problems.push('Buyer company')
+  if (f.buyer_id && !f.buyer_company_id) problems.push('Buyer Business Unit (set it on the buyer in Buyers & Suppliers)')
   if (!f.count_id) problems.push('Count')
   if (qty === null || qty <= 0) problems.push('Ex-mill quantity (above zero)')
-  if (f.net_quantity && (net === null || net <= 0)) problems.push('Net quantity (above zero)')
   if (f.uom === 'BAGS' && (bag === null || bag <= 0)) problems.push('Bag weight (needed for BAGS)')
   if (f.bag_weight && (bag === null || bag <= 0)) problems.push('Bag weight (a number above zero)')
   if (f.rate && (rate === null || rate < 0)) problems.push('Rate (a number)')
   if (f.driver_phone && !/^[0-9+ -]{6,20}$/.test(f.driver_phone.trim())) problems.push('Driver phone (digits only)')
   const locked = !!sc?.deal_id
-  if (locked && !f.price_basis) problems.push('Ex-mill / Net')
 
   /** Picking a contact fills in its company and commission terms; both can still be changed. */
   function pickParty(side: 'supplier' | 'buyer', id: string) {
     const list = side === 'supplier' ? suppliers : buyers
-    const company = list.find((x) => x.id === id)?.company_id ?? ''
-    setF((p) => ({ ...p, [`${side}_id`]: id, [`${side}_company_id`]: company || p[`${side}_company_id` as const] }) as Form)
+    const party = list.find((x) => x.id === id)
+    // business unit and commission terms always follow the party master (monday mirrors)
+    setF((p) => ({
+      ...p,
+      [`${side}_id`]: id,
+      [`${side}_company_id`]: party?.company_id ?? '',
+      [`${side}_comm_basis`]: party?.commission_basis ?? '',
+      [`${side}_comm_value`]: party?.commission_value == null ? '' : String(party.commission_value),
+    }) as Form)
   }
   function pickJob(id: string) {
     const j = jobs.find((x) => x.id === id)
@@ -258,8 +260,6 @@ export function ConfirmationDrawer({
 
   const partyOptions = (list: Party[], current: string) =>
     list.filter((x) => x.is_active || x.id === current).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))
-  const companyOptions = (current: string) =>
-    companies.filter((c) => c.is_active || c.id === current).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)
 
   return (
     <Drawer title={sc ? sc.sc_no : 'New sales confirmation'} onClose={onClose}>
@@ -298,22 +298,10 @@ export function ConfirmationDrawer({
               {partyOptions(suppliers, f.supplier_id)}
             </select>
           </Field>
-          <Field id="sc-supplier-co" label="Supplier company" required>
-            <select id="sc-supplier-co" value={f.supplier_company_id} onChange={(e) => set('supplier_company_id', e.target.value)}>
-              <option value="">Choose…</option>
-              {companyOptions(f.supplier_company_id)}
-            </select>
-          </Field>
           <Field id="sc-buyer" label="Buyer" required>
             <select id="sc-buyer" value={f.buyer_id} onChange={(e) => pickParty('buyer', e.target.value)}>
               <option value="">Choose…</option>
               {partyOptions(buyers, f.buyer_id)}
-            </select>
-          </Field>
-          <Field id="sc-buyer-co" label="Buyer company" required>
-            <select id="sc-buyer-co" value={f.buyer_company_id} onChange={(e) => set('buyer_company_id', e.target.value)}>
-              <option value="">Choose…</option>
-              {companyOptions(f.buyer_company_id)}
             </select>
           </Field>
         </div>
@@ -356,12 +344,6 @@ export function ConfirmationDrawer({
             </select>
           </Field>
         </div>
-        <div className="comm-grid">
-          <CommBox label="Buyer commission" basis={f.buyer_comm_basis} value={f.buyer_comm_value} amount={bComm} isNew={!sc}
-            onBasis={(v) => set('buyer_comm_basis', v)} onValue={(v) => set('buyer_comm_value', v)} />
-          <CommBox label="Supplier commission" basis={f.supplier_comm_basis} value={f.supplier_comm_value} amount={sComm} isNew={!sc}
-            onBasis={(v) => set('supplier_comm_basis', v)} onValue={(v) => set('supplier_comm_value', v)} />
-        </div>
       </fieldset>
 
       <fieldset disabled={!editable} className="plain-fieldset">
@@ -372,24 +354,12 @@ export function ConfirmationDrawer({
               <option value="included">Included</option>
             </select>
           </Field>
-          <Field id="sc-basis" label="Ex-mill / Net" required={locked}>
-            <select id="sc-basis" value={f.price_basis} onChange={(e) => set('price_basis', e.target.value as Form['price_basis'])}>
-              <option value="">Choose…</option>
-              <option value="ex_mill">Ex-mill</option>
-              <option value="net">Net</option>
-            </select>
-          </Field>
           <Field id="sc-bag" label="Bag weight (kg)" required={f.uom === 'BAGS'}>
             <input id="sc-bag" inputMode="decimal" className="mono" value={f.bag_weight} onChange={(e) => set('bag_weight', e.target.value)} />
-          </Field>
-          <Field id="sc-net" label="Net quantity" hint="Blank = same as the quantity.">
-            <input id="sc-net" inputMode="decimal" className="mono" value={f.net_quantity} onChange={(e) => set('net_quantity', e.target.value)} />
           </Field>
         </div>
         <div className="figures">
           <div><span>Total weight</span><strong className="mono">{weight === null ? '—' : `${inr(weight)} kg`}</strong></div>
-          <div><span>Value</span><strong className="mono">₹{inr(value, 0)}</strong></div>
-          <div><span>Total commission</span><strong className="mono">₹{inr(bComm === null && sComm === null ? null : (bComm ?? 0) + (sComm ?? 0), 0)}</strong></div>
         </div>
 
         <h3 className="section-title">Delivery</h3>
@@ -399,39 +369,31 @@ export function ConfirmationDrawer({
               {SALE_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
             </select>
           </Field>
-          <Field id="sc-job" label="Sizing / delivery address" hint="Blank = the buyer’s own address.">
+          <Field id="sc-job" label="Sizing/Delivery Address" hint="Blank = the buyer’s own address.">
             <select id="sc-job" value={f.job_process_id} onChange={(e) => pickJob(e.target.value)}>
               <option value="">Buyer’s address</option>
               {jobs.filter((j) => j.is_active || j.id === f.job_process_id).map((j) => (<option key={j.id} value={j.id}>{j.name}</option>))}
             </select>
           </Field>
-          <Field id="sc-sched" label="Delivery schedule">
+          <Field id="sc-sched" label="Delivery Schedule">
             <input id="sc-sched" value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} />
           </Field>
         </div>
-        {(f.job_process_id || f.delivery_address) && (
-          <Field id="sc-addr" label="Delivery address">
-            <textarea id="sc-addr" rows={2} value={f.delivery_address} onChange={(e) => set('delivery_address', e.target.value)} />
-          </Field>
-        )}
         <div className="form-grid">
-          <Field id="sc-tr" label="Transport company">
+          <Field id="sc-tr" label="Transporter Name">
             <select id="sc-tr" value={f.transporter_id} onChange={(e) => set('transporter_id', e.target.value)}>
               <option value="">—</option>
               {transporters.filter((t) => t.is_active || t.id === f.transporter_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
             </select>
           </Field>
-          <Field id="sc-veh" label="Vehicle number">
+          <Field id="sc-veh" label="Vehicle Number">
             <input id="sc-veh" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} />
           </Field>
-          <Field id="sc-drv" label="Driver phone">
+          <Field id="sc-drv" label="Driver Contact Phone">
             <input id="sc-drv" inputMode="tel" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} />
           </Field>
         </div>
         <p className="field-hint">Once the transport company or vehicle is in, sending again moves this confirmation to “Send with Delivery Info”.</p>
-        <Field id="sc-instr" label="Special instructions">
-          <textarea id="sc-instr" rows={2} value={f.special_instructions} onChange={(e) => set('special_instructions', e.target.value)} />
-        </Field>
         <Field id="sc-remarks" label="Remarks">
           <textarea id="sc-remarks" rows={2} value={f.remarks} onChange={(e) => set('remarks', e.target.value)} />
         </Field>
@@ -481,7 +443,8 @@ export function ConfirmationDrawer({
       {complete && !dirty && canManage && sc && !cancelled && (
         <SendPanel sc={sc} names={names} supplier={suppliers.find((x) => x.id === sc.supplier_id) ?? null} buyer={buyers.find((x) => x.id === sc.buyer_id) ?? null} onSent={(text) => onDone(text, sc.id)} />
       )}
-      {sc && <ScDocuments scId={sc.id} canEdit={canChange} />}
+      {sc && <ScDocuments scId={sc.id} kind="buyer" canEdit={canChange} />}
+      {sc && <ScDocuments scId={sc.id} kind="supplier" canEdit={canChange} />}
       {sc && <NotificationLog sc={sc} canManage={canManage} />}
     </Drawer>
   )
@@ -527,26 +490,3 @@ function LinkToDeal({ onLinked }: { onLinked: (scId: string, scNo: string) => vo
   )
 }
 
-function CommBox({ label, basis, value, amount, isNew, onBasis, onValue }: {
-  label: string
-  basis: string
-  value: string
-  amount: number | null
-  isNew: boolean
-  onBasis: (v: string) => void
-  onValue: (v: string) => void
-}) {
-  return (
-    <div className="comm-box">
-      <span className="comm-label">{label}</span>
-      <div className="comm-row">
-        <select aria-label={`${label} type`} value={basis} onChange={(e) => onBasis(e.target.value)}>
-          <option value="">{isNew ? 'From master' : 'None'}</option>
-          {COMM_BASES.map((b) => (<option key={b.value} value={b.value}>{b.label}</option>))}
-        </select>
-        <input aria-label={`${label} value`} className="mono" inputMode="decimal" placeholder={basis === 'pct' ? '%' : '₹'} disabled={!basis} value={value} onChange={(e) => onValue(e.target.value)} />
-      </div>
-      <span className="comm-amount mono">{basis ? `${commTerms(basis, Number(value) || 0)} = ₹${inr(amount, 0)}` : isNew ? 'Taken from the party master on save' : '—'}</span>
-    </div>
-  )
-}

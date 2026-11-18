@@ -1,6 +1,7 @@
-/** Buyer documents on a Sales Confirmation (monday "Buyer Document" column):
- *  attach, open and remove, at most 10 per confirmation. Files live in the
- *  private sc-documents bucket; the database refuses an 11th. */
+/** Documents on a Sales Confirmation (monday "Buyer Document" and "Supplier
+ *  Document" columns): attach, open and remove. At most 10 files per
+ *  confirmation in all; files live in the private sc-documents bucket and the
+ *  database refuses an 11th. */
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
@@ -15,17 +16,17 @@ type ScDoc = { id: string; file_name: string; storage_path: string; size_bytes: 
 
 const sizeText = (n: number | null) => (!n ? '' : n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 
-export function ScDocuments({ scId, canEdit }: { scId: string; canEdit: boolean }) {
+export function ScDocuments({ scId, kind, canEdit }: { scId: string; kind: 'buyer' | 'supplier'; canEdit: boolean }) {
   const names = useProfileNames()
   const [docs, setDocs] = useState<ScDoc[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from('sc_documents').select('*').eq('sc_id', scId).order('uploaded_at', { ascending: false })
+    const { data, error } = await supabase.from('sc_documents').select('*').eq('sc_id', scId).eq('kind', kind).order('uploaded_at', { ascending: false })
     if (error) setMsg(errMessage(error, 'Could not load the documents'))
     setDocs((data ?? []) as ScDoc[])
-  }, [scId])
+  }, [scId, kind])
   useEffect(() => {
     void load()
   }, [load])
@@ -48,7 +49,7 @@ export function ScDocuments({ scId, canEdit }: { scId: string; canEdit: boolean 
         setMsg(up.error.message || 'Upload failed.')
         continue
       }
-      const { error } = await supabase.from('sc_documents').insert({ sc_id: scId, kind: 'buyer', file_name: file.name, storage_path: path, size_bytes: file.size, mime_type: file.type || null })
+      const { error } = await supabase.from('sc_documents').insert({ sc_id: scId, kind, file_name: file.name, storage_path: path, size_bytes: file.size, mime_type: file.type || null })
       if (error) {
         await supabase.storage.from(BUCKET).remove([path])
         setMsg(errMessage(error, 'Could not record the document'))
@@ -80,7 +81,7 @@ export function ScDocuments({ scId, canEdit }: { scId: string; canEdit: boolean 
   const full = (docs?.length ?? 0) >= MAX
   return (
     <>
-      <h3 className="section-title">Buyer documents {docs ? <span className="muted small">({docs.length} of {MAX})</span> : null}</h3>
+      <h3 className="section-title">{kind === 'buyer' ? 'Buyer Document' : 'Supplier Document'} {docs ? <span className="muted small">({docs.length})</span> : null}</h3>
       {msg && <p className="field-warn">{msg}</p>}
       {docs && docs.length === 0 && <p className="muted small">No documents yet.</p>}
       {docs && docs.length > 0 && (
