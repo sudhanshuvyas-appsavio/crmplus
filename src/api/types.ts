@@ -611,6 +611,8 @@ export interface Order {
   round_off: number | null
   total_amount: number | null
   cancelled_at: string | null
+  is_duplicate: boolean
+  duplication_error: string | null
 }
 
 export interface CommissionInvoice {

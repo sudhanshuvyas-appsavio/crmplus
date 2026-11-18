@@ -1,5 +1,5 @@
 /** The signed-in frame: a sidebar of boards on the left, a top bar with search
- *  and "+ New", and the current screen.
+ *  and notifications, and the current screen.
  *
  *  The sidebar follows the monday.com workspace: the CRM boards first, then
  *  dashboards, master data, the day-to-day task lists, and administration.
@@ -194,6 +194,7 @@ export function AppShell() {
         <header className="topbar">
           <GlobalSearch />
           <span className="push" />
+          <NotificationBell />
           <UserMenu
             name={me?.name ?? ''}
             sub={me?.is_admin ? 'Administrator' : me?.job_title || `${me?.permissions.length ?? 0} permissions`}
@@ -226,6 +227,68 @@ function UserMenu({ name, sub, onSignOut }: { name: string; sub: string; onSignO
           </div>
           <Link role="menuitem" className="pop-item" to="/account" onClick={() => setOpen(false)}>My account</Link>
           <button role="menuitem" type="button" className="pop-item" onClick={onSignOut}>Sign out</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type Note = { id: string; title: string; body: string | null; link: string | null; created_at: string; read_at: string | null }
+
+/** In-app notifications (monday "send notification" automations): a deal sent for
+ *  Manager Approval tells the manager, a deal sent to Reconsider tells its owner. */
+function NotificationBell() {
+  const { me } = useAuth()
+  const navigate = useNavigate()
+  const [notes, setNotes] = useState<Note[]>([])
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useOutside(ref, open, () => setOpen(false))
+
+  useEffect(() => {
+    if (!me) return
+    let alive = true
+    const load = async () => {
+      const { data } = await supabase.from('notifications').select('id,title,body,link,created_at,read_at').order('created_at', { ascending: false }).limit(20)
+      if (alive && data) setNotes(data as Note[])
+    }
+    void load()
+    const t = setInterval(() => void load(), 60000)
+    return () => { alive = false; clearInterval(t) }
+  }, [me])
+
+  const unread = notes.filter((n) => !n.read_at).length
+  async function openNote(n: Note) {
+    setOpen(false)
+    if (!n.read_at) {
+      setNotes((p) => p.map((x) => (x.id === n.id ? { ...x, read_at: new Date().toISOString() } : x)))
+      await supabase.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', n.id)
+    }
+    if (n.link) navigate(n.link)
+  }
+  async function readAll() {
+    const now = new Date().toISOString()
+    setNotes((p) => p.map((x) => (x.read_at ? x : { ...x, read_at: now })))
+    await supabase.from('notifications').update({ read_at: now }).is('read_at', null)
+  }
+  return (
+    <div className="menu-anchor" ref={ref}>
+      <button type="button" className="bell" aria-haspopup="menu" aria-expanded={open} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} onClick={() => setOpen((o) => !o)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 6 2 7 2 7H4s2-1 2-7zM10 20a2 2 0 0 0 4 0" /></svg>
+        {unread > 0 && <span className="bell-count">{unread > 9 ? '9+' : unread}</span>}
+      </button>
+      {open && (
+        <div className="pop-menu right notes-menu" role="menu">
+          <div className="pop-head">
+            <strong>Notifications</strong>
+            {unread > 0 && <button type="button" className="btn ghost sm" onClick={() => void readAll()}>Mark all read</button>}
+          </div>
+          {notes.length === 0 && <p className="pop-empty muted small">Nothing yet.</p>}
+          {notes.map((n) => (
+            <button key={n.id} role="menuitem" type="button" className={n.read_at ? 'pop-item' : 'pop-item unread'} onClick={() => void openNote(n)}>
+              <span className="note-text"><strong>{n.title}</strong><span className="small muted">{n.body}</span></span>
+            </button>
+          ))}
         </div>
       )}
     </div>

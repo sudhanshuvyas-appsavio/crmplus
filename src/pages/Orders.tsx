@@ -148,7 +148,7 @@ export default function DispatchAndBilling() {
   const columns: BoardColumn<Order>[] = [
     { key: 'no', label: 'Item', width: 130, render: (x) => <span className="mono">{x.order_no}</span> },
     { key: 'status', label: 'Status', width: 170, render: (x) => <StatusPill label={dispatchStatus(x.dispatch_status).label} tone={dispatchStatus(x.dispatch_status).tone} /> },
-    { key: 'inv', label: 'Invoice No.', render: (x) => cell(x.invoice_no, { mono: true }) },
+    { key: 'inv', label: 'Invoice No.', render: (x) => (x.is_duplicate ? <span className="mono small field-warn" title={x.duplication_error ?? ''}>{x.invoice_no} · duplicate</span> : cell(x.invoice_no, { mono: true })) },
     { key: 'invdate', label: 'Invoice Date', render: (x) => cell(x.invoice_date) },
     { key: 'created', label: 'Created Date', render: (x) => cell(x.created_at.slice(0, 10)) },
     { key: 'sc', label: 'Sales Confirmation', interactive: true, render: (x) => <Link className="mono small" to={`/sales-confirmations?open=${x.sales_confirmation_id}`}>{scs.get(x.sales_confirmation_id) ?? '—'}</Link> },
@@ -415,6 +415,7 @@ function ItemPanel({
         </span>
       </div>
       {err && <div className="alert">{err}</div>}
+      {order.is_duplicate && <div className="alert">Duplicate invoice: {order.duplication_error}</div>}
       {cancelled && <div className="notice small">Cancelled{order.cancelled_at ? ` ${formatDateTime(order.cancelled_at)}` : ''}. Its Sales Confirmation can now be cancelled or used again.</div>}
 
       <h3 className="section-title">From the Sales Confirmation</h3>

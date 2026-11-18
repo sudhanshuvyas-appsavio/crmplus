@@ -1129,3 +1129,13 @@ tr.clickable { cursor: pointer; }
 .lines-table select { min-width: 180px; max-width: 280px; }
 .lines-table .num-in { width: 90px; text-align: right; }
 .lines-list { display: grid; gap: 2px; }
+
+/* notification bell */
+.bell { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: none; color: var(--ink-2); cursor: pointer; }
+.bell:hover { background: var(--surface-3); }
+.bell svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.bell-count { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--brand); color: #fff; font-size: 10.5px; font-weight: 600; display: grid; place-items: center; }
+.notes-menu { min-width: 300px; max-height: 420px; overflow-y: auto; }
+.notes-menu .pop-head { display: flex; justify-content: space-between; align-items: center; }
+.pop-item.unread { background: var(--surface-2); }
+.note-text { display: grid; gap: 2px; }
