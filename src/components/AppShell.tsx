@@ -6,7 +6,7 @@
  *  Sections collapse, and the choice is remembered in this browser. Items are
  *  filtered by permission, so people only see what they can work on. */
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 import { supabase } from '../lib/supabase'
@@ -60,6 +60,17 @@ const ORDER = ['order.read', 'order.manage']
 
 const NAV: NavSection[] = [
   {
+    id: 'mdm',
+    heading: 'Master data',
+    // the seven MDM registers, each one a link of its own
+    items: REGISTERS.map((r) => ({
+      to: `/master-data/${r.key}`,
+      label: r.label,
+      icon: I.grid,
+      ...(r.anyOf.length > 0 ? { anyOf: r.anyOf } : {}),
+    })),
+  },
+  {
     id: 'crm',
     heading: 'CRM',
     items: [
@@ -78,15 +89,6 @@ const NAV: NavSection[] = [
       { to: '/billing-dashboard', label: 'Billing & dispatch', icon: I.bill, anyOf: ORDER },
       { to: '/collection-dashboard', label: 'Collection', icon: I.cash, anyOf: ORDER },
       { to: '/staff-performance', label: 'Staff performance', icon: I.chart, permission: 'report.view' },
-    ],
-  },
-  {
-    id: 'mdm',
-    heading: 'Master data',
-    items: [
-      // one hub for every MDM register (parties, business units, counts, transport, locations, delivery addresses, payment terms)
-      { to: '/master-data', label: 'Master data', icon: 'M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2zM4 6v6c0 1.1 3.6 2 8 2s8-.9 8-2V6M4 12v6c0 1.1 3.6 2 8 2s8-.9 8-2v-6' },
-      { to: '/mailing-list', label: 'Mailing list', icon: I.mail, anyOf: ['buyer.manage', 'mill.manage'] },
     ],
   },
   {
@@ -121,75 +123,6 @@ const NAV: NavSection[] = [
   },
 ]
 
-const MD_OPEN_KEY = 'nav.masterData.open'
-
-/** "Master data" with its registers underneath, collapsible. It opens by itself
- *  while one of the registers is on screen, and remembers the person's choice. */
-function MasterDataGroup({ icon }: { icon: string }) {
-  const { canAny } = useAuth()
-  const { pathname } = useLocation()
-  const inside = pathname.startsWith('/master-data')
-  const [open, setOpen] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem(MD_OPEN_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
-  useEffect(() => {
-    if (inside) setOpen(true)
-  }, [inside])
-
-  const visible = useMemo(() => REGISTERS.filter((r) => r.anyOf.length === 0 || canAny(...r.anyOf)), [canAny])
-  if (visible.length === 0) return null
-
-  function toggle() {
-    setOpen((prev) => {
-      const next = !prev
-      try {
-        window.localStorage.setItem(MD_OPEN_KEY, next ? '1' : '0')
-      } catch {
-        /* the choice just is not remembered */
-      }
-      return next
-    })
-  }
-
-  return (
-    <div className="nav-group">
-      <button
-        type="button"
-        className={inside ? 'nav-item nav-toggle active' : 'nav-item nav-toggle'}
-        aria-expanded={open}
-        aria-controls="nav-master-data"
-        onClick={toggle}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d={icon} />
-        </svg>
-        <span>Master data</span>
-        <svg className={open ? 'nav-chevron open' : 'nav-chevron'} viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-      </button>
-      {open && (
-        <div className="nav-sub" id="nav-master-data">
-          {visible.map((r) => (
-            <NavLink
-              key={r.key}
-              to={`/master-data/${r.key}`}
-              title={r.purpose}
-              className={({ isActive }) => (isActive ? 'nav-subitem active' : 'nav-subitem')}
-            >
-              {r.label}
-            </NavLink>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function readOpen(): Record<string, boolean> {
   try {
     return JSON.parse(localStorage.getItem('nav.open') ?? '{}') as Record<string, boolean>
@@ -198,11 +131,27 @@ function readOpen(): Record<string, boolean> {
   }
 }
 
+const RAIL_KEY = 'nav.collapsed'
+
 export function AppShell() {
   const { me, meta, can, canAny, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [open, setOpen] = useState<Record<string, boolean>>(() => readOpen())
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed])
   useEffect(() => {
     try {
       localStorage.setItem('nav.open', JSON.stringify(open))
@@ -220,7 +169,7 @@ export function AppShell() {
   const isHere = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to))
 
   return (
-    <div className="shell">
+    <div className={collapsed ? 'shell rail-collapsed' : 'shell'}>
       <aside className="rail">
         <div className="rail-brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <BrandMark org={meta?.org} />
@@ -244,8 +193,7 @@ export function AppShell() {
                   {section.heading}
                 </button>
                 {isOpen &&
-                  items.map((item) =>
-                    item.to === '/master-data' ? (<MasterDataGroup key={item.to} icon={item.icon} />) : (
+                  items.map((item) => (
                     <NavLink
                       key={item.to}
                       to={item.to}
@@ -266,6 +214,18 @@ export function AppShell() {
       </aside>
       <div className="main">
         <header className="topbar">
+          <button
+            type="button"
+            className="btn ghost rail-toggle"
+            aria-label={collapsed ? 'Show the sidebar' : 'Hide the sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Show the sidebar' : 'Hide the sidebar'}
+            onClick={() => setCollapsed((c) => !c)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
           <GlobalSearch />
           <span className="push" />
           {can('deal.create') && (

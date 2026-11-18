@@ -14,7 +14,7 @@
  *  Sizing / Delivery Address and Payment Terms. */
 
 import { useMemo, type ComponentType } from 'react'
-import { Navigate, NavLink, useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 import Companies from './Companies'
 import Contacts from './Contacts'
@@ -113,28 +113,7 @@ export default function MasterData() {
 
   return (
     <div className="md-page">
-      <header className="md-head">
-        <h1>Master Data</h1>
-        <p className="page-sub">The registers the rest of the system refers to.</p>
-      </header>
-
       <div className="md-frame">
-        <nav className="md-rail" aria-label="Registers">
-          <ul>
-            {visible.map((r) => (
-              <li key={r.key}>
-                <NavLink
-                  to={`/master-data/${r.key}`}
-                  title={r.purpose}
-                  className={({ isActive }) => (isActive ? 'md-link active' : 'md-link')}
-                >
-                  {r.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
         {/* Keyed so switching register starts the next screen clean -- its own
             search, selection and open form must not carry over. */}
         <section className="md-pane" key={active.key} aria-label={active.title}>
