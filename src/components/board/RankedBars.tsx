@@ -30,8 +30,17 @@ export function ChartCard({ title, subtitle, children, table }: { title: string;
   )
 }
 
-export function RankedBars({ data, unit, emptyText = 'Nothing to show.' }: { data: BarDatum[]; unit: string; emptyText?: string }) {
-  const sorted = [...data].sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
+export function RankedBars({ data, unit, emptyText = 'Nothing to show.', order = 'value', format }: {
+  data: BarDatum[]
+  unit: string
+  emptyText?: string
+  /** 'value' ranks largest first; 'given' keeps the order of `data` (e.g. dates). */
+  order?: 'value' | 'given'
+  /** How a value is printed, e.g. money. Default: the plain number. */
+  format?: (n: number) => string
+}) {
+  const fmt = format ?? ((n: number) => String(n))
+  const sorted = order === 'given' ? [...data] : [...data].sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
   // a long tail is folded into one muted "Others" bar instead of crowding the chart
   const shown = sorted.length > MAX_BARS + 1 ? sorted.slice(0, MAX_BARS) : sorted
   const rest = sorted.length > MAX_BARS + 1 ? sorted.slice(MAX_BARS) : []
@@ -39,7 +48,7 @@ export function RankedBars({ data, unit, emptyText = 'Nothing to show.' }: { dat
   const max = Math.max(1, ...shown.map((d) => d.value), restTotal)
   const [showTable, setShowTable] = useState(false)
   if (sorted.length === 0) return <p className="muted small viz-empty">{emptyText}</p>
-  const plural = (n: number) => `${n} ${unit}${n === 1 ? '' : 's'}`
+  const plural = (n: number) => (format ? `${fmt(n)}` : `${n} ${unit}${n === 1 ? '' : 's'}`)
 
   return (
     <>
@@ -58,7 +67,7 @@ export function RankedBars({ data, unit, emptyText = 'Nothing to show.' }: { dat
             <span className="rbar-label">{d.label}</span>
             <span className="rbar-track">
               <span className="rbar-fill" style={{ width: `${(d.value / max) * 100}%` }} />
-              <span className="rbar-value">{d.value}</span>
+              <span className="rbar-value">{fmt(d.value)}</span>
             </span>
           </button>
         ))}
@@ -67,7 +76,7 @@ export function RankedBars({ data, unit, emptyText = 'Nothing to show.' }: { dat
             <span className="rbar-label">{rest.length} others</span>
             <span className="rbar-track">
               <span className="rbar-fill" style={{ width: `${(restTotal / max) * 100}%` }} />
-              <span className="rbar-value">{restTotal}</span>
+              <span className="rbar-value">{fmt(restTotal)}</span>
             </span>
           </div>
         )}
@@ -79,7 +88,7 @@ export function RankedBars({ data, unit, emptyText = 'Nothing to show.' }: { dat
         <table className="viz-table">
           <tbody>
             {sorted.map((d) => (
-              <tr key={d.label}><td>{d.label}</td><td className="right mono">{d.value}</td></tr>
+              <tr key={d.label}><td>{d.label}</td><td className="right mono">{fmt(d.value)}</td></tr>
             ))}
           </tbody>
         </table>
@@ -93,4 +102,15 @@ export function tally<T>(items: T[], keys: (item: T) => string[]): Map<string, n
   const out = new Map<string, number>()
   for (const it of items) for (const k of new Set(keys(it))) out.set(k, (out.get(k) ?? 0) + 1)
   return out
+}
+
+/** A headline number: label (sentence case), value, and an optional note. Used above the charts. */
+export function StatTile({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="stat-tile">
+      <span className="stat-label">{label}</span>
+      <strong className="stat-value">{value}</strong>
+      {note && <span className="small muted">{note}</span>}
+    </div>
+  )
 }

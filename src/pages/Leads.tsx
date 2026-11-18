@@ -1361,8 +1361,8 @@ function FollowUps({ leads, onOpen }: { leads: Lead[]; onOpen: (lead: Lead) => v
   const todayIso = iso(today)
 
   return (
-    <details className="card pad" style={{ marginBottom: 16 }} open>
-      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Follow-ups ({total})</summary>
+    <details className="followups" open>
+      <summary>Follow-ups <span className="muted small">({total})</span></summary>
       <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
         {tasks.map((t) => {
           const l = byId.get(t.entity_id)

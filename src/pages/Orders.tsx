@@ -23,6 +23,7 @@ import { Field } from '../components/PartyForms'
 import { OrderExecution } from '../components/OrderExecution'
 import { BoardTabs } from '../components/board/BoardTabs'
 import { DnbCreationForm } from '../components/DnbCreationForm'
+import { DnbReports } from '../components/DnbReports'
 import { Avatar, Board, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { cell } from '../components/board/mirrors'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -57,7 +58,7 @@ export default function DispatchAndBilling() {
   const [people, setPeople] = useState<Named[]>([])
   const [scs, setScs] = useState<Map<string, string>>(new Map())
   const [editing, setEditing] = useState<Order | null>(null)
-  const [tab, setTab] = useState<'table' | 'form' | 'duplicates'>('table')
+  const [tab, setTab] = useState<'table' | 'reports' | 'form' | 'duplicates'>('table')
   const [search, setSearch] = useState('')
   const [view, setView] = useStoredState<'table' | 'kanban'>('dnb.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
@@ -114,6 +115,7 @@ export default function DispatchAndBilling() {
         !q ||
         x.order_no.toLowerCase().includes(q) ||
         (x.invoice_no ?? '').toLowerCase().includes(q) ||
+        x.order_date.includes(q) ||
         (scs.get(x.sales_confirmation_id) ?? '').toLowerCase().includes(q) ||
         (buyerName.get(x.buyer_id) ?? '').toLowerCase().includes(q) ||
         (supplierName.get(x.supplier_id) ?? '').toLowerCase().includes(q) ||
@@ -200,11 +202,12 @@ export default function DispatchAndBilling() {
       <BoardTabs
         tabs={[
           { key: 'table', label: 'Main table' },
+          { key: 'reports', label: 'Reports' },
           ...(canManage ? [{ key: 'form', label: 'Dispatch & Billing Creation Form' }] : []),
           { key: 'duplicates', label: `Duplicate Checks${rows.some((x) => x.is_duplicate) ? ` (${rows.filter((x) => x.is_duplicate).length})` : ''}` },
         ]}
         active={tab}
-        onChange={(k) => setTab(k as 'table' | 'form' | 'duplicates')}
+        onChange={(k) => setTab(k as 'table' | 'reports' | 'form' | 'duplicates')}
       />
 
       {banner && (
@@ -212,6 +215,17 @@ export default function DispatchAndBilling() {
           {banner.text}{' '}
           <button className="btn ghost sm" type="button" onClick={() => setBanner(null)}>Dismiss</button>
         </div>
+      )}
+
+      {tab === 'reports' && (
+        <DnbReports
+          rows={rows}
+          buyerName={buyerName}
+          onPick={(text) => {
+            setSearch(text)
+            setTab('table')
+          }}
+        />
       )}
 
       {tab === 'form' && (
@@ -230,7 +244,7 @@ export default function DispatchAndBilling() {
         />
       )}
 
-      {tab !== 'form' && (<>
+      {(tab === 'table' || tab === 'duplicates') && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search" placeholder="Search item, invoice, SC, buyer, supplier, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />

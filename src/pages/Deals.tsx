@@ -20,6 +20,8 @@ import { useSelection } from '../components/ListTools'
 import { ActivityPanel, useProfileNames } from '../components/PartyExtras'
 import { Avatar, Board, StatusPicker, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
+import { BoardTabs } from '../components/board/BoardTabs'
+import { DealsReports } from '../components/DealsReports'
 import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from '../components/CountLines'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -78,6 +80,7 @@ export default function Deals() {
   const [leadNos, setLeadNos] = useState<Map<string, string>>(new Map())
   const [dealLines, setDealLines] = useState<Map<string, DealLineRow[]>>(new Map())
   const [editing, setEditing] = useState<Deal | 'new' | null>(null)
+  const [tab, setTab] = useState<'table' | 'reports'>('table')
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useStoredState('deals.owner', '')
   const [view, setView] = useStoredState<'table' | 'kanban'>('deals.view', 'table')
@@ -121,13 +124,14 @@ export default function Deals() {
   const wantNew = params.get('new')
   useEffect(() => {
     if (wantNew && canCreate) {
+      setTab('table')
       setEditing('new')
       setParams({}, { replace: true })
       return
     }
     if (!openId || !deals) return
     const found = deals.find((x) => x.id === openId)
-    if (found) setEditing(found)
+    if (found) { setTab('table'); setEditing(found) }
     setParams({}, { replace: true })
   }, [openId, wantNew, deals, setParams, canCreate])
 
@@ -245,7 +249,7 @@ export default function Deals() {
           <p className="page-sub">Every trade from enquiry to approval. Approved deals become Sales Confirmations.</p>
         </div>
         {canCreate && (
-          <button className="btn primary" type="button" onClick={() => setEditing('new')}>
+          <button className="btn primary" type="button" onClick={() => { setTab('table'); setEditing('new') }}>
             + New deal
           </button>
         )}
@@ -258,6 +262,20 @@ export default function Deals() {
         </div>
       )}
 
+      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }, { key: 'reports', label: 'Reports' }]} active={tab} onChange={(k) => setTab(k as 'table' | 'reports')} />
+
+      {tab === 'reports' && (
+        <DealsReports
+          deals={deals}
+          buyerName={buyerName}
+          onPick={(text) => {
+            setSearch(text)
+            setTab('table')
+          }}
+        />
+      )}
+
+      {tab === 'table' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search deals" placeholder="Search deal, buyer, supplier, count" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -309,6 +327,7 @@ export default function Deals() {
           </>
         )}
       />
+      </>)}
 
       {editing && (
         <DealPanel
