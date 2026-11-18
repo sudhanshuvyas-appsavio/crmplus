@@ -171,9 +171,8 @@ export function AppShell() {
   return (
     <div className={collapsed ? 'shell rail-collapsed' : 'shell'}>
       <aside className="rail">
-        <div className="rail-brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div className="rail-brand">
           <BrandMark org={meta?.org} />
-          <NotificationBell />
         </div>
         <nav className="nav" aria-label="Main">
           {NAV.map((section) => {
@@ -228,6 +227,7 @@ export function AppShell() {
           </button>
           <GlobalSearch />
           <span className="push" />
+          <NotificationBell />
           <UserMenu
             name={me?.name ?? ''}
             sub={me?.is_admin ? 'Administrator' : me?.job_title || `${me?.permissions.length ?? 0} permissions`}
