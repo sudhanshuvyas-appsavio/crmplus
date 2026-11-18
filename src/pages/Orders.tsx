@@ -314,11 +314,14 @@ function ItemPanel({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [askCancel, setAskCancel] = useState(false)
+  const [editMode, setEditMode] = useState(false)
   const set = <K extends keyof BillForm>(k: K, v: BillForm[K]) => setF((p) => ({ ...p, [k]: v }))
   const st = dispatchStatus(order.dispatch_status)
   const cancelled = order.status === 'cancelled'
   const closed = order.status === 'closed'
-  const editable = canManage && !cancelled
+  // Editable until the item is closed (or cancelled).
+  const canChange = canManage && !cancelled && !closed
+  const editable = canChange && editMode
   const started = order.status === 'open_for_execution' || closed
   const dirty = JSON.stringify(f) !== JSON.stringify(toBill(order))
 
@@ -369,6 +372,7 @@ function ItemPanel({
     setBusy(false)
     if (error) return setErr(errMessage(error, 'Could not save this item'))
     if (!data || data.length === 0) return setErr('Your account cannot change this item.')
+    setEditMode(false)
     if (stayOpen) await onRefresh()
     else await onDone(msg)
   }
@@ -459,12 +463,19 @@ function ItemPanel({
 
       {bad.length > 0 && <p className="field-hint">Check: {bad.join(', ')}.</p>}
 
-      {editable && (
+      {closed && <div className="notice small">This item is closed and can no longer be edited.</div>}
+      {canChange && (
         <div className="drawer-actions">
-          {dirty && (
+          {!editMode && (
+            <button className="btn" type="button" disabled={busy} onClick={() => setEditMode(true)}>Edit</button>
+          )}
+          {editable && dirty && (
             <button className="btn primary" type="button" disabled={busy || bad.length > 0} onClick={() => void run({}, `${order.order_no} saved.`, true)}>
               {busy ? 'Saving…' : 'Save'}
             </button>
+          )}
+          {editable && (
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toBill(order)); setErr(null); setEditMode(false) }}>Cancel editing</button>
           )}
           {!started && (
             <button className="btn primary" type="button" disabled={busy || bad.length > 0} onClick={() => void run({ status: 'open_for_execution' }, `${order.order_no}: dispatch started.`, true)}>

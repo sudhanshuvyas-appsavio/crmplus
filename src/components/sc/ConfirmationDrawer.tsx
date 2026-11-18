@@ -97,6 +97,7 @@ export function ConfirmationDrawer({
 }) {
   const navigate = useNavigate()
   const [f, setF] = useState<Form>(toForm(sc))
+  const [editMode, setEditMode] = useState(!sc)
   const [dealNo, setDealNo] = useState<string | null>(null)
   useEffect(() => {
     if (!sc?.deal_id) return
@@ -184,6 +185,7 @@ export function ConfirmationDrawer({
     const row = data?.[0] as { id: string; sc_no: string; status: string } | undefined
     if (!row) return setErr('Your account cannot change this confirmation.')
     const ready = row.status === 'confirmed'
+    setEditMode(false)
     await onDone(
       `${row.sc_no} ${sc ? 'saved' : 'created'}.${ready ? ' Use “Send to supplier” and “Send to buyer” to send it.' : ' It is still incomplete: fill in every required field to send it.'}`,
       row.id,
@@ -245,6 +247,9 @@ export function ConfirmationDrawer({
   const complete = sc !== null && sc.status === 'confirmed' && problems.length === 0
   const hasDelivery = !!(sc?.transporter_id || sc?.vehicle_no)
   const cancelled = sc?.status === 'cancelled'
+  // Editable until it is converted into a Dispatch and Billing item.
+  const canChange = canManage && !cancelled && !item
+  const editable = canChange && editMode
 
   const stageOptions = !sc || !canManage || cancelled ? [] : SC_STAGES
     .filter((s) => s.value !== sc.stage && s.value !== 'cancelled')
@@ -272,7 +277,10 @@ export function ConfirmationDrawer({
       {err && <div className="alert">{err}</div>}
       {!canManage && <div className="notice small">You can view this confirmation; changing or sending it needs the “Create, edit and send sales confirmations” permission.</div>}
       {sc && sc.status === 'draft' && !cancelled && <div className="notice small">Incomplete: fill in the required fields before it can be sent.</div>}
-      {locked && (
+      {item && (
+        <div className="notice small">Converted to Dispatch and Billing item <span className="mono">{item.order_no}</span>; this confirmation can no longer be edited.</div>
+      )}
+      {locked && !item && (
         <div className="notice small">
           Created from a deal: parties, count, quantity, rate, payment terms and commission are locked. Freight, ex-mill / net, bag weight,
           type, delivery and transport details, schedule and instructions can change.
@@ -281,7 +289,7 @@ export function ConfirmationDrawer({
 
       {!sc && canManage && <LinkToDeal onLinked={(id, no) => onDone(`${no} created from the deal.`, id)} />}
 
-      <fieldset disabled={!canManage || locked || cancelled} className="plain-fieldset">
+      <fieldset disabled={!editable || locked} className="plain-fieldset">
         <h3 className="section-title">Parties</h3>
         <div className="form-grid">
           <Field id="sc-supplier" label="Supplier" required>
@@ -356,7 +364,7 @@ export function ConfirmationDrawer({
         </div>
       </fieldset>
 
-      <fieldset disabled={!canManage || cancelled} className="plain-fieldset">
+      <fieldset disabled={!editable} className="plain-fieldset">
         <div className="form-grid">
           <Field id="sc-freight" label="Freight" required>
             <select id="sc-freight" value={f.freight} onChange={(e) => set('freight', e.target.value as Form['freight'])}>
@@ -433,10 +441,16 @@ export function ConfirmationDrawer({
 
       {canManage && !cancelled && (
         <div className="drawer-actions">
-          {(!sc || dirty) && (
+          {sc && canChange && !editMode && (
+            <button className="btn" type="button" disabled={busy} onClick={() => setEditMode(true)}>Edit</button>
+          )}
+          {editable && (!sc || dirty) && (
             <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
               {busy ? 'Saving…' : sc ? 'Save changes' : 'Create confirmation'}
             </button>
+          )}
+          {sc && editable && (
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(sc)); setErr(null); setEditMode(false) }}>Cancel editing</button>
           )}
           {sc && sc.status === 'draft' && <DeleteControl label="Delete" name={sc.sc_no} busy={busy} onConfirm={() => void remove()} />}
           {sc && sc.status === 'confirmed' && !item && <CancelControl busy={busy} onConfirm={() => void cancelSc()} />}
@@ -467,7 +481,7 @@ export function ConfirmationDrawer({
       {complete && !dirty && canManage && sc && !cancelled && (
         <SendPanel sc={sc} names={names} supplier={suppliers.find((x) => x.id === sc.supplier_id) ?? null} buyer={buyers.find((x) => x.id === sc.buyer_id) ?? null} onSent={(text) => onDone(text, sc.id)} />
       )}
-      {sc && <ScDocuments scId={sc.id} canEdit={canManage && !cancelled} />}
+      {sc && <ScDocuments scId={sc.id} canEdit={canChange} />}
       {sc && <NotificationLog sc={sc} canManage={canManage} />}
     </Drawer>
   )

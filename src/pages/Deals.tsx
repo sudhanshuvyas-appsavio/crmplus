@@ -395,6 +395,7 @@ function DealPanel({
   const [sc, setSc] = useState<{ id: string; sc_no: string | null } | null>(null)
   const [orderId, setOrderId] = useState<string | null>(null)
   const [leadNo, setLeadNo] = useState<string | null>(null)
+  const [editMode, setEditMode] = useState(!deal)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
   useEffect(() => {
     if (!deal?.lead_id) return
@@ -498,6 +499,7 @@ function DealPanel({
       return onDone(`${saved.deal_no} ${STATUS_MESSAGE[thenStatus] ?? 'updated'}.`)
     }
     setBusy(false)
+    setEditMode(false)
     await onDone(deal ? `${saved.deal_no} saved.` : `${saved.deal_no} created.`)
   }
 
@@ -541,7 +543,9 @@ function DealPanel({
   }
 
   const nexts = deal && canEdit ? nextStatuses(deal, canApprove, isAdmin) : []
-  const editable = canEdit && !locked
+  // Editable until the deal is converted (Approved, which creates its Sales Confirmation).
+  const canChange = canEdit && !locked
+  const editable = canChange && editMode
   const dirty = deal ? JSON.stringify(f) !== JSON.stringify(toForm(deal, companies, me?.id)) : true
 
   return (
@@ -569,7 +573,7 @@ function DealPanel({
       {approved && (
         <div className="notice small">
           Approved by {deal?.approved_by ? names[deal.approved_by] ?? 'a manager' : 'a manager'}
-          {deal?.approved_at ? ` on ${formatDateTime(deal.approved_at)}` : ''}. The deal terms are locked; owner, manager and notes can still change.
+          {deal?.approved_at ? ` on ${formatDateTime(deal.approved_at)}` : ''}. The deal is converted and can no longer be edited.
         </div>
       )}
 
@@ -665,7 +669,7 @@ function DealPanel({
         </div>
       </fieldset>
 
-      <fieldset disabled={!canEdit} className="plain-fieldset">
+      <fieldset disabled={!editable} className="plain-fieldset">
         <h3 className="section-title">People</h3>
         <div className="form-grid">
           <Field id="d-owner" label="Owner">
@@ -689,10 +693,16 @@ function DealPanel({
       {missing.length > 0 && editable && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
 
       <div className="drawer-actions">
-        {canEdit && (!deal || dirty) && (
-          <button className="btn primary" type="button" disabled={busy || (editable && missing.length > 0)} onClick={() => void save()}>
+        {deal && canChange && !editMode && (
+          <button className="btn" type="button" disabled={busy} onClick={() => setEditMode(true)}>Edit</button>
+        )}
+        {editable && (!deal || dirty) && (
+          <button className="btn primary" type="button" disabled={busy || missing.length > 0} onClick={() => void save()}>
             {busy ? 'Saving…' : deal ? 'Save changes' : 'Create deal'}
           </button>
+        )}
+        {deal && editable && (
+          <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(deal, companies, me?.id)); setErr(null); setEditMode(false) }}>Cancel editing</button>
         )}
         {canEdit && deal && ['new_deal', 'reconsider'].includes(deal.status) && (
           <button className="btn primary" type="button" disabled={busy || missing.length > 0} onClick={() => void (dirty ? save('manager_approval') : move('manager_approval'))}>

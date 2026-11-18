@@ -706,6 +706,7 @@ function LeadDrawer({
         },
   )
   const [busy, setBusy] = useState(false)
+  const [editMode, setEditMode] = useState(!initial)
   const [formError, setFormError] = useState<string | null>(null)
   const [masters, setMasters] = useState<{ buyers: MasterParty[]; suppliers: MasterParty[] }>({ buyers: [], suppliers: [] })
   useEffect(() => {
@@ -743,6 +744,8 @@ function LeadDrawer({
   const selectedCount = counts.find((c) => c.id === form.count_id)
   const qualified = existing?.status === 'qualified'
   const locked = Boolean(existing?.converted_deal_id)
+  // Editable until the lead is converted into a deal.
+  const editable = !locked && (editMode || !existing)
   // qualifying creates the deal by itself; this button only covers leads qualified before that
   const canConvert = can('deal.create') && qualified && !locked
 
@@ -806,6 +809,7 @@ function LeadDrawer({
       setFormError(errMessage(error, 'Could not save this lead'))
       return
     }
+    setEditMode(false)
     await onDone(existing ? `${existing.lead_no} updated.` : 'Lead created.')
   }
 
@@ -859,7 +863,7 @@ function LeadDrawer({
         </div>
       )}
 
-      <fieldset disabled={locked} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <h3 className="section-title">Lead</h3>
       <div className="form-grid">
         <Field id="l-type" label="Lead type" required hint={form.lead_type === 'existing' ? 'Pick the party from Buyers & Suppliers.' : 'A party not yet in Buyers & Suppliers.'}>
@@ -1042,12 +1046,22 @@ function LeadDrawer({
       </Field>
       </fieldset>
 
-      {missing.length > 0 && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
+      {missing.length > 0 && editable && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
       <div className="drawer-actions">
-        {!locked && (
+        {existing && !locked && !editMode && (
+          <button className="btn" type="button" onClick={() => setEditMode(true)} disabled={busy}>
+            Edit
+          </button>
+        )}
+        {editable && (
         <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0}>
           {busy ? 'Saving…' : existing ? 'Save changes' : 'Create the lead'}
         </button>
+        )}
+        {existing && editable && (
+          <button className="btn ghost" type="button" onClick={() => { setForm(leadToForm(existing)); setFormError(null); setEditMode(false) }} disabled={busy}>
+            Cancel editing
+          </button>
         )}
         {canConvert && (
           <button className="btn" type="button" onClick={() => void convert()} disabled={busy}>
