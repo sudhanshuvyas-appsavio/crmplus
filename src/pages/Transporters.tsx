@@ -18,7 +18,7 @@ import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { findDuplicate, focusFirstError, isEmail, isStateCode, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, isPan, isStateCode, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
@@ -113,6 +113,8 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
   const gst = f.gst.trim().toUpperCase()
   if (gst && !isGst(gst)) er['t-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPS5121G2ZK).'
   if (isNew) requireText(er, 't-ophone', f.office_phone, 'Office Phone is required.')
+  if (f.office_phone.trim() && !/^[0-9]{6,15}$/.test(f.office_phone.trim())) er['t-ophone'] = 'Office Phone must be 6 to 15 digits.'
+  if (f.res_phone.trim() && !/^[0-9]{6,15}$/.test(f.res_phone.trim())) er['t-rphone'] = 'Res Phone must be 6 to 15 digits.'
   if (isNew) requireText(er, 't-state', f.state, 'State is required.')
   if (isNew) requireText(er, 't-sc', f.state_code, 'State Code is required.')
   if (f.state_code.trim() && !isStateCode(f.state_code)) er['t-sc'] = 'State Code must be 2 digits.'
@@ -121,7 +123,7 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
   if (isNew && !f.company_id) er['t-company'] = 'Business Units is required.'
   if (isNew) requireText(er, 't-bank', f.bank_account, 'Bank Account Number 1 is required.')
   if (isNew) requireText(er, 't-pan', f.pan, 'IT PAN is required.')
-  if (f.pan.trim() && f.pan.trim().length !== 10) er['t-pan'] = 'PAN must be 10 characters.'
+  if (f.pan.trim() && !isPan(f.pan)) er['t-pan'] = 'Enter a valid PAN: 5 letters, 4 digits, 1 letter (like AHFPS5121G).'
   if (isNew) requireText(er, 't-cp', f.contact_person, 'Contact Person 1 is required.')
   if (isNew) requireText(er, 't-mob', f.mobile, 'Contact Person 1 Phone is required.')
   if (f.mobile.trim() && !isMobile(f.mobile)) er['t-mob'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
@@ -548,7 +550,7 @@ function TransporterDrawer({
   const fieldValue: Record<string, string> = {
     't-name': f.name, 't-email': f.email, 't-gst': f.gst, 't-ophone': f.office_phone, 't-state': f.state, 't-sc': f.state_code,
     't-oaddr': f.office_address, 't-company': f.company_id, 't-bank': f.bank_account, 't-pan': f.pan, 't-cp': f.contact_person,
-    't-mob': f.mobile, 't-mob2': f.mobile_2, 't-vtype': f.vehicle_type,
+    't-mob': f.mobile, 't-mob2': f.mobile_2, 't-rphone': f.res_phone, 't-vtype': f.vehicle_type,
   }
   const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
 
@@ -643,7 +645,7 @@ function TransporterDrawer({
             <Field id="t-ophone" label="Office Phone" required error={show('t-ophone')}>
               <input id="t-ophone" className="mono" value={f.office_phone} placeholder="Office Phone number" onChange={(ev) => set('office_phone', ev.target.value)} />
             </Field>
-            <Field id="t-rphone" label="Res Phone">
+            <Field id="t-rphone" label="Res Phone" error={show('t-rphone')}>
               <input id="t-rphone" className="mono" value={f.res_phone} placeholder="Res Phone number" onChange={(ev) => set('res_phone', ev.target.value)} />
             </Field>
             <Field id="t-state" label="State" required error={show('t-state')}>

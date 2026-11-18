@@ -460,7 +460,7 @@ export default function Contacts() {
     { id: 'mill', title: 'Mill/Factory/Delivery Address', wrap: true, render: (c) => txt(common(c, 'mill_address')) },
     { id: 'ophone', title: 'Office Phone', mono: true, render: (c) => txt(common(c, 'office_phone')) },
     { id: 'rphone', title: 'Res Phone', mono: true, render: (c) => txt(common(c, 'res_phone')) },
-    { id: 'pan', title: 'IT PAN', mono: true, render: (c) => txt(common(c, 'pan')) },
+    { id: 'pan', title: 'IT Pan', mono: true, render: (c) => txt(common(c, 'pan')) },
     { id: 'email', title: 'Email', render: (c) => txt(common(c, 'email')) },
     { id: 'bct', title: 'Buyer Commission Type', render: (c) => commissionType(c.buyer?.commission_basis) },
     { id: 'bcv', title: 'Buyer Commission Value', mono: true, render: (c) => txt(c.buyer?.commission_value) },
