@@ -417,8 +417,7 @@ export default function JobProcesses() {
                     <RowActionMenu
                       label={x.name}
                       actions={[
-                        { label: 'View', onSelect: () => setViewing(x) },
-                        { label: 'Edit', onSelect: () => setEditing(x), disabledReason: canManage ? null : 'Needs “Add and edit job processes”' },
+                        { label: 'Edit', onSelect: () => (canManage ? setEditing(x) : setViewing(x)) },
                         { label: 'Documents', onSelect: () => setDocsFor(x) },
                         { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(x) }, disabledReason: canManage ? null : 'Needs “Add and edit job processes”' },
                       ]}

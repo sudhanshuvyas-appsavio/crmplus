@@ -617,8 +617,7 @@ export default function Companies() {
                   <RowActionMenu
                     label={company.name}
                     actions={[
-                      { label: 'View', onSelect: () => setViewing(company) },
-                      { label: 'Edit', onSelect: () => setEditing({ mode: 'edit', company }), disabledReason: canManage ? null : 'Needs “Change system settings”' },
+                      { label: 'Edit', onSelect: () => (canManage ? setEditing({ mode: 'edit', company }) : setViewing(company)) },
                       { label: 'Documents', onSelect: () => setDocsFor(company) },
                       { label: 'Delete', tone: 'danger', onSelect: () => setDeleting(company), disabledReason: canManage ? null : 'Needs “Change system settings”' },
                     ]}

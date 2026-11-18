@@ -17,7 +17,7 @@ Before testing: run `supabase/manual/20261118_business_unit_test_data_cleanup.sq
 | 7 | Duplicates | Same name (also `  name  ` and different capitals), same GST, same customer code are refused with a message that says which field and which record clashes |
 | 8 | Server errors | Any error from the database is a sentence about the field, shown at the top of the form (the form scrolls to it), never "Could not save" alone |
 | 9 | Edit (Actions > Edit) | The saved values load; clearing a required field shows its message; Save works when valid |
-| 11 | View (Actions > View) | Every field is read-only; no Save, Delete or document upload; documents are seen through Actions > Documents |
+| 11 | Actions menu | Edit, Documents (where the register has them) and Delete; there is no View. A user without edit rights gets Edit opened read-only: every field disabled, no Save or Delete |
 | 12 | Delete (Actions > Delete) | Confirmation dialog; a record in use says so in words |
 | 13 | Search | Typing a value from **any visible column** finds the row (name, address, GST, PAN, email, phone, state, contacts, bank, remarks, locations, counts, yarn, process...) |
 | 14 | Filters | Status is filterable everywhere; State where the register has a state; plus the register's own (below). Clear resets them |

@@ -879,8 +879,7 @@ export default function Contacts() {
                         <RowActionMenu
                           label={c.name}
                           actions={[
-                            { label: 'View', onSelect: () => setViewing(c) },
-                            { label: 'Edit', onSelect: () => setEditing({ mode: 'edit', contact: c }), disabledReason: canEditContact(c) ? null : 'Needs buyer / supplier edit permission' },
+                            { label: 'Edit', onSelect: () => (canEditContact(c) ? setEditing({ mode: 'edit', contact: c }) : setViewing(c)) },
                             { label: 'Documents', onSelect: () => setDocsFor(c) },
                             { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(c) }, disabledReason: canEditContact(c) ? null : 'Needs buyer / supplier edit permission' },
                           ]}

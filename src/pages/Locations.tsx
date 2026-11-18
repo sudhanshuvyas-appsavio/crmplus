@@ -451,8 +451,7 @@ export default function Locations() {
                   <RowActionMenu
                     label={r.name}
                     actions={[
-                      { label: 'View', onSelect: () => setViewing(r) },
-                      { label: 'Edit', onSelect: () => setEditing({ mode: 'edit', row: r }), disabledReason: canManage ? null : 'Needs “Change system settings”' },
+                      { label: 'Edit', onSelect: () => (canManage ? setEditing({ mode: 'edit', row: r }) : setViewing(r)) },
                       { label: 'Documents', onSelect: () => setDocsFor(r) },
                       { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canManage ? null : 'Needs “Change system settings”' },
                     ]}

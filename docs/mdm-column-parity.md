@@ -1,6 +1,6 @@
 # Master data: column parity with monday.com
 
-Read live from the monday.com workspace "CRM", folder "MDM", on 2026-11-18. Each Master data grid in CRM+ shows the monday board's columns, in monday's order and with monday's titles, followed by an **Actions** column (View / Edit / Documents / Delete). Clicking a row or cell opens nothing.
+Read live from the monday.com workspace "CRM", folder "MDM", on 2026-11-18. Each Master data grid in CRM+ shows the monday board's columns, in monday's order and with monday's titles, followed by an **Actions** column (Edit / Documents / Delete; there is no View: someone without edit rights gets Edit opened read-only). Clicking a row or cell opens nothing.
 
 Titles that were fixed on purpose: Transport "CGST" is shown as **GST No.** (it holds the GST number); Buyers & Suppliers "Default Commision Percentage" is shown as **Default Commission Percentage** (typo); Business Units board's "Item ID" and "Name Copy" are helper columns and are not shown.
 
