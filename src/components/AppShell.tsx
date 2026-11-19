@@ -53,10 +53,24 @@ const I = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   users: 'M9 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6M3 20c1.2-3 3.4-4.5 6-4.5S13.8 17 15 20M16 5.5a3 3 0 0 1 0 5.8M18 20c-.3-1.5-.9-2.7-1.7-3.6',
   audit: 'M7 4h7l4 4v12H7zM14 4v5h4M10 13h5M10 16h5',
+  building: 'M5 21V5l7-2v18M12 8h7v13M8 8h1M8 12h1M8 16h1M15 12h1M15 16h1M3 21h18',
+  spool: 'M6 5h12M6 19h12M8 5v14M16 5v14M8 9l8 2M8 13l8 2',
+  pin: 'M12 21s6-5.5 6-11a6 6 0 1 0-12 0c0 5.5 6 11 6 11zM12 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4',
   truck: 'M5 17a2 2 0 1 0 0-.01M17 17a2 2 0 1 0 0-.01M3 17V8h11v9M14 11h4l3 3v3M7 12h4',
 }
 
 const ORDER = ['order.read', 'order.manage']
+/** One sign per master data register, so the seven links are told apart at a glance. */
+const REGISTER_ICON: Record<string, string> = {
+  'business-units': I.building,
+  'buyers-suppliers': I.people,
+  counts: I.spool,
+  transport: I.truck,
+  'delivery-address': I.factory,
+  locations: I.pin,
+  'payment-terms': I.card,
+}
+
 const TASK = ['task.read', 'task.work', 'task.manage']
 
 const NAV: NavSection[] = [
@@ -67,7 +81,7 @@ const NAV: NavSection[] = [
     items: REGISTERS.map((r) => ({
       to: `/master-data/${r.key}`,
       label: r.label,
-      icon: I.grid,
+      icon: REGISTER_ICON[r.key] ?? I.grid,
       ...(r.anyOf.length > 0 ? { anyOf: r.anyOf } : {}),
     })),
   },
