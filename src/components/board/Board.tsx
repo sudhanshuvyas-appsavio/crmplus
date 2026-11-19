@@ -3,7 +3,7 @@
  *  Kanban view of the same groups. Used by every CRM screen (Deals, Sales
  *  Confirmations, Dispatch and Billing) so they look and behave the same. */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
 export interface BoardGroup {
   value: string
@@ -24,9 +24,13 @@ export interface BoardColumn<T> {
   total?: (rows: T[]) => ReactNode
   /** Keep clicks in this cell from opening the item (for inline controls). */
   interactive?: boolean
+  /** Pin the column to the right edge of the table while the rest scrolls sideways (the Actions column). */
+  pinRight?: boolean
 }
 
 export type BoardView = 'table' | 'kanban'
+
+const cellClass = (c: { align?: 'right' | 'center'; pinRight?: boolean }) => [c.align, c.pinRight ? 'pin-right' : ''].filter(Boolean).join(' ') || undefined
 
 export function Board<T>({
   rows,
@@ -39,6 +43,8 @@ export function Board<T>({
   card,
   emptyText,
   selection,
+  rowOpens = true,
+  expandable,
 }: {
   rows: T[]
   groups: BoardGroup[]
@@ -51,7 +57,12 @@ export function Board<T>({
   card: (row: T) => ReactNode
   emptyText: string
   selection?: { isSelected: (id: string) => boolean; toggle: (id: string) => void }
+  /** false: a click on a table row or a Kanban card does nothing (the Actions menu is the way in; a card's body then holds its own menu). */
+  rowOpens?: boolean
+  /** Child rows under an item, like monday's subitems: a chevron opens them below the row. */
+  expandable?: { count: (row: T) => number; render: (row: T) => ReactNode }
 }) {
+  const [openRows, setOpenRows] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => readCollapsed())
   useEffect(() => {
     try {
@@ -87,9 +98,13 @@ export function Board<T>({
                   <p className="muted small kanban-empty">Nothing here</p>
                 ) : (
                   list.map((row) => (
-                    <button key={rowKey(row)} type="button" className="kanban-card" onClick={() => onOpen(row)}>
-                      {card(row)}
-                    </button>
+                    rowOpens ? (
+                      <button key={rowKey(row)} type="button" className="kanban-card" onClick={() => onOpen(row)}>
+                        {card(row)}
+                      </button>
+                    ) : (
+                      <div key={rowKey(row)} className="kanban-card">{card(row)}</div>
+                    )
                   ))
                 )}
               </div>
@@ -130,8 +145,9 @@ export function Board<T>({
                   <thead>
                     <tr>
                       {selection && <th className="bcell-check" aria-label="Select" />}
+                      {expandable && <th className="bcell-exp" aria-label="Subitems" />}
                       {columns.map((c) => (
-                        <th key={c.key} className={c.align ?? undefined} style={c.width ? { width: c.width } : undefined}>
+                        <th key={c.key} className={cellClass(c)} style={c.width ? { width: c.width } : undefined}>
                           {c.label}
                         </th>
                       ))}
@@ -140,28 +156,47 @@ export function Board<T>({
                   <tbody>
                     {list.length === 0 && (
                       <tr>
-                        <td colSpan={columns.length + (selection ? 1 : 0)} className="muted small bgroup-empty">No items in this group</td>
+                        <td colSpan={columns.length + (selection ? 1 : 0) + (expandable ? 1 : 0)} className="muted small bgroup-empty">No items in this group</td>
                       </tr>
                     )}
                     {list.map((row) => {
                       const id = rowKey(row)
+                      const subs = expandable ? expandable.count(row) : 0
+                      const isOpen = !!openRows[id]
                       return (
-                        <tr key={id} className="clickable" onClick={() => onOpen(row)}>
+                        <Fragment key={id}>
+                        <tr className={rowOpens ? 'clickable' : undefined} onClick={rowOpens ? () => onOpen(row) : undefined}>
                           {selection && (
                             <td className="bcell-check" onClick={(e) => e.stopPropagation()}>
                               <input type="checkbox" checked={selection.isSelected(id)} onChange={() => selection.toggle(id)} aria-label="Select row" />
                             </td>
                           )}
+                          {expandable && (
+                            <td className="bcell-exp" onClick={(e) => e.stopPropagation()}>
+                              <button type="button" className="exp-btn" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} subitems (${subs})`} onClick={() => setOpenRows((p) => ({ ...p, [id]: !isOpen }))}>
+                                <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
+                                <span className="exp-n">{subs}</span>
+                              </button>
+                            </td>
+                          )}
                           {columns.map((c) => (
                             <td
                               key={c.key}
-                              className={c.align ?? undefined}
+                              className={cellClass(c)}
                               onClick={c.interactive ? (e) => e.stopPropagation() : undefined}
                             >
                               {c.render(row)}
                             </td>
                           ))}
                         </tr>
+                        {expandable && isOpen && (
+                          <tr className="subrow">
+                            <td colSpan={columns.length + (selection ? 1 : 0) + 1}>
+                              <div className="subrow-wrap">{expandable.render(row)}</div>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -169,8 +204,9 @@ export function Board<T>({
                     <tfoot>
                       <tr>
                         {selection && <td />}
+                        {expandable && <td />}
                         {columns.map((c) => (
-                          <td key={c.key} className={c.align ?? undefined}>
+                          <td key={c.key} className={cellClass(c)}>
                             {c.total ? c.total(list) : null}
                           </td>
                         ))}

@@ -13,22 +13,24 @@
  *  screen records it (see lib/integrations.ts). */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { CountRow, JobProcess, PaymentTerm, Transporter } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { useSelection } from '../components/ListTools'
-import { Board, DownloadIcon, StatusPicker, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell } from '../components/board/mirrors'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
 import { formatDateTime } from '../lib/format'
 import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, rateText, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
-import { ConfirmationDrawer } from '../components/sc/ConfirmationDrawer'
+import { ScDetails } from '../components/sc/ScDetails'
+import { ScFormModal } from '../components/sc/ScFormModal'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
 import { BulkSendDrawer } from '../components/sc/BulkSendDrawer'
-import { ScReports } from '../components/sc/ScReports'
 import { BoardTabs } from '../components/board/BoardTabs'
 import type { Company, Party, ScRow } from '../components/sc/scShared'
 
@@ -41,7 +43,7 @@ export type ScItem = { id: string; order_no: string; dispatch_status: string; sa
 type ScLineRow = { sc_id: string; line_no: number; count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }
 
 export default function SalesConfirmations() {
-  const { can } = useAuth()
+  const { can, me } = useAuth()
   const canManage = can('sc.manage')
   const canRead = canManage || can('sc.read')
   const canOrder = can('order.manage')
@@ -56,9 +58,18 @@ export default function SalesConfirmations() {
   const [jobs, setJobs] = useState<JobProcess[]>([])
   const [items, setItems] = useState<Map<string, ScItem[]>>(new Map())
   const [scLines, setScLines] = useState<Map<string, ScLineRow[]>>(new Map())
-  const [editing, setEditing] = useState<ScRow | 'new' | null>(null)
+  const navigate = useNavigate()
+  const [details, setDetails] = useState<ScRow | null>(null)
+  const [formFor, setFormFor] = useState<ScRow | 'new' | null>(null)
+  const [deleting, setDeleting] = useState<ScRow | null>(null)
+  const [cancelling, setCancelling] = useState<ScRow | null>(null)
+  const [rowBusy, setRowBusy] = useState(false)
+  const [rowError, setRowError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [tab, setTab] = useState<'table' | 'reports'>('table')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [ownerFilter, setOwnerFilter] = useStoredState('sc.owner', '')
+  const [people, setPeople] = useState<{ id: string; name: string }[]>([])
+  const [tab, setTab] = useState<'table'>('table')
   const [view, setView] = useStoredState<'table' | 'kanban'>('sc.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -68,7 +79,7 @@ export default function SalesConfirmations() {
   const [dealNos, setDealNos] = useState<Map<string, string>>(new Map())
 
   const load = useCallback(async () => {
-    const [r, s, b, c, k, t, ex, tr, jp, o, dl, ln] = await Promise.all([
+    const [r, s, b, c, k, t, ex, tr, jp, o, dl, ln, pp] = await Promise.all([
       supabase.from('sales_confirmations').select('*').order('confirmed_at', { ascending: false }),
       supabase.from('supplier_master').select(MIRROR_PARTY_COLS).order('name'),
       supabase.from('buyer_master').select(MIRROR_PARTY_COLS).order('name'),
@@ -81,7 +92,9 @@ export default function SalesConfirmations() {
       supabase.from('orders').select('id,order_no,dispatch_status,sales_confirmation_id').neq('status', 'cancelled'),
       supabase.from('crm_deals').select('id,deal_no'),
       supabase.from('sc_lines').select('sc_id,line_no,count_id,quantity,uom,bag_weight,rate').order('line_no'),
+      supabase.from('profiles').select('id,name').eq('is_active', true).order('name'),
     ])
+    setPeople((pp.data ?? []) as { id: string; name: string }[])
     setDealNos(new Map(((dl.data ?? []) as { id: string; deal_no: string }[]).map((x) => [x.id, x.deal_no])))
     setExec(new Map(((ex.data ?? []) as { sc_id: string; exec_status: string; dispatched_qty: number }[]).map((x) => [x.sc_id, x])))
     if (r.error) setBanner({ kind: 'bad', text: errMessage(r.error, 'Could not load sales confirmations') })
@@ -109,7 +122,7 @@ export default function SalesConfirmations() {
   useEffect(() => {
     if (!openId || !rows) return
     const found = rows.find((x) => x.id === openId)
-    if (found) setEditing(found)
+    if (found) setDetails(found)
     setParams({}, { replace: true })
   }, [openId, rows, setParams])
 
@@ -125,6 +138,8 @@ export default function SalesConfirmations() {
     const q = search.trim().toLowerCase()
     return (rows ?? []).filter(
       (x) =>
+        (!statusFilter || scGroup(x) === statusFilter) &&
+        (!ownerFilter || x.created_by === ownerFilter) &&
         (!q ||
           x.sc_no.toLowerCase().includes(q) ||
           (x.supplier_id ? supplierName.get(x.supplier_id) ?? '' : '').toLowerCase().includes(q) ||
@@ -134,7 +149,7 @@ export default function SalesConfirmations() {
           (x.payment_term_id ? termNameMap.get(x.payment_term_id) ?? '' : '').toLowerCase().includes(q) ||
           (x.vehicle_no ?? '').toLowerCase().includes(q)),
     )
-  }, [rows, search, supplierName, buyerName, countName, termNameMap, scLines])
+  }, [rows, search, statusFilter, ownerFilter, supplierName, buyerName, countName, termNameMap, scLines])
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
 
@@ -150,6 +165,41 @@ export default function SalesConfirmations() {
       setBanner({ kind: 'ok', text: `${sc.sc_no} is now ${scStage(stage).label}.` })
     }
     await load()
+  }
+
+  async function cancelSc() {
+    if (!cancelling) return
+    setRowBusy(true)
+    setRowError(null)
+    const { error } = await supabase.rpc('cancel_sales_confirmation', { p_sc: cancelling.id })
+    setRowBusy(false)
+    if (error) return setRowError(errMessage(error, 'Could not cancel this confirmation'))
+    setBanner({ kind: 'ok', text: `${cancelling.sc_no} cancelled.` })
+    setCancelling(null)
+    await load()
+  }
+
+  async function deleteSc() {
+    if (!deleting) return
+    setRowBusy(true)
+    setRowError(null)
+    // its buyer documents live in storage; remember them to clear after the delete
+    const docs = await supabase.from('sc_documents').select('storage_path').eq('sc_id', deleting.id)
+    const { data, error } = await supabase.from('sales_confirmations').delete().eq('id', deleting.id).select('id')
+    setRowBusy(false)
+    if (error || !data || data.length === 0) return setRowError(error ? errMessage(error, 'Could not delete this confirmation') : 'Only incomplete drafts can be deleted.')
+    const paths = ((docs.data ?? []) as { storage_path: string }[]).map((r) => r.storage_path)
+    if (paths.length > 0) void supabase.storage.from('sc-documents').remove(paths)
+    setBanner({ kind: 'ok', text: `${deleting.sc_no} deleted.` })
+    setDeleting(null)
+    await load()
+  }
+
+  async function createItem(x: ScRow) {
+    setBanner(null)
+    const { data, error } = await supabase.rpc('create_dispatch_bill', { p_sc: x.id })
+    if (error) return setBanner({ kind: 'bad', text: errMessage(error, 'Could not create the Dispatch and Billing item') })
+    navigate(`/orders?open=${data as string}`)
   }
 
   async function deleteSelected() {
@@ -193,6 +243,37 @@ export default function SalesConfirmations() {
     return canCancel && x.status !== 'draft' ? [...opts, scStage('cancelled')] : opts
   }
 
+  const lockedIds = new Set(rows.filter((x) => x.status === 'cancelled' || (items.get(x.id)?.length ?? 0) > 0).map((x) => x.id))
+  /** Row Actions, in the Pharma ERP order: read, edit, status moves, destructive last.
+   *  An item that cannot be used stays visible with the reason. */
+  function actionsFor(x: ScRow): RowAction[] {
+    const list: RowAction[] = [{ label: 'View details', onSelect: () => setDetails(x) }]
+    const hasItems = (items.get(x.id)?.length ?? 0) > 0
+    const cancelled = x.status === 'cancelled'
+    list.push({
+      label: 'Edit',
+      onSelect: () => setFormFor(x),
+      disabledReason: !canManage ? 'You need the "Create, edit and send sales confirmations" permission.' : cancelled ? 'A cancelled confirmation cannot be changed.' : hasItems ? 'It is a Dispatch and Billing item now.' : null,
+    })
+    if (canManage) {
+      for (const o of stageOptions(x)) {
+        if (o.value === 'cancelled') continue
+        list.push({ label: `Move to ${o.label}`, onSelect: () => void setStage(x, o.value) })
+      }
+      if (x.status === 'confirmed' && !cancelled && !hasItems) list.push({ label: 'Send to supplier / buyer…', onSelect: () => setDetails(x) })
+    }
+    if (hasItems) list.push({ label: 'Go to Dispatch and Billing', onSelect: () => navigate(`/orders?open=${items.get(x.id)![0]!.id}`) })
+    else if (canOrder && x.status === 'confirmed' && !cancelled) list.push({ label: 'Create Dispatch and Billing', onSelect: () => void createItem(x) })
+    if (stageOptions(x).some((o) => o.value === 'cancelled')) list.push({ label: 'Cancel confirmation', tone: 'danger', onSelect: () => { setRowError(null); setCancelling(x) } })
+    list.push({
+      label: 'Delete',
+      tone: 'danger',
+      onSelect: () => { setRowError(null); setDeleting(x) },
+      disabledReason: !canManage ? 'You need the "Create, edit and send sales confirmations" permission.' : x.status !== 'draft' ? 'Only an incomplete draft can be deleted.' : null,
+    })
+    return list
+  }
+
   const termName = new Map(terms.map((t) => [t.id, t.name]))
   const rowsOf = (x: ScRow): ScLineRow[] => scLines.get(x.id)
     ?? (x.count_id && x.quantity !== null ? [{ sc_id: x.id, line_no: 1, count_id: x.count_id, quantity: x.quantity, uom: x.uom, bag_weight: x.bag_weight, rate: x.rate }] : [])
@@ -204,10 +285,7 @@ export default function SalesConfirmations() {
   // Columns: the confirmation fields in the lead's "Changes needed" document.
   const columns: BoardColumn<ScRow>[] = [
     { key: 'no', label: 'Confirmation No', width: 150, render: (x) => <span className="mono">{x.sc_no}</span> },
-    {
-      key: 'stage', label: 'Status', width: 190, interactive: true,
-      render: (x) => <StatusPicker current={scStage(scGroup(x))} options={stageOptions(x)} onPick={(s) => void setStage(x, s)} />,
-    },
+    { key: 'stage', label: 'Status', width: 190, render: (x) => { const st = scStage(scGroup(x)); return <StatusPill label={st.label} tone={st.tone} /> } },
     { key: 'date', label: 'Created Date', render: (x) => cell(formatDateTime(x.confirmed_at)) },
     {
       key: 'deal', label: 'Link to Deal', interactive: true,
@@ -240,6 +318,7 @@ export default function SalesConfirmations() {
         )
       },
     },
+    { key: 'action', label: 'Actions', interactive: true, pinRight: true, render: (x) => <RowActionMenu label={`Actions for ${x.sc_no}`} actions={actionsFor(x)} /> },
   ]
 
   const chosen = selection.chosen.length
@@ -252,7 +331,7 @@ export default function SalesConfirmations() {
           <p className="page-sub">Confirmations sent to the supplier on the buyer’s behalf, then again with delivery details.</p>
         </div>
         {canManage && (
-          <button className="btn primary" type="button" onClick={() => setEditing('new')}>
+          <button className="btn primary" type="button" onClick={() => setFormFor('new')}>
             + New confirmation
           </button>
         )}
@@ -265,27 +344,21 @@ export default function SalesConfirmations() {
         </div>
       )}
 
-      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }, { key: 'reports', label: 'Reports' }]} active={tab} onChange={(k) => setTab(k as 'table' | 'reports')} />
-
-      {tab === 'reports' && (
-        <ScReports
-          rows={rows}
-          lines={scLines}
-          buyerName={buyerName}
-          supplierName={supplierName}
-          countName={countName}
-          termName={termNameMap}
-          onPick={(text) => {
-            setSearch(text)
-            setTab('table')
-          }}
-        />
-      )}
+      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }]} active={tab} onChange={() => setTab('table')} />
 
       {tab === 'table' && (<>
       <div className="board-toolbar">
         <ViewSwitch view={view} onChange={setView} />
         <input className="toolbar-search" aria-label="Search confirmations" placeholder="Search no., supplier, buyer, count, vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">All statuses</option>
+          {SC_GROUPS.map((g) => (<option key={g.value} value={g.value}>{g.label}</option>))}
+        </select>
+        <select aria-label="Owner" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+          <option value="">All owners</option>
+          {me && <option value={me.id}>My confirmations</option>}
+          {people.filter((p) => p.id !== me?.id).map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+        </select>
         <button className="btn sm" type="button" disabled={shown.length === 0} onClick={exportCSV}>
           <DownloadIcon />Export {chosen > 0 ? `${chosen} selected` : shown.length === rows.length ? 'all' : `${shown.length} shown`}
         </button>
@@ -294,15 +367,7 @@ export default function SalesConfirmations() {
           <button className="btn primary sm" type="button" onClick={() => setBulk(true)}>Send {chosen} selected</button>
         )}
         {canManage && chosen > 0 && (
-          confirmDelete ? (
-            <span className="toolbar-confirm">
-              <span className="field-warn">Delete {chosen} selected? Only drafts can be deleted.</span>
-              <button className="btn danger sm" type="button" disabled={busy} onClick={() => void deleteSelected()}>Yes, delete</button>
-              <button className="btn ghost sm" type="button" onClick={() => setConfirmDelete(false)}>Cancel</button>
-            </span>
-          ) : (
-            <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
-          )
+          <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
         )}
       </div>
 
@@ -312,7 +377,8 @@ export default function SalesConfirmations() {
         groupOf={scGroup}
         columns={columns}
         rowKey={(x) => x.id}
-        onOpen={(x) => setEditing(x)}
+        onOpen={(x) => setDetails(x)}
+        rowOpens={false}
         view={view}
         selection={canManage && view === 'table' ? selection : undefined}
         emptyText={rows.length === 0 ? 'No sales confirmations yet. Create one from an Approved deal, or start one here.' : 'No confirmation matches.'}
@@ -321,6 +387,7 @@ export default function SalesConfirmations() {
             <span className="kcard-top">
               <span className="mono small">{x.sc_no}</span>
               <span className="small muted">{saleTypeLabel(x.sale_type)}</span>
+              <RowActionMenu label={`Actions for ${x.sc_no}`} actions={actionsFor(x)} />
             </span>
             <strong className="kcard-title">{x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : '—'}</strong>
             <span className="small muted">to {x.buyer_id ? buyerName.get(x.buyer_id) ?? '—' : '—'}</span>
@@ -334,13 +401,34 @@ export default function SalesConfirmations() {
       />
       </>)}
 
-      {editing && (
-        <ConfirmationDrawer
-          key={editing === 'new' ? 'new' : editing.id}
-          sc={editing === 'new' ? null : editing}
+      {formFor && (
+        <ScFormModal
+          suppliers={suppliers}
+          buyers={buyers}
+          counts={counts}
+          terms={terms}
+          transporters={transporters}
+          jobs={jobs}
+          scs={rows}
+          lockedIds={lockedIds}
+          dealNos={dealNos}
+          initialSc={formFor === 'new' ? null : formFor}
+          onClose={() => setFormFor(null)}
+          onDone={async (text) => {
+            setBanner({ kind: 'ok', text })
+            setFormFor(null)
+            await load()
+          }}
+        />
+      )}
+
+      {details && (
+        <ScDetails
+          key={details.id}
+          sc={rows.find((x) => x.id === details.id) ?? details}
           canManage={canManage}
           canOrder={canOrder}
-          items={editing === 'new' ? [] : items.get(editing.id) ?? []}
+          items={items.get(details.id) ?? []}
           suppliers={suppliers}
           buyers={buyers}
           companies={companies}
@@ -348,20 +436,31 @@ export default function SalesConfirmations() {
           terms={terms}
           transporters={transporters}
           jobs={jobs}
-          onClose={() => setEditing(null)}
-          onDone={async (text, keepOpenId) => {
+          onClose={() => setDetails(null)}
+          onEdit={(x) => { setDetails(null); setFormFor(x) }}
+          onChanged={async (text) => {
             setBanner({ kind: 'ok', text })
             await load()
-            if (keepOpenId) {
-              const { data } = await supabase.from('sales_confirmations').select('*').eq('id', keepOpenId).single()
-              if (data) {
-                setEditing(data as ScRow)
-                return
-              }
-            }
-            setEditing(null)
           }}
         />
+      )}
+
+      {deleting && (
+        <ConfirmDialog title={`Delete ${deleting.sc_no}?`} busy={rowBusy} error={rowError} onConfirm={() => void deleteSc()} onClose={() => setDeleting(null)}>
+          This cannot be undone. Only an incomplete draft can be deleted.
+        </ConfirmDialog>
+      )}
+
+      {cancelling && (
+        <ConfirmDialog title={`Cancel ${cancelling.sc_no}?`} confirmLabel="Cancel confirmation" busy={rowBusy} error={rowError} onConfirm={() => void cancelSc()} onClose={() => setCancelling(null)}>
+          A cancelled confirmation cannot be changed or sent again, and this cannot be undone.
+        </ConfirmDialog>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog title={`Delete ${chosen} selected confirmation${chosen === 1 ? '' : 's'}?`} busy={busy} onConfirm={() => void deleteSelected()} onClose={() => setConfirmDelete(false)}>
+          Only incomplete drafts can be deleted; the others are skipped and reported.
+        </ConfirmDialog>
       )}
 
       {bulk && (

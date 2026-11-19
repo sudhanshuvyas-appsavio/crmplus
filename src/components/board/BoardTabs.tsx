@@ -8,7 +8,6 @@ export interface BoardTab {
 }
 
 export function BoardTabs({ tabs, active, onChange }: { tabs: BoardTab[]; active: string; onChange: (key: string) => void }) {
-  if (tabs.length < 2) return null
   return (
     <div className="board-tabs" role="tablist" aria-label="Views">
       {tabs.map((t) => (

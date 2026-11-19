@@ -223,6 +223,40 @@ Subitem columns (Subitems of Dispatch and Billing, 5026869429) — one row per d
 Views: not captured.
 Approx rows: 27 (parent items).
 
+## Leads (5024227502) — CRM
+Re-read 2026-11-19 (columns only). Purpose: an inquiry from a buyer before it becomes a Deal. Item terminology "Lead".
+Groups: New Leads; Contacted; Qualified; Disqualified (one per Status label).
+
+| Title | type | notes |
+|---|---|---|
+| Name | name | |
+| Subitems | subtasks | board 5024341419 (Owner, Count, Suppliers, Rate, Last updated) |
+| Lead Owner | people | one person |
+| Created Date | date | |
+| Lead No | text | |
+| Type | status | Existing, New |
+| Status (`lead_status`) | status | New Lead -> Contacted -> Qualified (done) / Disqualified |
+| Timeline | timeline | from-to range |
+| Phone | phone | |
+| Lead Source | text | free text |
+| Creation log | creation_log | |
+| Deals | board_relation | -> Deals (two-way with Deals "Leads") |
+| Counts | board_relation | -> Counts |
+| Count Information | text | |
+| Buyers | board_relation | -> Buyers & Suppliers |
+| Quantity | numbers | |
+| UOM | status | KGs, Bags, Hanks, Bales, Carton, Chippa, Meters, Tons |
+| Buyer Rate / Suppiler Rate [sic] | numbers | |
+| Follow Up Date | date | with time |
+| Notes / Remarks | long_text | |
+| Qualification questions | status / text / date | payment cycle (30 days, 60 days, 7 days, Advance), from whom currently buying, current purchase price range, buys weaving yarn (Yes/No), next purchase planned |
+| Documents | file | |
+| Whatsapp Message / Message Template / Response / Wamid / Message | status, text, long_text | WhatsApp tracking (Send, Not Send) |
+| link to Sample Delivery - Comes From Mills | board_relation | -> Sample Delivery (Tasks) |
+| Dup. Phone / Dup. Phone 2 | phone | duplicate-phone helpers |
+
+Approx rows: 20.
+
 ---
 
 # Folder: MDM

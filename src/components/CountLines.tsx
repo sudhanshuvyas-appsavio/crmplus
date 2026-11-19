@@ -9,12 +9,12 @@ import { numOrNull } from '../lib/party'
 import { UOMS, commission, inr, needsUnitWeight, rateText, totalWeight, uomLabel } from '../lib/deals'
 
 export type LineForm = { count_id: string; quantity: string; uom: string; bag_weight: string; rate: string }
-export type LineRow = { count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }
+export type LineRow = { count_id: string | null; quantity: number | null; uom: string; bag_weight: number | null; rate: number | null }
 export type CommTerms = { basis: string | null; value: number | null }
 
 const s = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n))
 export const emptyLine = (): LineForm => ({ count_id: '', quantity: '', uom: 'KG', bag_weight: '', rate: '' })
-export const toLineForm = (r: LineRow): LineForm => ({ count_id: r.count_id, quantity: s(r.quantity), uom: r.uom, bag_weight: s(r.bag_weight), rate: s(r.rate) })
+export const toLineForm = (r: LineRow): LineForm => ({ count_id: r.count_id ?? '', quantity: s(r.quantity), uom: r.uom, bag_weight: s(r.bag_weight), rate: s(r.rate) })
 
 /** What is still missing, with the row number when there are several rows.
  *  `strictUnit`: every count not sold by KG or TONS also needs its weight per unit
@@ -132,7 +132,40 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
   )
 }
 
+/** The count rows as plain read-only text in a table (the details views), same columns as the editor. */
+export function CountLinesView({ lines, counts, buyer, supplier }: { lines: LineForm[]; counts: CountRow[]; buyer: CommTerms; supplier: CommTerms }) {
+  const rows = lines.filter((l) => l.count_id || l.quantity)
+  if (rows.length === 0) return <p className="muted small">No counts yet.</p>
+  const figs = rows.map((l) => lineFigures(l, buyer, supplier))
+  return (
+    <div className="table-wrap lines-wrap">
+      <table className="lines-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Count</th><th className="right">Quantity</th><th>Unit</th><th className="right">Bag Weight (kg)</th>
+            <th className="right">Final Rate (₹/kg)</th><th className="right">Buyer Commission</th><th className="right">Supplier Commission</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((l, i) => (
+            <tr key={i}>
+              <td className="muted small">{i + 1}</td>
+              <td>{counts.find((c) => c.id === l.count_id)?.display_name ?? '—'}</td>
+              <td className="right mono">{l.quantity || '—'}</td>
+              <td>{uomLabel(l.uom)}</td>
+              <td className="right mono">{l.bag_weight || '—'}</td>
+              <td className="right mono">{l.rate ? rateText(numOrNull(l.rate)) : '—'}</td>
+              <td className="right mono small">{inr(figs[i]?.buyer, 0)}</td>
+              <td className="right mono small">{inr(figs[i]?.supplier, 0)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 /** Read-only text of the rows, one per line, for tables and messages. */
 export function linesText(rows: LineRow[], countName: (id: string) => string) {
-  return rows.map((r) => `${countName(r.count_id)}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${rateText(r.rate)}/kg` : ''}`)
+  return rows.map((r) => `${r.count_id ? countName(r.count_id) : '—'}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${rateText(r.rate)}/kg` : ''}`)
 }

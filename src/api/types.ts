@@ -384,10 +384,10 @@ export const LEAD_ROLES: { value: 'buyer' | 'supplier' | 'both'; label: string }
 export const LEAD_UOMS = ['KG', 'BAGS', 'HANKS', 'BALES', 'CARTON', 'CHIPPA', 'METERS', 'TONS'] as const
 export const LEAD_SOURCES = ['Referral', 'Repeat buyer', 'Phone call', 'WhatsApp', 'Email', 'Visit', 'Trade fair', 'Website', 'Other'] as const
 export const LEAD_STATUSES: { value: LeadStatus; label: string }[] = [
-  { value: 'new', label: 'New' },
+  { value: 'new', label: 'New Lead' },
   { value: 'contacted', label: 'Contacted' },
   { value: 'qualified', label: 'Qualified' },
-  { value: 'lost', label: 'Lost' },
+  { value: 'lost', label: 'Disqualified' },
 ]
 
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'lost'
@@ -431,6 +431,12 @@ export interface Lead {
   timeline_from: string | null
   timeline_to: string | null
   mobile_cc: string
+  // migration 20261119110000: monday's entry filter questions
+  entry_weaves_yarn: 'yes' | 'no' | null
+  entry_payment_cycle: string | null
+  entry_current_supplier: string | null
+  entry_price_range: string | null
+  entry_next_purchase: string | null
 }
 
 /* ---- Station, payment terms, documents, contacts, activity, deals -------- */
@@ -512,8 +518,8 @@ export interface Deal {
   buyer_gst: string | null
   supplier_gst: string | null
   payment_term_id: string | null
-  count_id: string
-  quantity: number
+  count_id: string | null
+  quantity: number | null
   uom: string
   supplier_rate: number | null
   buyer_rate: number | null
@@ -551,6 +557,9 @@ export interface Deal {
   supplier_commission: number | null
   lost_reason: string | null
   status_changed_at: string | null
+  location_text: string | null
+  location_lat: number | null
+  location_lng: number | null
 }
 
 export interface Order {
