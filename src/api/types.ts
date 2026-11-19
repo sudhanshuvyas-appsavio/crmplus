@@ -1001,6 +1001,30 @@ export interface Task {
   updated_at: string
 }
 
+export type SubitemStatus = 'working_on_it' | 'done' | 'stuck'
+
+/** A subitem of a Payment Collection or Cheque Collection task (monday's default subitem columns). */
+export interface TaskSubitem {
+  id: string
+  task_id: string
+  name: string
+  owner_id: string | null
+  status: SubitemStatus
+  item_date: string | null
+  created_at: string
+}
+
+/** One line of the rule log: a rule that fired for a task, a failure, or a run summary. */
+export interface TaskRuleRun {
+  id: number
+  run_at: string
+  as_of: string | null
+  rule_key: string
+  task_id: string | null
+  outcome: 'fired' | 'failed' | 'summary'
+  detail: Record<string, unknown> | null
+}
+
 export interface TaskPayment {
   id: string
   task_id: string
@@ -1076,7 +1100,7 @@ export interface TaskRule {
   label: string
   task_type: string | null
   kind: 'reminder' | 'escalation'
-  config: { days?: number[]; after_days?: number; [key: string]: unknown }
+  config: { days?: number[]; after_days?: number; time?: string; window_days?: number; [key: string]: unknown }
   is_active: boolean
   updated_at: string
 }

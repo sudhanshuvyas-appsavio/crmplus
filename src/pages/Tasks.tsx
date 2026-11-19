@@ -13,6 +13,7 @@ import { boardFor } from '../lib/taskBoards'
 import { TASK_VIEWS } from '../lib/tasks'
 import { TaskQueue, boardSummary, type TaskRow } from './tasks/TaskQueue'
 import { TaskOverview } from './tasks/TaskOverview'
+import { TaskReport } from './tasks/TaskReport'
 import { TaskDetail } from './tasks/TaskDetail'
 import { ChequeQueue } from './tasks/ChequeQueue'
 import { RulesPanel } from './tasks/RulesPanel'
@@ -128,6 +129,7 @@ export default function Tasks() {
             onRows={setRows}
           />
         )}
+        {board && listView && <TaskReport board={board} rows={rows} />}
         {view.key === 'cheques' && <ChequeQueue />}
         {view.key === 'rules' && <RulesPanel />}
         {view.key === 'messages' && <MessagesPanel />}

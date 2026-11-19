@@ -81,6 +81,7 @@ interface FormState {
   buyer_id: string
   supplier_id: string
   order_id: string
+  source_task_id: string
   amount: string
   mode: string
   notes: string
@@ -106,6 +107,7 @@ function toForm(task: Task | null | undefined, type: string, myId: string, manag
       buyer_id: task.buyer_id ?? '',
       supplier_id: task.supplier_id ?? '',
       order_id: task.order_id ?? '',
+      source_task_id: task.source_task_id ?? '',
       amount: Number(task.amount) > 0 ? String(task.amount) : '',
       mode: task.mode ?? '',
       notes: task.notes ?? '',
@@ -124,6 +126,7 @@ function toForm(task: Task | null | undefined, type: string, myId: string, manag
     buyer_id: '',
     supplier_id: '',
     order_id: '',
+    source_task_id: '',
     amount: '',
     mode: '',
     notes: '',
@@ -176,6 +179,33 @@ export function TaskForm({
 
   const typeRow = useMemo(() => types.find((t) => t.key === form.task_type), [types, form.task_type])
 
+  // Payment Collection's "Connected Boards": the visit or commission delivery the payment belongs to.
+  const [sources, setSources] = useState<Option[]>([])
+  const isPayments = boardOfType(form.task_type)?.key === 'payments'
+  useEffect(() => {
+    if (!isPayments) return
+    let live = true
+    void supabase
+      .from('tasks')
+      .select('id, task_no, title, task_type')
+      .in('task_type', ['monthly_visit', 'commission_invoice_delivery'])
+      .order('created_at', { ascending: false })
+      .limit(300)
+      .then(({ data }) => {
+        if (!live) return
+        const rows = (data ?? []) as { id: string; task_no: string; title: string; task_type: string }[]
+        setSources(
+          rows.map((r) => ({
+            id: r.id,
+            label: `${r.task_type === 'monthly_visit' ? 'Monthly Visit' : 'Commission Invoice'} · ${r.task_no} · ${r.title}`,
+          })),
+        )
+      })
+    return () => {
+      live = false
+    }
+  }, [isPayments])
+
   // Once the types have loaded, a new task with no type yet takes the first one.
   useEffect(() => {
     if (!editing && !form.task_type && types.length > 0) {
@@ -203,13 +233,13 @@ export function TaskForm({
   }
   const text = (key: string) => (typeof form.details[key] === 'string' ? (form.details[key] as string) : '')
 
-  /** Picking a buyer fills in who normally looks after them, unless someone is already chosen. */
+  /** Picking a buyer fills Person with the buyer's Messenger (as monday does), unless someone is already chosen. Accounts stay as typed. */
   async function pickBuyer(buyerId: string) {
     set('buyer_id', buyerId)
     if (!buyerId || !canManage || assigneeTouched.current || form.assigned_to) return
-    const { data } = await supabase.from('buyer_master').select('collection_staff_id, messenger_id').eq('id', buyerId).maybeSingle()
-    const row = data as { collection_staff_id: string | null; messenger_id: string | null } | null
-    const staff = row?.collection_staff_id ?? row?.messenger_id ?? ''
+    const { data } = await supabase.from('buyer_master').select('messenger_id').eq('id', buyerId).maybeSingle()
+    const row = data as { messenger_id: string | null } | null
+    const staff = row?.messenger_id ?? ''
     if (staff && people.some((p) => p.id === staff)) {
       setForm((f) => (f.assigned_to ? f : { ...f, assigned_to: staff }))
     }
@@ -278,6 +308,7 @@ export function TaskForm({
       buyer_id: form.buyer_id || null,
       supplier_id: form.supplier_id || null,
       order_id: form.order_id || null,
+      ...(isPayments && canManage ? { source_task_id: form.source_task_id || null } : {}),
       amount: writesAmount ? (amountNum ?? 0) : Number(task?.amount ?? 0),
       mode: writesMode ? ((form.mode || null) as PaymentMode | null) : (task?.mode ?? null),
       notes: form.notes.trim() || null,
@@ -302,7 +333,7 @@ export function TaskForm({
   const createLabel = board ? board.newLabel.replace(/^New\b/, 'Create') : 'Create task'
 
   const peopleShown = has('assigned_to') || has('accounts_staff')
-  const linksShown = has('buyer') || has('supplier') || has('order')
+  const linksShown = has('buyer') || has('supplier') || has('order') || isPayments
 
   /** One board field, drawn by its kind. */
   function renderField(f: FieldSpec) {
@@ -359,9 +390,11 @@ export function TaskForm({
         </Field>
       )
     }
+    // monday shows the invoice number and date of a mill delivery as calculated fields (mirrors of Dispatch and Billing).
+    const mirrored = board?.key === 'mill' && Boolean(task?.dispatch_id) && (f.key === 'invoice_no' || f.key === 'invoice_date')
     return (
-      <Field key={id} id={id} label={f.label} required={f.required} hint={f.hint}>
-        <input id={id} type={f.kind === 'date' ? 'date' : 'text'} value={value} onChange={(e) => onValue(e.target.value)} />
+      <Field key={id} id={id} label={f.label} required={f.required} hint={mirrored ? 'Calculated from Dispatch and Billing.' : f.hint}>
+        <input id={id} type={f.kind === 'date' ? 'date' : 'text'} value={value} disabled={mirrored} onChange={(e) => onValue(e.target.value)} />
       </Field>
     )
   }
@@ -398,7 +431,7 @@ export function TaskForm({
       )}
 
       <fieldset className="tk-section" disabled={blocked || busy}>
-        <h3>{board ? board.title : 'Task'}</h3>
+        <h3>{board ? (board.sections?.general ?? board.title) : 'Task'}</h3>
         <div className="form-grid">
           {showType && (
             <Field id="tf-type" label="Type" required>
@@ -504,6 +537,13 @@ export function TaskForm({
                 </select>
               </Field>
             )}
+            {isPayments && (
+              <Field id="tf-source" label="Connected Boards" hint="The Monthly Visit or Commission Invoice Delivery this payment belongs to.">
+                <select id="tf-source" value={form.source_task_id} disabled={!canManage} onChange={(e) => set('source_task_id', e.target.value)}>
+                  <OptionList options={sources} />
+                </select>
+              </Field>
+            )}
           </div>
         </fieldset>
       )}
@@ -531,7 +571,7 @@ export function TaskForm({
 
       {(fields.length > 0 || has('notes')) && (
         <fieldset className="tk-section" disabled={blocked || busy}>
-          <h3>{fields.length > 0 ? 'Details' : 'Notes'}</h3>
+          <h3>{fields.length > 0 ? (board?.sections?.details ?? 'Details') : 'Notes'}</h3>
           {fields.length > 0 && <div className="form-grid">{fields.map(renderField)}</div>}
           {has('notes') && (
             <Field id="tf-notes" label="Notes">

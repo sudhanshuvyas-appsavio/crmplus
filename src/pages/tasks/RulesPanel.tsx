@@ -11,13 +11,14 @@ import '../../styles/messaging.css'
 import { supabase } from '../../lib/supabase'
 import { errMessage } from '../../lib/party'
 import { useAuth } from '../../auth/AuthProvider'
-import type { MessageTemplate, TaskRule } from '../../api/types'
+import type { MessageTemplate, TaskRule, TaskRuleRun } from '../../api/types'
 import { GridToolbar } from '../../components/GridKit'
 import { Field } from '../../components/PartyForms'
 import { Modal } from '../../components/Modal'
 import { StatusPill } from '../../components/StatusPill'
 import { pushToast } from '../../components/Toast'
 import { useTaskTypes } from '../../lib/taskData'
+import { formatDateTime } from '../../lib/format'
 
 /** The ascending list of positive whole days, or what is wrong with the text. */
 function parseDays(text: string): { days: number[] } | { error: string } {
@@ -43,19 +44,35 @@ function parseAfter(text: string): { after: number } | { error: string } {
 interface Draft {
   days: string
   after: string
+  time: string
   active: boolean
 }
+
+/** Rules that fire at a time of day (HH:MM, India time) carry `time` in their settings. */
+const hasTime = (r: TaskRule): boolean => typeof r.config.time === 'string'
 
 const draftOf = (r: TaskRule): Draft => ({
   days: (r.config.days ?? []).join(', '),
   after: String(r.config.after_days ?? 0),
+  time: typeof r.config.time === 'string' ? r.config.time : '',
   active: r.is_active,
 })
+
+/** The per-step times of a visit escalation (read only here; they live in the rule's settings). */
+function stepTimes(r: TaskRule): string | null {
+  const list = (v: unknown) => (v && typeof v === 'object' ? Object.values(v as Record<string, string>).join(' / ') : '')
+  const visited = list(r.config.visited)
+  const notVisited = list(r.config.not_visited)
+  return visited || notVisited ? `Visited ${visited || '—'} · Not visited ${notVisited || '—'}` : null
+}
+
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 
 export function RulesPanel() {
   return (
     <div className="tk-stack">
       <RulesCard />
+      <RunLogCard />
       <TemplatesCard />
     </div>
   )
@@ -112,6 +129,10 @@ function RulesCard() {
     const d = drafts[rule.rule_key]
     if (!d) return
     let config: TaskRule['config'] = { ...rule.config }
+    if (hasTime(rule)) {
+      if (!TIME.test(d.time.trim())) return setErrors((prev) => ({ ...prev, [rule.rule_key]: 'Enter the time as HH:MM, like 17:45 (India time).' }))
+      config = { ...config, time: d.time.trim() }
+    }
     if (rule.kind === 'escalation') {
       const parsed = parseDays(d.days)
       if ('error' in parsed) return setErrors((prev) => ({ ...prev, [rule.rule_key]: parsed.error }))
@@ -162,6 +183,7 @@ function RulesCard() {
               <th>Kind</th>
               <th>Active</th>
               <th>Threshold</th>
+              <th>Time (IST)</th>
               {canManage && <th>Actions</th>}
             </tr>
           </thead>
@@ -225,6 +247,20 @@ function RulesCard() {
                       </span>
                     )}
                   </td>
+                  <td>
+                    {hasTime(r) ? (
+                      <input
+                        className="msg-rules-input narrow"
+                        value={d.time}
+                        disabled={!canManage}
+                        onChange={(e) => patch(r.rule_key, { time: e.target.value })}
+                        aria-label={`${r.label}: time of day`}
+                        placeholder="17:45"
+                      />
+                    ) : (
+                      <span className="muted small">{stepTimes(r) ?? '—'}</span>
+                    )}
+                  </td>
                   {canManage && (
                     <td>
                       <button type="button" className="btn primary sm" disabled={!dirty || saving === r.rule_key} onClick={() => void save(r)}>
@@ -237,8 +273,97 @@ function RulesCard() {
             })}
             {shown.length === 0 && (
               <tr>
-                <td className="empty" colSpan={canManage ? 6 : 5}>
+                <td className="empty" colSpan={canManage ? 7 : 6}>
                   No rules match that search.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+/* ---- run log --------------------------------------------------------------- */
+
+/** What the scheduler did: each rule that fired, each failure, and one summary line per run (so you can see it is alive). */
+function RunLogCard() {
+  const { can } = useAuth()
+  const [rows, setRows] = useState<TaskRuleRun[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [only, setOnly] = useState<'all' | 'fired' | 'failed'>('fired')
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.from('task_rule_runs').select('*').order('run_at', { ascending: false }).limit(150)
+    if (err) {
+      setError(errMessage(err, 'The rule log is not available yet (apply the latest database migration).'))
+      setRows([])
+      return
+    }
+    setError(null)
+    setRows((data ?? []) as TaskRuleRun[])
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (!can('task.manage')) return null
+  if (!rows) return <p className="muted small">Loading the rule log…</p>
+  const lastRun = rows.find((r) => r.outcome === 'summary')
+  const shown = rows.filter((r) => (only === 'all' ? true : r.outcome === only))
+
+  return (
+    <section className="md-pane tk-card" aria-label="Rule log">
+      <div className="gk-head">
+        <div className="gk-title">
+          <h2>Rule log</h2>
+          <p>
+            {lastRun ? `Last run ${formatDateTime(lastRun.run_at)}.` : 'No run recorded yet.'} The scheduler runs every 15 minutes; a rule fires at its time (India time) once per date.
+          </p>
+        </div>
+        <div className="td-row">
+          <select value={only} onChange={(e) => setOnly(e.target.value as typeof only)} aria-label="Show">
+            <option value="fired">Fired</option>
+            <option value="failed">Failed</option>
+            <option value="all">Everything</option>
+          </select>
+          <button type="button" className="btn ghost sm" onClick={() => void load()}>
+            Refresh
+          </button>
+        </div>
+      </div>
+      {error && <div className="alert">{error}</div>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th className="left">When</th>
+              <th className="left">Rule</th>
+              <th>Result</th>
+              <th className="left">Detail</th>
+              <th>Task</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={r.id}>
+                <td className="left small">{formatDateTime(r.run_at)}</td>
+                <td className="left small">{r.rule_key === 'run' ? 'Scheduler run' : r.rule_key}</td>
+                <td>
+                  <StatusPill tone={r.outcome === 'failed' ? 'danger' : r.outcome === 'fired' ? 'ok' : 'muted'}>
+                    {r.outcome === 'failed' ? 'Failed' : r.outcome === 'fired' ? 'Fired' : 'Run'}
+                  </StatusPill>
+                </td>
+                <td className="left small mono">{r.detail ? JSON.stringify(r.detail) : '—'}</td>
+                <td>{r.task_id ? <a href={`/tasks?task=${r.task_id}`}>Open</a> : '—'}</td>
+              </tr>
+            ))}
+            {shown.length === 0 && (
+              <tr>
+                <td className="empty" colSpan={5}>
+                  Nothing to show.
                 </td>
               </tr>
             )}

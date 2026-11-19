@@ -26,6 +26,7 @@ import { useProfileNameMap, useTaskTypes } from '../../lib/taskData'
 import type { MessageRow, PaymentMode, Task, TaskCheque, TaskEvent, TaskPayment, TaskStatus } from '../../api/types'
 import { ChequeForm } from './ChequeForm'
 import { SendMessageDialog } from './SendMessage'
+import { TaskSubitems } from './TaskSubitems'
 import { TaskForm, boardOfType } from './TaskForm'
 import '../../styles/tasks-detail.css'
 
@@ -44,6 +45,8 @@ interface TaskLinks {
 type TabKey = 'details' | 'proof' | 'payments' | 'cheque' | 'messages' | 'timeline'
 
 const PAYMENT_TYPES = ['payment_collection', 'payment_deposit', 'mill_payment_deposit']
+/** monday gives Payment Collection and Cheque Collection a Subitems column. */
+const SUBITEM_TYPES = ['payment_collection', 'cheque_collection']
 
 /** Readable labels for the type-specific values kept in `tasks.details`. */
 const DETAIL_LABELS: Record<string, string> = {
@@ -551,6 +554,8 @@ export function TaskDetail({
                   </dl>
                 </section>
               )}
+
+              {SUBITEM_TYPES.includes(task.task_type) && <TaskSubitems taskId={task.id} canWrite={canAct} />}
 
               <section className="td-section">
                 <h3>Notes</h3>
