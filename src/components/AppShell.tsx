@@ -31,8 +31,6 @@ interface NavSection {
   items: NavItem[]
   /** Collapsed unless the person opens it (or is on one of its screens). */
   startClosed?: boolean
-  /** A nested group shown under the items (CRM > Tasks). */
-  sub?: { id: string; heading: string; items: NavItem[]; startClosed?: boolean }
 }
 
 const I = {
@@ -55,10 +53,24 @@ const I = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   users: 'M9 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6M3 20c1.2-3 3.4-4.5 6-4.5S13.8 17 15 20M16 5.5a3 3 0 0 1 0 5.8M18 20c-.3-1.5-.9-2.7-1.7-3.6',
   audit: 'M7 4h7l4 4v12H7zM14 4v5h4M10 13h5M10 16h5',
+  building: 'M5 21V5l7-2v18M12 8h7v13M8 8h1M8 12h1M8 16h1M15 12h1M15 16h1M3 21h18',
+  spool: 'M6 5h12M6 19h12M8 5v14M16 5v14M8 9l8 2M8 13l8 2',
+  pin: 'M12 21s6-5.5 6-11a6 6 0 1 0-12 0c0 5.5 6 11 6 11zM12 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4',
   truck: 'M5 17a2 2 0 1 0 0-.01M17 17a2 2 0 1 0 0-.01M3 17V8h11v9M14 11h4l3 3v3M7 12h4',
 }
 
 const ORDER = ['order.read', 'order.manage']
+/** One sign per master data register, so the seven links are told apart at a glance. */
+const REGISTER_ICON: Record<string, string> = {
+  'business-units': I.building,
+  'buyers-suppliers': I.people,
+  counts: I.spool,
+  transport: I.truck,
+  'delivery-address': I.factory,
+  locations: I.pin,
+  'payment-terms': I.card,
+}
+
 const TASK = ['task.read', 'task.work', 'task.manage']
 
 const NAV: NavSection[] = [
@@ -69,7 +81,7 @@ const NAV: NavSection[] = [
     items: REGISTERS.map((r) => ({
       to: `/master-data/${r.key}`,
       label: r.label,
-      icon: I.grid,
+      icon: REGISTER_ICON[r.key] ?? I.grid,
       ...(r.anyOf.length > 0 ? { anyOf: r.anyOf } : {}),
     })),
   },
@@ -82,20 +94,20 @@ const NAV: NavSection[] = [
       { to: '/orders', label: 'Dispatch and Billing', icon: I.dispatch, anyOf: ORDER },
       { to: '/leads', label: 'Leads', icon: I.leads, anyOf: ['lead.manage', 'lead.qualify'] },
     ],
-    // The seven boards of monday's Tasks folder, in the order of the Tasks module (lib/taskBoards.ts).
-    sub: {
-      id: 'crm-tasks',
-      heading: 'Tasks',
-      items: [
-        { to: '/tasks?view=visits', label: 'Monthly Visit', icon: I.clock, anyOf: TASK },
-        { to: '/tasks?view=mill', label: 'Mill Invoice Delivery', icon: I.doc, anyOf: TASK },
-        { to: '/tasks?view=commission', label: 'Commission Invoice Delivery', icon: I.bill, anyOf: TASK },
-        { to: '/tasks?view=freight', label: 'Transport Freight Invoice', icon: I.truck, anyOf: TASK },
-        { to: '/tasks?view=samples', label: 'Sample Delivery', icon: I.factory, anyOf: TASK },
-        { to: '/tasks?view=payments', label: 'Payment Collection', icon: I.cash, anyOf: TASK },
-        { to: '/tasks?view=cheques', label: 'Cheque Collection', icon: I.cheque, anyOf: TASK },
-      ],
-    },
+  },
+  {
+    // monday's Tasks folder: seven boards of its own, apart from CRM (order of lib/taskBoards.ts).
+    id: 'tasks',
+    heading: 'Tasks',
+    items: [
+      { to: '/tasks?view=visits', label: 'Monthly Visit', icon: I.clock, anyOf: TASK },
+      { to: '/tasks?view=mill', label: 'Mill Invoice Delivery', icon: I.doc, anyOf: TASK },
+      { to: '/tasks?view=commission', label: 'Commission Invoice Delivery', icon: I.bill, anyOf: TASK },
+      { to: '/tasks?view=freight', label: 'Transport Freight Invoice', icon: I.truck, anyOf: TASK },
+      { to: '/tasks?view=samples', label: 'Sample Delivery', icon: I.factory, anyOf: TASK },
+      { to: '/tasks?view=payments', label: 'Payment Collection', icon: I.cash, anyOf: TASK },
+      { to: '/tasks?view=cheques', label: 'Cheque Collection', icon: I.cheque, anyOf: TASK },
+    ],
   },
   {
     id: 'dash',
@@ -169,14 +181,14 @@ export function AppShell() {
     if (!query) return location.pathname.startsWith(path ?? to)
     return location.pathname === path && new URLSearchParams(location.search).get('view') === new URLSearchParams(query).get('view')
   }
-  const renderItem = (item: NavItem, nested = false) => (
+  const renderItem = (item: NavItem) => (
     <NavLink
       key={item.to}
       to={item.to}
       end={item.to === '/'}
       className={({ isActive }) => {
         const active = item.to.includes('?') ? isHere(item.to) : isActive
-        return (active ? 'nav-item active' : 'nav-item') + (nested ? ' nested' : '')
+        return active ? 'nav-item active' : 'nav-item'
       }}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -196,11 +208,9 @@ export function AppShell() {
         <nav className="nav" aria-label="Main">
           {NAV.map((section) => {
             const items = section.items.filter(allowed)
-            const subItems = (section.sub?.items ?? []).filter(allowed)
-            if (items.length === 0 && subItems.length === 0) return null
-            const containsHere = items.some((i) => isHere(i.to)) || subItems.some((i) => isHere(i.to))
+            if (items.length === 0) return null
+            const containsHere = items.some((i) => isHere(i.to))
             const isOpen = open[section.id] ?? (!section.startClosed || containsHere)
-            const subOpen = section.sub ? open[section.sub.id] ?? (!section.sub.startClosed || subItems.some((i) => isHere(i.to))) : false
             return (
               <div className="nav-section" key={section.id}>
                 <button
@@ -213,20 +223,6 @@ export function AppShell() {
                   {section.heading}
                 </button>
                 {isOpen && items.map((item) => renderItem(item))}
-                {isOpen && subItems.length > 0 && section.sub && (
-                  <>
-                    <button
-                      type="button"
-                      className="nav-heading nav-subheading"
-                      aria-expanded={subOpen}
-                      onClick={() => setOpen((p) => ({ ...p, [section.sub!.id]: !subOpen }))}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true" className={subOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
-                      {section.sub.heading}
-                    </button>
-                    {subOpen && subItems.map((item) => renderItem(item, true))}
-                  </>
-                )}
               </div>
             )
           })}
