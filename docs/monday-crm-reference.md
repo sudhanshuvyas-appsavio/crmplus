@@ -9,7 +9,7 @@ Conventions:
 - Approx rows = `items_count` reported by monday (top-level items only, may include archived/deleted counts depending on monday's API).
 - Column ids are given in `code` for columns referenced by formulas.
 
-Domain (inferred): an Indian yarn/textile **commission agent / broker**. The agency matches **Buyers** (weaving mills) with **Suppliers** (spinning mills), records a **Deal**, issues a **Sales Confirmation** to both parties, tracks **Dispatch and Billing** (mill invoices, partial dispatches), then raises **Commission Invoices** to buyer/supplier and chases **Payment/Cheque Collection**. Transport freight invoicing is handled for an own transport outfit ("Kaarthika Transport", inferred).
+Domain (inferred): an Indian yarn/textile **commission agent / broker**. The agency matches **Buyers** (weaving mills) with **Suppliers** (spinning mills), records a **Deal**, issues a **Sales Confirmation** to both parties, tracks **Dispatch and Billing** (mill invoices, partial dispatches), then raises **Commission Invoices** to buyer/supplier and chases **Payment/Cheque Collection**. Transport freight invoicing is handled for an own transport outfit (name omitted).
 
 ---
 
@@ -545,8 +545,8 @@ Groups: Group Title.
 Views: not captured.
 Approx rows: 31.
 
-## Kaarthika Transport Freight Invoice (5027269319) — Tasks
-Purpose: deliver/collect freight invoices raised by the in-house/associated transport outfit (Kaarthika Transport, inferred) against Transport Invoice records.
+## Transport Freight Invoice (5027269319) — Tasks
+Purpose: deliver/collect freight invoices raised by the in-house/associated transport outfit (the associated transport outfit, inferred) against Transport Invoice records.
 Groups: Group Title.
 
 | Title | type | notes |
@@ -669,7 +669,7 @@ Views: not captured.
 Approx rows: 36.
 
 ## Transport Invoice (5027015093) — root
-Purpose: freight invoice ("KT INV.", Kaarthika Transport, inferred) raised by an own-transport Business Unit for a trip, priced per bag or per kg.
+Purpose: freight invoice ("Transport Invoice No.", the associated transport outfit, inferred) raised by an own-transport Business Unit for a trip, priced per bag or per kg.
 Groups: Group Title.
 
 | Title | type | notes |
@@ -679,7 +679,7 @@ Groups: Group Title.
 | Date | date | |
 | Business Units | board_relation | -> Business Units (issuing entity) |
 | Business Unit mirrors (4) | mirror | Business Unit Name (Name Copy), Account Details (Bank 1), Address, Phone 1 |
-| KT INV. NO. | text | |
+| Transport Invoice No. | text | |
 | Transporter Type Details | board_relation | -> Transporter Type Details (the trip) |
 | Trip mirrors (11) | mirror | via Transporter Type Details: From (TTD.From), To (TTD.To), Office Phone, CP1 Phone, CP2 Phone, To Email, To CP1 Email, To CP2 Email, Counts (TTD.Counts number), No. Of Bags (`lookup_mm15c24v`) |
 | Bag Weight (`numeric_mm15kmcq`) | numbers | |
@@ -701,7 +701,7 @@ Groups: Group Title.
 | Message Template Name / Response / wamid | text | |
 | Document | file | |
 | Email | button | "Send Email" |
-| link to Kaarthika Transport Freight Invoice | board_relation | -> Kaarthika Transport Freight Invoice (two-way) |
+| link to Transport Freight Invoice | board_relation | -> Transport Freight Invoice (two-way) |
 | link to Transporter Type Details | board_relation | -> Transporter Type Details (second relation to same board, reflection of TTD."Transport Invoice") |
 | Item ID | item_id | |
 | From alt. | board_relation | -> Buyers & Suppliers (supplier/origin) |
@@ -736,8 +736,8 @@ Groups: Group Title.
 | Driver Bata / Loading Charge / UnLoading Charge / Tiffen Charge / Others / LNT / PC | numbers | trip expenses |
 | Total Cost | formula | `CostOfDiesel + DriverBata + Loading + Unloading + Tiffen + Others + LNT + PC` |
 | Difference | numbers | |
-| KA Invoice Amount | numbers | |
-| KT Invoice No | numbers | |
+| Agency Invoice Amount | numbers | |
+| Transport Invoice No | numbers | |
 | Transport Invoice (`boolean_mm10vqs`) | checkbox | invoice raised flag |
 | Transport Invoice (`board_relation_mm1nadqz`) | board_relation | -> Transport Invoice (two-way) |
 | Documents | file | |
@@ -877,7 +877,7 @@ Tasks
 - Commission Invoice Delivery.Commission Invoices -> Commission Invoices (2-way with CI.link to Commission Invoice Delivery)
 - Commission Invoice Delivery.Buyer -> Buyers & Suppliers
 - Commission Invoice Delivery.link to Payment Collection -> Payment Collection
-- Kaarthika Transport Freight Invoice.Transport Invoice -> Transport Invoice (2-way with TI.link to Kaarthika...)
+- Transport Freight Invoice.Transport Invoice -> Transport Invoice (2-way with TI.link to Transport Freight Invoice...)
 - Sample Delivery.Buyer -> Buyers & Suppliers
 - Sample Delivery.Supplier -> Buyers & Suppliers
 - Cheque Collection.Buyer Name -> Buyers & Suppliers
@@ -889,7 +889,7 @@ Root
 - Transport Invoice.Business Units -> Business Units
 - Transport Invoice.Transporter Type Details -> Transporter Type Details
 - Transport Invoice.Sales Confirmation -> Sales Confirmation
-- Transport Invoice.link to Kaarthika Transport Freight Invoice -> Kaarthika Transport Freight Invoice
+- Transport Invoice.link to Transport Freight Invoice -> Transport Freight Invoice
 - Transport Invoice.link to Transporter Type Details -> Transporter Type Details (2-way with TTD.Transport Invoice)
 - Transport Invoice.From alt. -> Buyers & Suppliers
 - Transport Invoice.Buyer/to -> Buyers & Suppliers
@@ -905,7 +905,7 @@ Root
 - Whatsapp Tracking.Suppliers -> Buyers & Suppliers
 - Whatsapp Tracking.Business Units -> Business Units
 
-Core flow (inferred): Buyers & Suppliers + Counts + Payment Terms -> **Deal** -> (approved) **Sales Confirmation** -> **Dispatch and Billing** (+ dispatch subitems; + Transporter Type Details trip) -> **Commission Invoices** (per party, per period) -> **Commission Invoice Delivery** -> **Payment Collection** / **Cheque Collection**. Side flows: D&B -> **Mill Invoice Delivery**; TTD -> **Transport Invoice** -> **Kaarthika Transport Freight Invoice**. All outbound messages logged in **Whatsapp Message**.
+Core flow (inferred): Buyers & Suppliers + Counts + Payment Terms -> **Deal** -> (approved) **Sales Confirmation** -> **Dispatch and Billing** (+ dispatch subitems; + Transporter Type Details trip) -> **Commission Invoices** (per party, per period) -> **Commission Invoice Delivery** -> **Payment Collection** / **Cheque Collection**. Side flows: D&B -> **Mill Invoice Delivery**; TTD -> **Transport Invoice** -> **Transport Freight Invoice**. All outbound messages logged in **Whatsapp Message**.
 
 ---
 
@@ -915,7 +915,7 @@ Core flow (inferred): Buyers & Suppliers + Counts + Payment Terms -> **Deal** ->
 - **Tax maths**: D&B Total Amount = Value + CGST% + Insurance Tax% + Add - Deduct. Only one "CGST" field (no SGST/IGST split); "Buyer CGST" mirror on D&B actually shows the GST number.
 - **Validation done with formulas/flags**: D&B "Validation Errors" and "Record Validation ()" (sum of subitem Quantity Dispatched vs parent Quantity); "Is Duplicate?" + error-message text columns on D&B and Counts (set by automation, inferred). In the app these become DB constraints/triggers.
 - **Status vs group duplication**: Deals, SC, D&B, Cheque Collection groups mirror their status labels (group = status bucket). D&B has an extra "New Group". D&B parent status "Return" vs subitem status "Retun" (typo).
-- **Broken mirrors**: Payment Collection."Buyer Name" points to Commission Invoice Delivery column `lookup_mm1kv6ew`, and Kaarthika Transport Freight Invoice."Buyer" points to Transport Invoice column `lookup_mm1k6dqe`; neither column exists on the target board any more. D&B subitem "Supplier Business Unit" mirrors Name Copy instead of Business Unit. SC "Buyer/Supplier Business Unit Phone" mirror Office Phone.
+- **Broken mirrors**: Payment Collection."Buyer Name" points to Commission Invoice Delivery column `lookup_mm1kv6ew`, and Transport Freight Invoice."Buyer" points to Transport Invoice column `lookup_mm1k6dqe`; neither column exists on the target board any more. D&B subitem "Supplier Business Unit" mirrors Name Copy instead of Business Unit. SC "Buyer/Supplier Business Unit Phone" mirror Office Phone.
 - **Leftover / test / unused columns**: SC "test Formula"; Counts "Formula" (empty); Deals subitems (Products & Services, Numbers A — CRM template); default subitem boards (Working on it/Done/Stuck) on SC, Business Units, Counts, Payment Collection, Cheque Collection, Commission Invoices, Whatsapp Message; Commission Invoices "Text 1"/"Text"; B&S "Default Commision Percentage" (superseded by Commission Type/Value), "Name Copy" and "Name Formula" (workarounds for mirroring the name); B&S "Current Machines"/"Current Machine" statuses still have default labels; Sample Delivery "Sample Type" labels are TBD 1/2/3.
 - **Duplicate titles**: B&S has two "Type" columns (status Buyer/Supplier and text fabric type) and two "Current Machines" (status + text); Commission Invoices has "Buyer Contact Person 1 Email" as both a mirror and an email column; Transport Invoice links to Transporter Type Details twice; TTD has "Transport Invoice" as both checkbox and relation; Whatsapp Tracking has two groups both titled "Group Title".
 - **Buyer/Supplier capacity profile** on B&S (looms, machine types, monthly qty, spindles) is a sparse "in case of Buyer/Supplier" block — consider a separate profile table.
