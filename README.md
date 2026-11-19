@@ -92,6 +92,10 @@ order, with `psql` as described under Database above:
 3. `20261118100200_tasks_scheduler.sql` - `run_task_rules()` and its pg_cron job
 4. `20261119100000_task_boards_monday_parity.sql` - one typed view per monday board (`board_monthly_visit`, `board_mill_invoice_delivery`, `board_commission_invoice_delivery`, `board_payment_collection`, `board_freight_invoice`, `board_sample_delivery`, `board_cheque_collection`), subitems, Messenger-first assignment, the freight-outstanding and cheque-collected notifications, and monday's wording and visit branches in `run_task_rules()`
 
+5. `20261120100000_task_rules_monday_timing.sql` - the rules run at monday's time of day (IST), the visit reminders and the 30/45/60-day escalation follow monday's branches and wording, Person comes only from the buyer's Messenger, the mill proof sets Invoice Status the way monday does, and every rule run is written to `task_rule_runs` (shown in Tasks > Rules > Rule log)
+
+Tests for the rules are in `supabase/tests/task_rules_monday_timing.test.sql`: run it on a **staging** database (it rolls back everything it creates).
+
 ### 2. Permissions
 
 The first migration adds five permissions: `task.read` (see all tasks),
