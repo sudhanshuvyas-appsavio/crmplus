@@ -9,7 +9,7 @@
 import { useContext, useEffect, useState, type ReactNode } from 'react'
 import { FieldErrorsContext, FieldErrorsProvider } from './fieldErrors'
 import { supabase } from '../lib/supabase'
-import { BUYER_MACHINE_TYPES, CATEGORIES, COMMISSION_BASES } from '../api/types'
+import { CATEGORIES, COMMISSION_BASES } from '../api/types'
 import type { BuyerMaster, PartyProfile, SupplierMaster } from '../api/types'
 import { GST_STATES, isGst, isMobile, numOrNull } from '../lib/party'
 import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
@@ -771,34 +771,6 @@ export function BuyerFields({
  *  buyer-only ones. Which of them show, and which are required, follows the role. */
 export type FullPartyForm = SupplierForm & BuyerOnlyForm & { spindlage_capacity: string }
 
-function TeamSelect({
-  id,
-  label,
-  value,
-  people,
-  onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  people: { id: string; name: string }[]
-  onChange: (value: string) => void
-}) {
-  return (
-    <Field id={id} label={label}>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">—</option>
-        {value && !people.some((x) => x.id === value) && <option value={value}>Unknown user</option>}
-        {people.map((x) => (
-          <option key={x.id} value={x.id}>
-            {x.name}
-          </option>
-        ))}
-      </select>
-    </Field>
-  )
-}
-
 /** Every section of the contact form, in order: Identity, Contacts, Phones and
  *  web, Addresses, Bank, Commission, Team, Business unit, Locations and
  *  Counts, Production profile, Remarks. `businessUnit` is the page's own
@@ -847,8 +819,6 @@ export function PartyProfileSections({
   const mobileHint = (v: string) => (v && !isMobile(v) ? 'Must be exactly 10 digits.' : undefined)
   const phoneHint = (v: string) => (v && !isPhone(v) ? 'Phone numbers are 6 to 15 digits.' : undefined)
   const emailHint = (v: string) => (v && !isEmail(v) ? 'An email address contains an @.' : undefined)
-  const toggleMachine = (m: string, on: boolean) =>
-    set('machine_types', on ? [...form.machine_types.filter((x) => x !== m), m] : form.machine_types.filter((x) => x !== m))
 
   const sideWord = showBuyer && showSupplier ? '' : showBuyer ? 'Buyer ' : 'Supplier '
 
@@ -1025,21 +995,6 @@ export function PartyProfileSections({
           <Field id={`${p}-typetext`} label="Type">
             <input id={`${p}-typetext`} value={form.type_text} placeholder="Enter Type" onChange={(e) => set('type_text', e.target.value)} />
           </Field>
-          <FullWidth>
-            <div className="field">
-              <span className="muted small">Buyer Machine Type</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 6 }}>
-                {BUYER_MACHINE_TYPES.map((m) => (
-                  <label key={m} className="check">
-                    <input type="checkbox" checked={form.machine_types.includes(m)} onChange={(e) => toggleMachine(m, e.target.checked)} />
-                    <span className="check-body">
-                      <span className="check-label">{m}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </FullWidth>
         </FormSection>
       )}
       {showSupplier && (
@@ -1081,34 +1036,6 @@ export function PartyProfileSections({
         </Field>
       </FormSection>
 
-      <FormSection title="More details" description="Columns of the monday board that its creation form does not ask for, kept here so a record can still be completed.">
-        <Field id={`${p}-short`} label="Short Name">
-          <input id={`${p}-short`} value={form.short_name} onChange={(e) => set('short_name', e.target.value)} />
-        </Field>
-        <Field id={`${p}-ccode`} label="Customer Code" hint="Your own code for this party. Unique within its master.">
-          <input id={`${p}-ccode`} className="mono" value={form.customer_code} onChange={(e) => set('customer_code', e.target.value)} />
-        </Field>
-        <Field id={`${p}-scode`} label="State Code">
-          <input id={`${p}-scode`} className="mono" maxLength={2} inputMode="numeric" value={form.state_code} onChange={(e) => set('state_code', e.target.value.replace(/\D/g, ''))} />
-        </Field>
-        <Field id={`${p}-rphone`} label="Res Phone" hint={phoneHint(form.res_phone)}>
-          <input id={`${p}-rphone`} inputMode="numeric" maxLength={15} className="mono" value={form.res_phone} onChange={digits('res_phone')} />
-        </Field>
-        <Field id={`${p}-web`} label="Website URL">
-          <input id={`${p}-web`} value={form.website} onChange={(e) => set('website', e.target.value)} />
-        </Field>
-        <Field id={`${p}-map`} label="Map Location">
-          <input id={`${p}-map`} value={form.map_url} onChange={(e) => set('map_url', e.target.value)} />
-        </Field>
-        <Field id={`${p}-bank1`} label="Bank Account Details 1">
-          <input id={`${p}-bank1`} className="mono" value={form.bank_account_1} onChange={(e) => set('bank_account_1', e.target.value)} />
-        </Field>
-        <Field id={`${p}-bank2`} label="Bank Account Details 2">
-          <input id={`${p}-bank2`} className="mono" value={form.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
-        </Field>
-        <TeamSelect id={`${p}-sales`} label="Sales Person" value={form.sales_person_id} people={people} onChange={(v) => set('sales_person_id', v)} />
-        <TeamSelect id={`${p}-coll`} label="Collection Staff" value={form.collection_staff_id} people={people} onChange={(v) => set('collection_staff_id', v)} />
-      </FormSection>
     </>
   )
 }

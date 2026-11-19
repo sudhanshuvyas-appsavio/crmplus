@@ -18,7 +18,7 @@ import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
@@ -103,12 +103,16 @@ function jobErrors(f: Form, rows: readonly JobProcess[], selfId: string | null |
   const er: FieldErrors = {}
   requireText(er, 't-name', f.name, 'Name is required.')
   if (!er['t-name'] && findDuplicate(rows, selfId, (r) => r.name, f.name, nameKey)) er['t-name'] = 'A sizing / delivery address with this name already exists.'
+  if (!er['t-name']) { const m = nameProblem('Name', f.name); if (m) er['t-name'] = m }
   if (isNew) requireText(er, 't-gst', f.gst, 'GST No. is required.')
   if (f.gst.trim() && !isGst(f.gst.trim().toUpperCase())) er['t-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPS5121G2ZK).'
   if (isNew) requireText(er, 't-state', f.state, 'State is required.')
+  { const m = placeProblem('State', f.state); if (m) er['t-state'] = m }
   if (isNew) requireText(er, 't-oaddr', f.office_address, 'Office Address is required.')
   if (isNew) requireText(er, 't-cp', f.contact_person, 'Contact Person 1 is required.')
   if (isNew) requireText(er, 't-cp2', f.contact_person_2, 'Contact Person 2 is required.')
+  { const m = personProblem('Contact Person 1', f.contact_person); if (m && !er['t-cp']) er['t-cp'] = m }
+  { const m = personProblem('Contact Person 2', f.contact_person_2); if (m && !er['t-cp2']) er['t-cp2'] = m }
   if (isNew) requireText(er, 't-mob', f.mobile, 'Contact Person 1 Phone is required.')
   if (f.mobile.trim() && !isMobile(f.mobile)) er['t-mob'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
   if (isNew) requireText(er, 't-mob2', f.mobile_2, 'Contact Person 2 Phone is required.')
@@ -488,7 +492,7 @@ export default function JobProcesses() {
 }
 
 function JobProcessDrawer({
-  row: existing, rows, canManage: canManageRecords, viewOnly = false, stations, companies, buyers, onClose, onDone, onDocsChanged,
+  row: existing, rows, canManage: canManageRecords, viewOnly = false, onClose, onDone, onDocsChanged,
 }: {
   onDocsChanged?: () => void
   row: JobProcess | null
@@ -674,45 +678,7 @@ function JobProcessDrawer({
             </FormSection>
           )}
 
-{existing && (
-          <FormSection title="More details" description="Kept in CRM+ for deliveries; not on the monday form.">
-            <Field id="t-short" label="Short name">
-              <input id="t-short" value={f.short_name} onChange={(ev) => set('short_name', ev.target.value)} />
-            </Field>
-            <Field id="t-buyer" label="Buyer" hint="Optional: the buyer whose goods are delivered here.">
-              <select id="t-buyer" value={f.buyer_id} onChange={(ev) => set('buyer_id', ev.target.value)}>
-                <option value="">—</option>
-                {buyers.filter((b) => b.is_active || b.id === f.buyer_id).map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-              </select>
-            </Field>
-            <Field id="t-station" label="Station">
-              <select id="t-station" value={f.station_id} onChange={(ev) => set('station_id', ev.target.value)}>
-                <option value="">—</option>
-                {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-              </select>
-            </Field>
-            <Field id="t-company" label="Company">
-              <select id="t-company" value={f.company_id} onChange={(ev) => set('company_id', ev.target.value)}>
-                <option value="">—</option>
-                {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-              </select>
-            </Field>
-            <Field id="t-ophone" label="Office phone">
-              <input id="t-ophone" className="mono" value={f.office_phone} onChange={(ev) => set('office_phone', ev.target.value)} />
-            </Field>
-            <Field id="t-daddr" label="Mill / Factory / Delivery address">
-              <textarea id="t-daddr" rows={3} value={f.delivery_address} onChange={(ev) => set('delivery_address', ev.target.value)} />
-            </Field>
-            <FullWidth>
-              <label className="check">
-                <input type="checkbox" checked={f.is_active} onChange={(ev) => set('is_active', ev.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Active</span>
-                </span>
-              </label>
-            </FullWidth>
-          </FormSection>
-          )}
+
       </fieldset>
 
 

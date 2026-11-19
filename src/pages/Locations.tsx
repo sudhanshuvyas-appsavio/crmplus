@@ -26,7 +26,7 @@ import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { formatDate } from '../lib/format'
@@ -590,6 +590,9 @@ function LocationDrawer({
     const er: FieldErrors = {}
     requireText(er, 'loc-name', form.name, 'Name is required.')
     if (!er['loc-name'] && findDuplicate(rows, row?.id, (r) => r.name, form.name, nameKey)) er['loc-name'] = 'A location with this name already exists.'
+    if (!er['loc-name']) { const m = nameProblem('Name', form.name); if (m) er['loc-name'] = m }
+    { const m = placeProblem('State', form.state); if (m) er['loc-state'] = m }
+    { const m = personProblem('Contact Person (MD)', form.md_contact); if (m) er['loc-md'] = m }
     if (form.gst.trim() && !isGst(form.gst.trim())) er['loc-gst'] = 'Enter a complete GST number (15 characters, like 24ABCDE1234F1Z5).'
     if (form.phone.trim() && !PHONE_RE.test(form.phone.trim())) er['loc-phone'] = 'Phone must be 6 to 15 digits.'
     if (form.email.trim() && !isEmail(form.email)) er['loc-email'] = 'Enter a valid email, like name@company.com.'
@@ -598,7 +601,7 @@ function LocationDrawer({
     return er
   }, [form, rows, row])
   const fieldValue: Record<string, string> = {
-    'loc-name': form.name, 'loc-gst': form.gst, 'loc-phone': form.phone, 'loc-email': form.email,
+    'loc-name': form.name, 'loc-state': form.state, 'loc-md': form.md_contact, 'loc-gst': form.gst, 'loc-phone': form.phone, 'loc-email': form.email,
     'loc-acc-phone': form.accounts_phone, 'loc-address': form.address,
   }
   const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
@@ -692,7 +695,7 @@ function LocationDrawer({
             <Field id="loc-name" label="Name" required error={show('loc-name')} hint="Must be unique; capitals and spacing are ignored when checking.">
               <input id="loc-name" value={form.name} placeholder="Enter Name" onChange={(e) => set('name', e.target.value)} autoFocus />
             </Field>
-            <Field id="loc-state" label="State">
+            <Field id="loc-state" label="State" error={show('loc-state')}>
               <input id="loc-state" value={form.state} placeholder="Enter State" onChange={(e) => set('state', e.target.value)} />
             </Field>
             <Field id="loc-date" label="Date">
@@ -717,7 +720,7 @@ function LocationDrawer({
             <Field id="loc-email" label="Email" error={show('loc-email')}>
               <input id="loc-email" type="email" value={form.email} placeholder="Enter Email" onChange={(e) => set('email', e.target.value)} />
             </Field>
-            <Field id="loc-md" label="Contact Person (MD)">
+            <Field id="loc-md" label="Contact Person (MD)" error={show('loc-md')}>
               <input id="loc-md" value={form.md_contact} placeholder="Enter Contact Person (MD)" onChange={(e) => set('md_contact', e.target.value)} />
             </Field>
             <LinkPicker
@@ -741,17 +744,7 @@ function LocationDrawer({
                 <UsedBy locationId={row.id} />
               </FullWidth>
             )}
-            {existing && (
-            <FullWidth>
-              <label className="check">
-                <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Active</span>
-                  <span className="check-hint">Inactive locations stay on existing records but are no longer offered on new ones.</span>
-                </span>
-              </label>
-            </FullWidth>
-            )}
+
           </FormSection>
 
           {!readOnly && (

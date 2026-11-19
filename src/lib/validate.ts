@@ -59,3 +59,28 @@ export function requireText(errors: FieldErrors, id: string, value: string, mess
 export function searchKey(value: string | null | undefined): string {
   return (value ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
+
+const HAS_LETTER = /\p{L}/u
+
+/** A name must contain a letter: "12345" or "#-/" is not a name. Digits inside a name are fine ("Shree 5 Mills"). */
+export function nameProblem(label: string, value: string | null | undefined): string | null {
+  const t = (value ?? '').trim()
+  if (!t) return null
+  return HAS_LETTER.test(t) ? null : `${label} must contain letters, not only numbers or symbols.`
+}
+
+/** A person's name: letters, spaces and . ' - only. No digits. */
+export function personProblem(label: string, value: string | null | undefined): string | null {
+  const t = (value ?? '').trim()
+  if (!t) return null
+  if (!HAS_LETTER.test(t)) return `${label} must contain letters, not only numbers or symbols.`
+  if (/\d/.test(t)) return `${label} cannot contain digits.`
+  return null
+}
+
+/** A state or place name: letters (any script), spaces and . & ' - only. */
+export function placeProblem(label: string, value: string | null | undefined): string | null {
+  const t = (value ?? '').trim()
+  if (!t) return null
+  return /^\p{L}[\p{L}\s.&'-]*$/u.test(t) ? null : `${label} must be a name made of letters, not numbers.`
+}

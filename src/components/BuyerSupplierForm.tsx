@@ -18,7 +18,7 @@ import { Drawer } from './Drawer'
 import { DEFAULT_COMMISSIONS, Field, FieldErrorsProvider } from './PartyForms'
 import { PhoneField } from './PhoneField'
 import { ErrorBanner, FormSection, FullWidth } from './FormKit'
-import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors } from '../lib/validate'
 import { PendingDocuments } from './documents/PendingDocuments'
 import { useProfileNames } from './PartyExtras'
 import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
@@ -137,6 +137,7 @@ export function errorsOf(f: FormState, countIds: string[], ctx: RuleCtx): FieldE
   const codeOf = (r: BuyerMaster | SupplierMaster) => ('buyer_code' in r ? r.buyer_code : r.supplier_code)
 
   requireText(er, 'bs-name', f.name, 'Name is required.')
+  if (!er['bs-name']) { const m = nameProblem('Name', f.name); if (m) er['bs-name'] = m }
   if (!er['bs-name']) {
     const dup = findDuplicate(list, ctx.selfId, (r) => r.name, f.name, nameKey)
     if (dup) er['bs-name'] = `A ${kind} called "${dup.name}" already exists (${codeOf(dup)}).`
@@ -149,6 +150,11 @@ export function errorsOf(f: FormState, countIds: string[], ctx: RuleCtx): FieldE
     else if (storedPhone(f.office_phone)!.length > 15 || storedPhone(f.office_phone)!.length < 6) er['bs-ophone'] = 'The number with its country code must be 6 to 15 digits.'
   }
   requireText(er, 'bs-address', f.address, 'Office Address is required.')
+  { const m = placeProblem('State', f.state); if (m) er['bs-state'] = m }
+  ;([['bs-c1n', 'Contact Person 1', f.c1_name], ['bs-c2n', 'Contact Person 2', f.c2_name], ['bs-c3n', 'Contact Person 3', f.c3_name]] as const).forEach(([id, label, v]) => {
+    const m = personProblem(label, v)
+    if (m) er[id] = m
+  })
   const gst = upText(f.gst)
   if (!gst) er['bs-gst'] = 'GST No. is required.'
   else if (!isGst(gst)) er['bs-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPK5121I1Z5).'
@@ -292,7 +298,7 @@ export function BuyerSupplierForm({
 
   const errors = errorsOf(form, countIds, { buyers, suppliers })
   const typed: Record<string, string> = {
-    'bs-name': form.name, 'bs-email': form.email, 'bs-ophone': form.office_phone, 'bs-address': form.address, 'bs-gst': form.gst,
+    'bs-name': form.name, 'bs-state': form.state, 'bs-c1n': form.c1_name, 'bs-c2n': form.c2_name, 'bs-c3n': form.c3_name, 'bs-email': form.email, 'bs-ophone': form.office_phone, 'bs-address': form.address, 'bs-gst': form.gst,
     'bs-company': form.company_id, 'bs-defcomm': form.default_commission, 'bs-pan': form.pan, 'bs-c1p': form.c1_phone,
     'bs-c1e': form.c1_email, 'bs-c2p': form.c2_phone, 'bs-c2e': form.c2_email, 'bs-c3p': form.c3_phone, 'bs-c3e': form.c3_email,
     'bs-counts': countIds.join(','), 'bs-cval': form.commission_value, 'bs-looms': form.no_of_looms, 'bs-quantity': form.quantity, 'bs-csup': form.counts_supplying,

@@ -26,7 +26,7 @@ import {
   supplierOnlyFromRow, supplierPayload,
   type BuyerForm, type FullPartyForm, type SupplierForm,
 } from '../components/PartyForms'
-import { DocumentsPanel, PartyExtras, useProfileNames } from '../components/PartyExtras'
+import { DocumentsPanel, useProfileNames } from '../components/PartyExtras'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
@@ -39,7 +39,7 @@ import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pic
 import type { BulkDeleteResult, CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, isGst, isMobile, numOrNull } from '../lib/party'
-import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { formatDate } from '../lib/format'
 import '../styles/cheque-board.css'
 
@@ -165,6 +165,11 @@ function contactErrors(f: ContactForm, ctx: RuleCtx): FieldErrors {
   const side = (s: 'supplier' | 'buyer') => (s === 'supplier' ? hasSupplier(f.role) : hasBuyer(f.role))
 
   requireText(er, 'c-name', f.name, 'Name is required.')
+  if (!er['c-name']) { const m = nameProblem('Name', f.name); if (m) er['c-name'] = m }
+  { const m = placeProblem('State', f.state); if (m) er['c-state'] = m }
+  { const m = personProblem('Contact Person 1', f.contact_person); if (m) er['c-contact'] = m }
+  { const m = personProblem('Contact Person 2', f.contact_2_name); if (m) er['c-c2name'] = m }
+  { const m = personProblem('Contact Person 3', f.contact_3_name); if (m) er['c-c3name'] = m }
   if (!er['c-name']) {
     const s = side('supplier') ? findDuplicate(ctx.suppliers, ctx.selfSupplierId, (r) => r.name, f.name, nameKey) : null
     const b = side('buyer') ? findDuplicate(ctx.buyers, ctx.selfBuyerId, (r) => r.name, f.name, nameKey) : null
@@ -1064,7 +1069,7 @@ function ContactDrawer({
   )
   // A missing required value is reported after the first Save click; a wrong or duplicate one shows as it is typed.
   const typed: Record<string, string> = {
-    'c-name': form.name, 'c-ccode': form.customer_code, 'c-gst': form.gst, 'c-pan': form.pan, 'c-scode': form.state_code,
+    'c-name': form.name, 'c-state': form.state, 'c-contact': form.contact_person, 'c-c2name': form.contact_2_name, 'c-c3name': form.contact_3_name, 'c-ccode': form.customer_code, 'c-gst': form.gst, 'c-pan': form.pan, 'c-scode': form.state_code,
     'c-mobile': form.mobile, 'c-c1email': form.contact_1_email, 'c-c2mobile': form.contact_2_mobile, 'c-c2email': form.contact_2_email,
     'c-c3mobile': form.contact_3_mobile, 'c-c3email': form.contact_3_email, 'c-ophone': form.office_phone, 'c-rphone': form.res_phone,
     'c-email': form.email, 'c-address': form.address, 'c-cv': form.commission_value, 'c-defcomm': form.default_commission,
@@ -1143,7 +1148,6 @@ function ContactDrawer({
 
   const showSupplier = hasSupplier(form.role)
   const showBuyer = hasBuyer(form.role)
-  const otherRow = side === 'buyer' ? existing?.supplier : existing?.buyer
   const sideRow = side === 'buyer' ? existing?.buyer : existing?.supplier
   const codes = [existing?.supplier?.supplier_code, existing?.buyer?.buyer_code].filter(Boolean).join(' / ')
 
@@ -1204,15 +1208,6 @@ function ContactDrawer({
             </Field>
           }
         />
-        <div className="switch-row">
-          <label className="check">
-            <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-            <span className="check-body">
-              <span className="check-label">Active</span>
-              <span className="check-hint">Inactive contacts cannot be used to qualify a lead.</span>
-            </span>
-          </label>
-        </div>
       </fieldset>
       </FieldErrorsProvider>
 
@@ -1240,17 +1235,7 @@ function ContactDrawer({
             </div>
           )}
           {sideRow && (
-            <PartyExtras
-              key={`${side}-${sideRow.id}`}
-              partyType={side}
-              partyId={sideRow.id}
-              gst={sideRow.gst ?? ''}
-              gstStatus={sideRow.gst_status}
-              gstVerifiedAt={sideRow.gst_verified_at}
-              gstNote={sideRow.gst_verify_note}
-              mirror={otherRow ? { table: side === 'buyer' ? 'supplier_master' : 'buyer_master', id: otherRow.id } : null}
-              onDocsChanged={onDocsChanged}
-            />
+            <DocumentsPanel key={`${side}-${sideRow.id}`} partyType={side} partyId={sideRow.id} canEdit={canEdit} onChanged={onDocsChanged} />
           )}
         </>
       )}

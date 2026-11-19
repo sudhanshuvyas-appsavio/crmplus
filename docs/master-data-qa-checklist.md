@@ -57,3 +57,13 @@ Before testing: run `supabase/manual/20261118_business_unit_test_data_cleanup.sq
 | D3 | A file over the size limit | Refused with its name in the message |
 | D4 | Upload or delete inside the edit form, then close it | The Documents column / count on the list is already correct |
 | D5 | A user without edit rights | Sees and previews files; cannot upload or delete |
+
+## Field data types (every register)
+
+| # | Scenario | Expected |
+|---|---|---|
+| T1 | Name fields (Name, Trade Name, Legal Name) typed as `12345` or `###` | Message "Name must contain letters, not only numbers or symbols."; digits inside a name ("Shree 5 Mills") are fine |
+| T2 | Contact Person fields typed as `Ravi2` or `99999` | Message that a person's name cannot contain digits / must contain letters |
+| T3 | State typed as `12` or `T4mil` (free-text State fields) | Message that State must be a name made of letters |
+| T4 | Phone / mobile with letters, numbers fields (Days, Thread Count, Quantity, Qty) with letters or negatives | Message next to the field; save blocked |
+| T5 | Date fields with a non-date value | The date picker only accepts dates; an empty Date defaults to today |
