@@ -42,22 +42,21 @@ export const commTerms = (basis: string | null, value: number | null) => {
   return `₹${value}${basis === 'per_kg' ? '/kg' : '/bag'}`
 }
 
+/** monday: Total Weight = Bags Weight x Quantity. With no bag weight, KGs and Tons use the quantity (Tons x 1000). */
 export function totalWeight(uom: string, qty: number | null, unitWeight: number | null): number | null {
   if (qty === null) return null
+  if (unitWeight !== null) return qty * unitWeight
   if (uom === 'KG') return qty
   if (uom === 'TONS') return qty * 1000
-  return unitWeight === null ? null : qty * unitWeight
+  return null
 }
 
-export function commission(basis: string | null, value: number | null, amount: number | null, uom: string,
-  qty: number | null, weight: number | null, unitWeight: number | null): number | null {
+export function commission(basis: string | null, value: number | null, amount: number | null, _uom: string,
+  qty: number | null, weight: number | null, _unitWeight: number | null): number | null {
   if (!basis || value === null) return null
   if (basis === 'pct') return amount === null ? null : (amount * value) / 100
   if (basis === 'per_kg') return weight === null ? null : value * weight
-  if (basis === 'per_bag') {
-    if (uom === 'BAGS') return qty === null ? null : value * qty
-    return weight !== null && unitWeight ? (value * weight) / unitWeight : null
-  }
+  if (basis === 'per_bag') return qty === null ? null : value * qty
   return null
 }
 

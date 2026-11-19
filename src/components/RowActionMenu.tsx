@@ -26,7 +26,7 @@ export function RowActionMenu({
   const menuRef = useRef<HTMLDivElement>(null)
 
   const width = 184
-  const height = 12 + actions.length * 38
+  const height = 12 + actions.reduce((sum, a) => sum + 34 + (a.disabledReason ? Math.ceil(a.disabledReason.length / 34) * 13 : 0), 0)
 
   function toggle() {
     if (open) return setOpen(false)

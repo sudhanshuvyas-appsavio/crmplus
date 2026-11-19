@@ -89,10 +89,10 @@ const NAV: NavSection[] = [
     id: 'crm',
     heading: 'CRM',
     items: [
+      { to: '/leads', label: 'Leads', icon: I.leads, anyOf: ['lead.manage', 'lead.qualify'] },
       { to: '/deals', label: 'Deals', icon: I.deals, permission: 'deal.read' },
       { to: '/sales-confirmations', label: 'Sales Confirmation', icon: I.sc, anyOf: ['sc.read', 'sc.manage'] },
       { to: '/orders', label: 'Dispatch and Billing', icon: I.dispatch, anyOf: ORDER },
-      { to: '/leads', label: 'Leads', icon: I.leads, anyOf: ['lead.manage', 'lead.qualify'] },
     ],
   },
   {
