@@ -635,6 +635,7 @@ function CountDrawer({
             <Field id="ct-overall-yarn" label="Overall Yarn" hint="Calculated field.">
               <input id="ct-overall-yarn" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallYarn} placeholder="(Calculated field)" />
             </Field>
+            {existing && (
             <FullWidth>
               <label className="check">
                 <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
@@ -644,6 +645,7 @@ function CountDrawer({
                 </span>
               </label>
             </FullWidth>
+            )}
           </FormSection>
       </>
 

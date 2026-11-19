@@ -31,6 +31,7 @@ import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { GST_STATES, errMessage, isGst, isMobile } from '../lib/party'
 import { formatDate } from '../lib/format'
+import { todayIST } from '../lib/tasks'
 
 type Company = { id: string; name: string; is_active: boolean }
 
@@ -56,6 +57,7 @@ const CSV_COLUMNS = [
 ] as const
 
 type Form = {
+  record_date: string
   transporter_type: 'internal' | 'third_party'
   name: string
   short_name: string
@@ -86,13 +88,14 @@ type Form = {
 }
 
 const blank: Form = {
-  transporter_type: 'third_party', name: '', short_name: '', station_id: '', office_address: '', delivery_address: '',
+  record_date: '', transporter_type: 'third_party', name: '', short_name: '', station_id: '', office_address: '', delivery_address: '',
   contact_person: '', mobile: '', contact_person_2: '', mobile_2: '', office_phone: '', res_phone: '',
   gst: '', state_code: '', state: '', pan: '', bank_account: '', company_id: '', info: '', remarks: '', is_active: true,
   email: '', vehicle_type: '', vehicle_no_1: '', vehicle_no_2: '', vehicle_no_3: '', bank_account_2: '',
 }
 
 const fromRow = (r: Transporter): Form => ({
+  record_date: r.record_date ?? '',
   transporter_type: r.transporter_type, name: r.name, short_name: r.short_name ?? '', station_id: r.station_id ?? '',
   office_address: r.office_address ?? '', delivery_address: r.delivery_address ?? '', contact_person: r.contact_person ?? '',
   mobile: r.mobile ?? '', contact_person_2: r.contact_person_2 ?? '', mobile_2: r.mobile_2 ?? '', office_phone: r.office_phone ?? '',
@@ -135,7 +138,7 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
 const payload = (f: Form) => {
   const t = (v: string) => v.trim() || null
   return {
-    transporter_type: f.transporter_type, name: f.name.trim(), short_name: t(f.short_name), station_id: f.station_id || null,
+    record_date: f.record_date || null, transporter_type: f.transporter_type, name: f.name.trim(), short_name: t(f.short_name), station_id: f.station_id || null,
     office_address: t(f.office_address), delivery_address: t(f.delivery_address), contact_person: t(f.contact_person),
     mobile: t(f.mobile), contact_person_2: t(f.contact_person_2), mobile_2: t(f.mobile_2), office_phone: t(f.office_phone),
     res_phone: t(f.res_phone), gst: t(f.gst.toUpperCase()), state_code: t(f.state_code), state: t(f.state),
@@ -214,7 +217,7 @@ export default function Transporters() {
       if (!q) return true
       // Every column the grid shows.
       return [
-        x.name, VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type, formatDate(x.created_at), x.email,
+        x.name, VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type, formatDate(x.record_date ?? x.created_at), x.email,
         x.office_address, x.delivery_address, x.office_phone, x.res_phone, x.gst, x.state, x.state_code, x.bank_account,
         x.bank_account_2, x.pan, x.contact_person, x.mobile, x.contact_person_2, x.mobile_2, x.vehicle_no_1, x.vehicle_no_2,
         x.vehicle_no_3, x.remarks, (locationsOf[x.id] ?? []).join(' '), x.company_id ? companyName.get(x.company_id) : '',
@@ -428,7 +431,7 @@ export default function Transporters() {
                     {!x.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                   </td>
                   <td className="small">{x.vehicle_type ? <span className="chip">{VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type}</span> : '—'}</td>
-                  <td className="mono small">{formatDate(x.created_at)}</td>
+                  <td className="mono small">{formatDate(x.record_date ?? x.created_at)}</td>
                   <td className="small">{x.email ?? '—'}</td>
                   <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.office_address ?? '—'}</td>
                   <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.delivery_address ?? '—'}</td>
@@ -536,7 +539,7 @@ function TransporterDrawer({
   const canManage = canManageRecords && !viewOnly
   const [files, setFiles] = useState<File[]>([])
   const row = existing
-  const [f, setF] = useState<Form>(existing ? fromRow(existing) : blank)
+  const [f, setF] = useState<Form>(existing ? fromRow(existing) : { ...blank, record_date: todayIST() })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const locationOptions = useLocationOptions()
@@ -631,9 +634,12 @@ function TransporterDrawer({
       <ErrorBanner message={err} />
       {!canManage && !viewOnly && <div className="notice small">You can view this record; changing it needs the “Add and edit transporters” permission.</div>}
       <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-          <FormSection title="Transport Type Details" count={11}>
+          <FormSection title="Transport Type Details" count={12}>
             <Field id="t-name" label="Name" required error={show('t-name')}>
               <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
+            </Field>
+            <Field id="t-date" label="Date">
+              <input id="t-date" type="date" value={f.record_date} onChange={(ev) => set('record_date', ev.target.value)} />
             </Field>
             <Field id="t-email" label="Email" error={show('t-email')}>
               <input id="t-email" type="email" value={f.email} placeholder="Enter Email" onChange={(ev) => set('email', ev.target.value)} />
@@ -739,6 +745,7 @@ function TransporterDrawer({
             </FormSection>
           )}
 
+{existing && (
           <FormSection title="More details" description="Kept in CRM+ for transport; not on the monday form.">
             <Field id="t-type" label="Type" hint="Internal = our own vehicle or resource.">
               <select id="t-type" value={f.transporter_type} onChange={(ev) => set('transporter_type', ev.target.value as Form['transporter_type'])}>
@@ -763,6 +770,7 @@ function TransporterDrawer({
               </label>
             </FullWidth>
           </FormSection>
+          )}
       </fieldset>
 
 

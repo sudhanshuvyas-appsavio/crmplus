@@ -287,8 +287,8 @@ const CSV_COLUMNS = [
   'short_name', 'customer_code', 'website', 'map_url', 'office_phone', 'res_phone', 'mill_address', 'remarks_2',
   'contact_1_email', 'contact_2_name', 'contact_2_mobile', 'contact_2_email', 'contact_3_name', 'contact_3_mobile', 'contact_3_email',
   'sales_person', 'collection_staff', 'messenger',
-  'machine_types', 'no_of_looms', 'fabric_producing', 'reed_pick', 'width',
-  'machine_type', 'counts_supplying', 'spindles', 'monthly_production', 'qty_bags_month', 'qty_kgs_month',
+  'machine_types', 'no_of_looms', 'fabric_producing', 'reed_pick', 'width', 'quantity', 'type_text',
+  'machine_type', 'counts_supplying', 'current_machines', 'spindles', 'monthly_production', 'qty_bags_month', 'qty_kgs_month',
 ] as const
 
 type Editing = { mode: 'create' } | { mode: 'edit'; contact: Contact } | null
@@ -479,13 +479,16 @@ export default function Contacts() {
     { id: 'bmt1', title: 'Buyer Machine Type 1', render: (c) => txt(c.buyer?.machine_types?.[1]) },
     { id: 'bmt2', title: 'Buyer Machine Type 2', render: (c) => txt(c.buyer?.machine_types?.[2]) },
     { id: 'smt', title: 'Supplier Machine Type', render: (c) => txt(c.supplier?.machine_type) },
+    { id: 'quantity', title: 'Quantity', mono: true, render: (c) => txt(c.buyer?.quantity) },
     { id: 'fabric', title: 'Fabric Producing', render: (c) => txt(c.buyer?.fabric_producing) },
     { id: 'looms', title: 'No. of Looms', mono: true, render: (c) => txt(c.buyer?.no_of_looms) },
     { id: 'bqb', title: 'Buyer Qty(Bags/month)', mono: true, render: (c) => txt(c.buyer?.qty_bags_month) },
     { id: 'bqk', title: 'Buyer Qty(Kgs/month)', mono: true, render: (c) => txt(c.buyer?.qty_kgs_month) },
     { id: 'reed', title: 'Reed * Pick', render: (c) => txt(c.buyer?.reed_pick) },
     { id: 'width', title: 'Width', render: (c) => txt(c.buyer?.width) },
+    { id: 'typetext', title: 'Type', render: (c) => txt(c.buyer?.type_text) },
     { id: 'csup', title: 'Counts Supplying', mono: true, render: (c) => txt(c.supplier?.counts_supplying) },
+    { id: 'curmach', title: 'Current Machines', render: (c) => txt(c.supplier?.current_machines) },
     { id: 'spindles', title: 'Supplier No. of Roters & Spindles', mono: true, render: (c) => txt(c.supplier?.spindles) },
     { id: 'mprod', title: 'Monthly Production Quantity', mono: true, render: (c) => txt(c.supplier?.monthly_production) },
     { id: 'sqb', title: 'Supplier Qty(Bags/month)', mono: true, render: (c) => txt(c.supplier?.qty_bags_month) },

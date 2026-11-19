@@ -226,12 +226,14 @@ function TermDrawer({
           <input id="pt-days" className="mono" inputMode="numeric" value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })} />
         </Field>
       </div>
+      {term && (
       <label className="check">
         <input type="checkbox" checked={f.is_active} onChange={(e) => setF({ ...f, is_active: e.target.checked })} />
         <span className="check-body">
           <span className="check-label">Active</span>
         </span>
       </label>
+      )}
       <div className="drawer-actions">
         <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>
           {busy ? 'Saving…' : term ? 'Save changes' : 'Add the term'}

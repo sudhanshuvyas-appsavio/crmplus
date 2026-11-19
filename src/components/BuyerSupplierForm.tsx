@@ -76,6 +76,9 @@ type FormState = {
   no_of_looms: string
   reed_pick: string
   width: string
+  quantity: string
+  type_text: string
+  current_machines: string
   machine_type: string
   counts_supplying: string
   spindles: string
@@ -95,7 +98,7 @@ const blank = (type: Side): FormState => ({
   company_id: '', default_commission: '', category: '', messenger_id: '', pan: '',
   c1_name: '', c1_phone: '', c1_email: '', c2_name: '', c2_phone: '', c2_email: '', c3_name: '', c3_phone: '', c3_email: '',
   commission_type: '', commission_value: '', remark_1: '', remark_2: '',
-  fabric_producing: '', no_of_looms: '', reed_pick: '', width: '', machine_type: '', counts_supplying: '',
+  fabric_producing: '', no_of_looms: '', reed_pick: '', width: '', quantity: '', type_text: '', current_machines: '', machine_type: '', counts_supplying: '',
   spindles: '', monthly_production: '', qty_bags: '', qty_kgs: '',
 })
 
@@ -177,6 +180,7 @@ export function errorsOf(f: FormState, countIds: string[], ctx: RuleCtx): FieldE
   }
   if (f.type === 'buyer') {
     whole('bs-looms', 'No. of Looms', f.no_of_looms)
+    amount('bs-quantity', 'Quantity', f.quantity)
   } else {
     whole('bs-csup', 'Counts Supplying', f.counts_supplying)
     whole('bs-spindles', 'Supplier No. of Roters & Spindles', f.spindles)
@@ -231,12 +235,15 @@ function payloadOf(f: FormState) {
           no_of_looms: numOrNull(f.no_of_looms),
           reed_pick: orNull(f.reed_pick),
           width: orNull(f.width),
+          quantity: numOrNull(f.quantity),
+          type_text: orNull(f.type_text),
         }
       : {
           machine_type: orNull(f.machine_type),
           counts_supplying: numOrNull(f.counts_supplying),
           spindles: numOrNull(f.spindles),
           monthly_production: numOrNull(f.monthly_production),
+          current_machines: orNull(f.current_machines),
         }),
     // the masters' own required details; the Contacts list marks what is still missing
     incomplete: !(pan.length === 10 && contact && mobile),
@@ -288,7 +295,7 @@ export function BuyerSupplierForm({
     'bs-name': form.name, 'bs-email': form.email, 'bs-ophone': form.office_phone, 'bs-address': form.address, 'bs-gst': form.gst,
     'bs-company': form.company_id, 'bs-defcomm': form.default_commission, 'bs-pan': form.pan, 'bs-c1p': form.c1_phone,
     'bs-c1e': form.c1_email, 'bs-c2p': form.c2_phone, 'bs-c2e': form.c2_email, 'bs-c3p': form.c3_phone, 'bs-c3e': form.c3_email,
-    'bs-counts': countIds.join(','), 'bs-cval': form.commission_value, 'bs-looms': form.no_of_looms, 'bs-csup': form.counts_supplying,
+    'bs-counts': countIds.join(','), 'bs-cval': form.commission_value, 'bs-looms': form.no_of_looms, 'bs-quantity': form.quantity, 'bs-csup': form.counts_supplying,
     'bs-spindles': form.spindles, 'bs-mprod': form.monthly_production, 'bs-qbags': form.qty_bags, 'bs-qkgs': form.qty_kgs,
   }
   // A missing required value is reported after the first Save click; a wrong or duplicate one shows as it is typed.
@@ -527,7 +534,10 @@ export function BuyerSupplierForm({
         </FormSection>
 
         {form.type === 'buyer' ? (
-          <FormSection title="Incase of Buyer / Supplier" description="Shown for a Buyer." count={6}>
+          <FormSection title="Incase of Buyer / Supplier" description="Shown for a Buyer." count={8}>
+            <Field id="bs-quantity" label="Quantity">
+              <input id="bs-quantity" inputMode="decimal" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} placeholder="Enter Quantity" />
+            </Field>
             <Field id="bs-fabric" label="Fabric Producing">
               <input id="bs-fabric" value={form.fabric_producing} onChange={(e) => set('fabric_producing', e.target.value)} placeholder="Enter Fabric Producing" />
             </Field>
@@ -546,14 +556,20 @@ export function BuyerSupplierForm({
             <Field id="bs-width" label="Width">
               <input id="bs-width" value={form.width} onChange={(e) => set('width', e.target.value)} placeholder="Enter Width" />
             </Field>
+            <Field id="bs-typetext" label="Type">
+              <input id="bs-typetext" value={form.type_text} onChange={(e) => set('type_text', e.target.value)} placeholder="Enter Type" />
+            </Field>
           </FormSection>
         ) : (
-          <FormSection title="Incase of Buyer / Supplier" description="Shown for a Supplier." count={6}>
+          <FormSection title="Incase of Buyer / Supplier" description="Shown for a Supplier." count={7}>
             <Field id="bs-mtype" label="Supplier Machine Type">
               <input id="bs-mtype" value={form.machine_type} onChange={(e) => set('machine_type', e.target.value)} placeholder="Enter Supplier Machine Type" />
             </Field>
             <Field id="bs-csup" label="Counts Supplying">
               <input id="bs-csup" inputMode="numeric" value={form.counts_supplying} onChange={(e) => set('counts_supplying', e.target.value)} placeholder="Enter Counts Supplying" />
+            </Field>
+            <Field id="bs-curmach" label="Current Machines">
+              <input id="bs-curmach" value={form.current_machines} onChange={(e) => set('current_machines', e.target.value)} placeholder="Enter Current Machines" />
             </Field>
             <Field id="bs-spindles" label="Supplier No. of Roters & Spindles">
               <input id="bs-spindles" inputMode="numeric" value={form.spindles} onChange={(e) => set('spindles', e.target.value)} placeholder="Enter Supplier No. of Roters & Spindles" />

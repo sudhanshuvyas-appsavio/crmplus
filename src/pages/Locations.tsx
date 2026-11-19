@@ -30,7 +30,9 @@ import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type Fie
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { formatDate } from '../lib/format'
+import { todayIST } from '../lib/tasks'
 import { Field } from '../components/PartyForms'
+import { LinkPicker, type LinkOption } from '../components/LinkPicker'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
@@ -57,6 +59,7 @@ type StatusFilter = 'all' | 'active' | 'inactive'
 
 type FormState = {
   name: string
+  record_date: string
   zone: string
   state: string
   address: string
@@ -69,13 +72,14 @@ type FormState = {
 }
 
 const BLANK: FormState = {
-  name: '', zone: '', state: '', address: '', gst: '', phone: '', accounts_phone: '',
+  name: '', record_date: '', zone: '', state: '', address: '', gst: '', phone: '', accounts_phone: '',
   email: '', md_contact: '', is_active: true,
 }
 
 function toForm(row: StationMaster): FormState {
   return {
     name: row.name,
+    record_date: row.record_date ?? '',
     zone: row.zone ?? '',
     state: row.state ?? '',
     address: row.address ?? '',
@@ -114,6 +118,7 @@ function toPayload(f: FormState) {
   const text = (v: string) => v.trim() || null
   return {
     name: f.name.replace(/\s+/g, ' ').trim(),
+    record_date: f.record_date || null,
     zone: f.zone || null,
     state: text(f.state),
     address: text(f.address),
@@ -189,7 +194,7 @@ export default function Locations() {
       if (!q) return true
       // Every column the grid shows.
       return [
-        r.name, r.state, formatDate(r.created_at), (parties[r.id] ?? []).join(' '), r.address, r.gst, r.phone, r.email,
+        r.name, r.state, formatDate(r.record_date ?? r.created_at), (parties[r.id] ?? []).join(' '), r.address, r.gst, r.phone, r.email,
         r.md_contact, r.accounts_phone, ZONES.find((z) => z.value === r.zone)?.label ?? r.zone,
       ].some((v) => searchKey(v).includes(q))
     })
@@ -226,6 +231,7 @@ export default function Locations() {
         const state = row.get('state').trim() || (isGst(gst) ? (GST_STATES[gst.slice(0, 2)] ?? '') : '')
         const form: FormState = {
           name: row.get('name'),
+          record_date: '',
           zone: pickOne('Zone', row.get('zone'), ZONES.map((z) => z.value)),
           state,
           address: row.get('address'),
@@ -437,7 +443,7 @@ export default function Locations() {
                   {!r.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                 </td>
                 <td className="small">{r.state ?? '—'}</td>
-                <td className="mono small">{formatDate(r.created_at)}</td>
+                <td className="mono small">{formatDate(r.record_date ?? r.created_at)}</td>
                 <td className="small md-wrap">{parties[r.id]?.join(', ') ?? '—'}</td>
                 <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{r.address ?? '—'}</td>
                 <td className="mono small">{r.gst ?? '—'}</td>
@@ -548,7 +554,35 @@ function LocationDrawer({
 }) {
   const [files, setFiles] = useState<File[]>([])
   const row = existing
-  const [form, setForm] = useState<FormState>(existing ? toForm(existing) : BLANK)
+  const [form, setForm] = useState<FormState>(existing ? toForm(existing) : { ...BLANK, record_date: todayIST() })
+  // monday's "Buyers & Suppliers" relation: the parties that use this location (kind:id).
+  const [partyOptions, setPartyOptions] = useState<LinkOption[]>([])
+  const [partyIds, setPartyIds] = useState<string[]>([])
+  const [haveParties, setHaveParties] = useState<string[]>([])
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      const [b, su, links] = await Promise.all([
+        supabase.from('buyer_master').select('id,name,is_active').order('name'),
+        supabase.from('supplier_master').select('id,name,is_active').order('name'),
+        row
+          ? supabase.from('location_links').select('owner_type,owner_id').eq('location_id', row.id).in('owner_type', ['buyer', 'supplier'])
+          : Promise.resolve({ data: [] as { owner_type: string; owner_id: string }[], error: null }),
+      ])
+      if (!live) return
+      const opts: LinkOption[] = [
+        ...((b.data ?? []) as { id: string; name: string; is_active: boolean }[]).map((x) => ({ id: `buyer:${x.id}`, label: `${x.name} (Buyer)`, inactive: !x.is_active })),
+        ...((su.data ?? []) as { id: string; name: string; is_active: boolean }[]).map((x) => ({ id: `supplier:${x.id}`, label: `${x.name} (Supplier)`, inactive: !x.is_active })),
+      ]
+      setPartyOptions(opts)
+      const have = ((links.data ?? []) as { owner_type: string; owner_id: string }[]).map((l) => `${l.owner_type}:${l.owner_id}`)
+      setHaveParties(have)
+      setPartyIds(have)
+    })()
+    return () => {
+      live = false
+    }
+  }, [row])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
@@ -611,11 +645,30 @@ function LocationDrawer({
       return setErr(errMessage(error, 'Could not save this location'))
     }
     const failed = newId && files.length > 0 ? await uploadDocuments(locationDocStore(newId), newId, files) : []
+    let linkProblem = ''
+    const locationId = row?.id ?? newId
+    if (locationId) {
+      const want = [...new Set(partyIds)]
+      const add = want.filter((id) => !haveParties.includes(id))
+      const drop = haveParties.filter((id) => !want.includes(id))
+      const split = (id: string) => ({ owner_type: id.split(':')[0] as 'buyer' | 'supplier', owner_id: id.split(':')[1] as string })
+      for (const id of drop) {
+        const o = split(id)
+        const { error: e1 } = await supabase.from('location_links').delete().eq('location_id', locationId).eq('owner_type', o.owner_type).eq('owner_id', o.owner_id)
+        if (e1) linkProblem = errMessage(e1)
+      }
+      if (add.length > 0) {
+        const { error: e2 } = await supabase.from('location_links').insert(add.map((id) => ({ ...split(id), location_id: locationId })))
+        if (e2) linkProblem = errMessage(e2)
+      }
+    }
     setBusy(false)
     await onDone(
       failed.length > 0
         ? `${payload.name} added, but some documents were not uploaded (${failed.join('; ')}). Use Documents on the list to retry.`
-        : `${payload.name} ${row ? 'updated' : 'added'}.`,
+        : linkProblem
+          ? `${payload.name} ${row ? 'updated' : 'added'}, but its Buyers & Suppliers were not saved: ${linkProblem}`
+          : `${payload.name} ${row ? 'updated' : 'added'}.`,
     )
   }
 
@@ -642,6 +695,9 @@ function LocationDrawer({
             <Field id="loc-state" label="State">
               <input id="loc-state" value={form.state} placeholder="Enter State" onChange={(e) => set('state', e.target.value)} />
             </Field>
+            <Field id="loc-date" label="Date">
+              <input id="loc-date" type="date" value={form.record_date} onChange={(ev) => set('record_date', ev.target.value)} />
+            </Field>
             <Field id="loc-zone" label="Zone">
               <select id="loc-zone" value={form.zone} onChange={(e) => set('zone', e.target.value)}>
                 <option value="">-- Select Zone --</option>
@@ -664,6 +720,14 @@ function LocationDrawer({
             <Field id="loc-md" label="Contact Person (MD)">
               <input id="loc-md" value={form.md_contact} placeholder="Enter Contact Person (MD)" onChange={(e) => set('md_contact', e.target.value)} />
             </Field>
+            <LinkPicker
+              id="loc-parties"
+              label="Buyers & Suppliers"
+              options={partyOptions}
+              value={partyIds}
+              onChange={setPartyIds}
+              placeholder="-- Select Buyers & Suppliers --"
+            />
             <Field id="loc-acc-phone" label="Accounts Dept Phone" error={show('loc-acc-phone')} hint="6 to 15 digits.">
               <input id="loc-acc-phone" inputMode="numeric" className="mono" value={form.accounts_phone} placeholder="Accounts Dept Phone number" onChange={(e) => set('accounts_phone', e.target.value.replace(/\D/g, ''))} />
             </Field>
@@ -672,15 +736,12 @@ function LocationDrawer({
                 <textarea id="loc-address" rows={3} value={form.address} placeholder="Enter Address" onChange={(e) => set('address', e.target.value)} />
               </Field>
             </FullWidth>
-            {row ? (
+            {row && (
               <FullWidth>
                 <UsedBy locationId={row.id} />
               </FullWidth>
-            ) : (
-              <FullWidth>
-                <p className="field-hint">Buyers & Suppliers: link a buyer or supplier to this location from that record's Location MDM field.</p>
-              </FullWidth>
             )}
+            {existing && (
             <FullWidth>
               <label className="check">
                 <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
@@ -690,6 +751,7 @@ function LocationDrawer({
                 </span>
               </label>
             </FullWidth>
+            )}
           </FormSection>
 
           {!readOnly && (

@@ -660,6 +660,20 @@ const suggestShort = (name: string) => name.trim().split(/\s+/)[0]?.toUpperCase(
 const suggestPrefix = (name: string) =>
   name.trim().split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
 
+/** The reference prefix for a new business unit whose form does not ask for one:
+ *  initials of the name, with a number added until no other unit uses it. */
+function uniquePrefix(name: string, others: readonly Company[]): string {
+  const base = suggestPrefix(name) || (name.trim() ? 'BU' : '')
+  if (!base) return ''
+  const used = new Set(others.map((c) => c.ref_prefix.trim().toUpperCase()))
+  if (!used.has(base)) return base
+  for (let n = 2; n < 1000; n += 1) {
+    const next = base + n
+    if (!used.has(next)) return next
+  }
+  return base
+}
+
 function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsChanged, readOnly = false }: DrawerProps) {
   const existing = editing.mode === 'edit' ? editing.company : null
   const [files, setFiles] = useState<File[]>([])
@@ -703,7 +717,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
       ...prev,
       name,
       ...(creating && !touched.short ? { short_name: suggestShort(name) } : {}),
-      ...(creating && !touched.ref ? { ref_prefix: suggestPrefix(name) } : {}),
+      ...(creating && !touched.ref ? { ref_prefix: uniquePrefix(name, companies) } : {}),
     }))
   }
 
@@ -711,6 +725,9 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
     setSubmitted(true)
     setServerError(null)
     if (Object.keys(errors).length > 0) {
+      // A new unit's form does not show Company settings; say what is wrong with them in words.
+      const hidden = creating ? ['c-short', 'c-ref', 'c-currency'].map((id) => errors[id]).filter(Boolean) : []
+      if (hidden.length > 0 && Object.keys(errors).every((id) => ['c-short', 'c-ref', 'c-currency'].includes(id))) setServerError(hidden[0] ?? null)
       focusFirstError(errors)
       return
     }
@@ -863,6 +880,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
             </FormSection>
           )}
 
+{!creating && (
           <FormSection title="Company settings" description="Used by the app itself: record date, short name, reference numbers and role.">
             <Field id="c-date" label="Date" hint="Set to today for a new business unit; change it if the record belongs to another day.">
               <input id="c-date" type="date" value={form.record_date} onChange={(e) => set('record_date', e.target.value)} />
@@ -913,6 +931,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
               </label>
             </FullWidth>
           </FormSection>
+          )}
       </>
 
       <div className="drawer-actions">

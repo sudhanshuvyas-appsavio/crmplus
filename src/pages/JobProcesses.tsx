@@ -31,6 +31,7 @@ import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { GST_STATES, errMessage, isGst, isMobile } from '../lib/party'
 import { formatDate } from '../lib/format'
+import { todayIST } from '../lib/tasks'
 
 type Company = { id: string; name: string; is_active: boolean }
 
@@ -53,6 +54,7 @@ const CSV_COLUMNS = [
 ] as const
 
 type Form = {
+  record_date: string
   name: string
   short_name: string
   buyer_id: string
@@ -79,13 +81,14 @@ type Form = {
 }
 
 const blank: Form = {
-  name: '', short_name: '', buyer_id: '', station_id: '', office_address: '', delivery_address: '',
+  record_date: '', name: '', short_name: '', buyer_id: '', station_id: '', office_address: '', delivery_address: '',
   contact_person: '', mobile: '', contact_person_2: '', mobile_2: '', office_phone: '', res_phone: '',
   gst: '', state_code: '', state: '', pan: '', bank_account: '', company_id: '', info: '', remarks: '', is_active: true,
   email_1: '', email_2: '',
 }
 
 const fromRow = (r: JobProcess): Form => ({
+  record_date: r.record_date ?? '',
   name: r.name, short_name: r.short_name ?? '', buyer_id: r.buyer_id ?? '', station_id: r.station_id ?? '',
   office_address: r.office_address ?? '', delivery_address: r.delivery_address ?? '', contact_person: r.contact_person ?? '',
   mobile: r.mobile ?? '', contact_person_2: r.contact_person_2 ?? '', mobile_2: r.mobile_2 ?? '', office_phone: r.office_phone ?? '',
@@ -121,7 +124,7 @@ function jobErrors(f: Form, rows: readonly JobProcess[], selfId: string | null |
 const payload = (f: Form) => {
   const t = (v: string) => v.trim() || null
   return {
-    name: f.name.trim(), short_name: t(f.short_name), buyer_id: f.buyer_id || null, station_id: f.station_id || null,
+    record_date: f.record_date || null, name: f.name.trim(), short_name: t(f.short_name), buyer_id: f.buyer_id || null, station_id: f.station_id || null,
     office_address: t(f.office_address), delivery_address: t(f.delivery_address), contact_person: t(f.contact_person),
     mobile: t(f.mobile), contact_person_2: t(f.contact_person_2), mobile_2: t(f.mobile_2), office_phone: t(f.office_phone),
     res_phone: t(f.res_phone), gst: t(f.gst.toUpperCase()), state_code: t(isGst(f.gst.toUpperCase()) ? f.gst.slice(0, 2) : f.state_code), state: t(f.state),
@@ -201,7 +204,7 @@ export default function JobProcesses() {
       if (!q) return true
       // Every column the grid shows.
       return [
-        x.name, formatDate(x.created_at), x.office_address, x.gst, x.state, x.contact_person, x.mobile, x.email_1,
+        x.name, formatDate(x.record_date ?? x.created_at), x.office_address, x.gst, x.state, x.contact_person, x.mobile, x.email_1,
         x.contact_person_2, x.mobile_2, x.email_2, x.remarks, (locationsOf[x.id] ?? []).join(' '),
       ].some((v) => searchKey(v).includes(q))
     })
@@ -400,7 +403,7 @@ export default function JobProcesses() {
                     <strong>{x.name}</strong>
                     {!x.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                   </td>
-                  <td className="mono small">{formatDate(x.created_at)}</td>
+                  <td className="mono small">{formatDate(x.record_date ?? x.created_at)}</td>
                   <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.office_address ?? '—'}</td>
                   <td className="mono small">{x.gst ?? '—'}</td>
                   <td className="small">{x.state ?? '—'}</td>
@@ -501,7 +504,7 @@ function JobProcessDrawer({
   const canManage = canManageRecords && !viewOnly
   const [files, setFiles] = useState<File[]>([])
   const row = existing
-  const [f, setF] = useState<Form>(existing ? fromRow(existing) : blank)
+  const [f, setF] = useState<Form>(existing ? fromRow(existing) : { ...blank, record_date: todayIST() })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const locationOptions = useLocationOptions()
@@ -600,6 +603,9 @@ function JobProcessDrawer({
             <Field id="t-name" label="Name" required error={show('t-name')}>
               <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
             </Field>
+            <Field id="t-date" label="Date">
+              <input id="t-date" type="date" value={f.record_date} onChange={(ev) => set('record_date', ev.target.value)} />
+            </Field>
             <Field id="t-gst" label="GST No." required error={show('t-gst')} hint="Fills state code, state and PAN.">
               <input id="t-gst" className="mono" maxLength={15} value={f.gst} placeholder="Enter GST No." onChange={(ev) => setGst(ev.target.value)} />
             </Field>
@@ -668,6 +674,7 @@ function JobProcessDrawer({
             </FormSection>
           )}
 
+{existing && (
           <FormSection title="More details" description="Kept in CRM+ for deliveries; not on the monday form.">
             <Field id="t-short" label="Short name">
               <input id="t-short" value={f.short_name} onChange={(ev) => set('short_name', ev.target.value)} />
@@ -705,6 +712,7 @@ function JobProcessDrawer({
               </label>
             </FullWidth>
           </FormSection>
+          )}
       </fieldset>
 
 

@@ -166,6 +166,7 @@ export type SupplierOnlyForm = {
   counts_supplying: string
   spindles: string
   monthly_production: string
+  current_machines: string
 }
 
 export type BuyerOnlyForm = {
@@ -174,6 +175,8 @@ export type BuyerOnlyForm = {
   fabric_producing: string
   reed_pick: string
   width: string
+  quantity: string
+  type_text: string
 }
 
 export const blankProfile = (): ProfileForm => ({
@@ -182,8 +185,8 @@ export const blankProfile = (): ProfileForm => ({
   contact_3_name: '', contact_3_mobile: '', contact_3_email: '', sales_person_id: '', collection_staff_id: '',
   messenger_id: '', qty_bags_month: '', qty_kgs_month: '', default_commission: '',
 })
-export const blankSupplierOnly = (): SupplierOnlyForm => ({ machine_type: '', counts_supplying: '', spindles: '', monthly_production: '' })
-export const blankBuyerOnly = (): BuyerOnlyForm => ({ machine_types: [], no_of_looms: '', fabric_producing: '', reed_pick: '', width: '' })
+export const blankSupplierOnly = (): SupplierOnlyForm => ({ machine_type: '', counts_supplying: '', spindles: '', monthly_production: '', current_machines: '' })
+export const blankBuyerOnly = (): BuyerOnlyForm => ({ machine_types: [], no_of_looms: '', fabric_producing: '', reed_pick: '', width: '', quantity: '', type_text: '' })
 
 const numText = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v))
 
@@ -214,6 +217,7 @@ export function supplierOnlyFromRow(row: SupplierMaster | null | undefined): Sup
     counts_supplying: numText(row?.counts_supplying),
     spindles: numText(row?.spindles),
     monthly_production: numText(row?.monthly_production),
+    current_machines: row?.current_machines ?? '',
   }
 }
 
@@ -224,6 +228,8 @@ export function buyerOnlyFromRow(row: BuyerMaster | null | undefined): BuyerOnly
     fabric_producing: row?.fabric_producing ?? '',
     reed_pick: row?.reed_pick ?? '',
     width: row?.width ?? '',
+    quantity: numText(row?.quantity),
+    type_text: row?.type_text ?? '',
   }
 }
 
@@ -436,6 +442,7 @@ export function supplierPayload(f: SupplierForm) {
     counts_supplying: numOrNull(f.counts_supplying),
     spindles: numOrNull(f.spindles),
     monthly_production: numOrNull(f.monthly_production),
+    current_machines: orNull(f.current_machines),
     name: f.name.trim(),
     contact_person: orNull(f.contact_person),
     mobile: orNull(f.mobile),
@@ -645,6 +652,8 @@ export function buyerPayload(f: BuyerForm) {
     fabric_producing: orNull(f.fabric_producing),
     reed_pick: orNull(f.reed_pick),
     width: orNull(f.width),
+    quantity: numOrNull(f.quantity),
+    type_text: orNull(f.type_text),
     name: f.name.trim(),
     contact_person: orNull(f.contact_person),
     mobile: f.mobile.trim() || null,
@@ -991,7 +1000,10 @@ export function PartyProfileSections({
       </FormSection>
 
       {showBuyer && (
-        <FormSection title="Incase of Buyer / Supplier" description="Shown for a Buyer." count={7}>
+        <FormSection title="Incase of Buyer / Supplier" description="Shown for a Buyer." count={9}>
+          <Field id={`${p}-quantity`} label="Quantity" hint={badNumber(form.quantity) ? 'A number.' : undefined}>
+            <input id={`${p}-quantity`} inputMode="decimal" value={form.quantity} placeholder="Enter Quantity" onChange={(e) => set('quantity', e.target.value)} />
+          </Field>
           <Field id={`${p}-fabric`} label="Fabric Producing">
             <input id={`${p}-fabric`} value={form.fabric_producing} placeholder="Enter Fabric Producing" onChange={(e) => set('fabric_producing', e.target.value)} />
           </Field>
@@ -1009,6 +1021,9 @@ export function PartyProfileSections({
           </Field>
           <Field id={`${p}-width`} label="Width">
             <input id={`${p}-width`} value={form.width} placeholder="Enter Width" onChange={(e) => set('width', e.target.value)} />
+          </Field>
+          <Field id={`${p}-typetext`} label="Type">
+            <input id={`${p}-typetext`} value={form.type_text} placeholder="Enter Type" onChange={(e) => set('type_text', e.target.value)} />
           </Field>
           <FullWidth>
             <div className="field">
@@ -1034,6 +1049,9 @@ export function PartyProfileSections({
           </Field>
           <Field id={`${p}-csup`} label="Counts Supplying" hint={form.counts_supplying && !isCount(form.counts_supplying) ? 'A whole number.' : undefined}>
             <input id={`${p}-csup`} inputMode="numeric" value={form.counts_supplying} placeholder="Enter Counts Supplying" onChange={(e) => set('counts_supplying', e.target.value.replace(/\D/g, ''))} />
+          </Field>
+          <Field id={`${p}-curmach`} label="Current Machines">
+            <input id={`${p}-curmach`} value={form.current_machines} placeholder="Enter Current Machines" onChange={(e) => set('current_machines', e.target.value)} />
           </Field>
           <Field id={`${p}-spindles`} label="Supplier No. of Roters & Spindles" hint={form.spindles && !isCount(form.spindles) ? 'A whole number.' : undefined}>
             <input id={`${p}-spindles`} inputMode="numeric" value={form.spindles} placeholder="Enter Supplier No. of Roters & Spindles" onChange={(e) => set('spindles', e.target.value.replace(/\D/g, ''))} />
