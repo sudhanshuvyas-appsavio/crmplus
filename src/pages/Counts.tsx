@@ -590,11 +590,6 @@ function CountDrawer({
             <Field id="ct-ply" label="Yarn">
               {select('ct-ply', form.ply, COUNT_PLIES, (v) => set('ply', v), '-- Select Yarn --')}
             </Field>
-            {opened && (
-              <Field id="ct-item" label="Item ID" hint="Assigned automatically.">
-                <input id="ct-item" className="mono" readOnly style={readOnlyStyle} value={opened.item_no} />
-              </Field>
-            )}
           </FormSection>
 
           <FormSection title="Fabric Composition" count={5}>
