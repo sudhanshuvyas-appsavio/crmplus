@@ -84,12 +84,13 @@ sending) needs a few one-off steps. Nothing below puts a secret in the repo.
 
 ### 1. Apply the migrations, in order
 
-Apply these three files from `supabase/migrations/` (staging first), in this
+Apply these files from `supabase/migrations/` (staging first), in this
 order, with `psql` as described under Database above:
 
 1. `20261118100000_tasks_module.sql` - tables, rules, permissions, storage
 2. `20261118100100_tasks_archive_old.sql` - archives the old collection tasks and cheques and copies open rows across
 3. `20261118100200_tasks_scheduler.sql` - `run_task_rules()` and its pg_cron job
+4. `20261119100000_task_boards_monday_parity.sql` - one typed view per monday board (`board_monthly_visit`, `board_mill_invoice_delivery`, `board_commission_invoice_delivery`, `board_payment_collection`, `board_freight_invoice`, `board_sample_delivery`, `board_cheque_collection`), subitems, Messenger-first assignment, the freight-outstanding and cheque-collected notifications, and monday's wording and visit branches in `run_task_rules()`
 
 ### 2. Permissions
 

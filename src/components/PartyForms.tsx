@@ -9,7 +9,7 @@
 import { useContext, useEffect, useState, type ReactNode } from 'react'
 import { FieldErrorsContext, FieldErrorsProvider } from './fieldErrors'
 import { supabase } from '../lib/supabase'
-import { BUYER_MACHINE_TYPES, CATEGORIES, COMMISSION_BASES } from '../api/types'
+import { CATEGORIES, COMMISSION_BASES } from '../api/types'
 import type { BuyerMaster, PartyProfile, SupplierMaster } from '../api/types'
 import { GST_STATES, isGst, isMobile, numOrNull } from '../lib/party'
 import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
@@ -166,6 +166,7 @@ export type SupplierOnlyForm = {
   counts_supplying: string
   spindles: string
   monthly_production: string
+  current_machines: string
 }
 
 export type BuyerOnlyForm = {
@@ -174,6 +175,8 @@ export type BuyerOnlyForm = {
   fabric_producing: string
   reed_pick: string
   width: string
+  quantity: string
+  type_text: string
 }
 
 export const blankProfile = (): ProfileForm => ({
@@ -182,8 +185,8 @@ export const blankProfile = (): ProfileForm => ({
   contact_3_name: '', contact_3_mobile: '', contact_3_email: '', sales_person_id: '', collection_staff_id: '',
   messenger_id: '', qty_bags_month: '', qty_kgs_month: '', default_commission: '',
 })
-export const blankSupplierOnly = (): SupplierOnlyForm => ({ machine_type: '', counts_supplying: '', spindles: '', monthly_production: '' })
-export const blankBuyerOnly = (): BuyerOnlyForm => ({ machine_types: [], no_of_looms: '', fabric_producing: '', reed_pick: '', width: '' })
+export const blankSupplierOnly = (): SupplierOnlyForm => ({ machine_type: '', counts_supplying: '', spindles: '', monthly_production: '', current_machines: '' })
+export const blankBuyerOnly = (): BuyerOnlyForm => ({ machine_types: [], no_of_looms: '', fabric_producing: '', reed_pick: '', width: '', quantity: '', type_text: '' })
 
 const numText = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v))
 
@@ -214,6 +217,7 @@ export function supplierOnlyFromRow(row: SupplierMaster | null | undefined): Sup
     counts_supplying: numText(row?.counts_supplying),
     spindles: numText(row?.spindles),
     monthly_production: numText(row?.monthly_production),
+    current_machines: row?.current_machines ?? '',
   }
 }
 
@@ -224,6 +228,8 @@ export function buyerOnlyFromRow(row: BuyerMaster | null | undefined): BuyerOnly
     fabric_producing: row?.fabric_producing ?? '',
     reed_pick: row?.reed_pick ?? '',
     width: row?.width ?? '',
+    quantity: numText(row?.quantity),
+    type_text: row?.type_text ?? '',
   }
 }
 
@@ -436,6 +442,7 @@ export function supplierPayload(f: SupplierForm) {
     counts_supplying: numOrNull(f.counts_supplying),
     spindles: numOrNull(f.spindles),
     monthly_production: numOrNull(f.monthly_production),
+    current_machines: orNull(f.current_machines),
     name: f.name.trim(),
     contact_person: orNull(f.contact_person),
     mobile: orNull(f.mobile),
@@ -645,6 +652,8 @@ export function buyerPayload(f: BuyerForm) {
     fabric_producing: orNull(f.fabric_producing),
     reed_pick: orNull(f.reed_pick),
     width: orNull(f.width),
+    quantity: numOrNull(f.quantity),
+    type_text: orNull(f.type_text),
     name: f.name.trim(),
     contact_person: orNull(f.contact_person),
     mobile: f.mobile.trim() || null,
@@ -762,34 +771,6 @@ export function BuyerFields({
  *  buyer-only ones. Which of them show, and which are required, follows the role. */
 export type FullPartyForm = SupplierForm & BuyerOnlyForm & { spindlage_capacity: string }
 
-function TeamSelect({
-  id,
-  label,
-  value,
-  people,
-  onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  people: { id: string; name: string }[]
-  onChange: (value: string) => void
-}) {
-  return (
-    <Field id={id} label={label}>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">—</option>
-        {value && !people.some((x) => x.id === value) && <option value={value}>Unknown user</option>}
-        {people.map((x) => (
-          <option key={x.id} value={x.id}>
-            {x.name}
-          </option>
-        ))}
-      </select>
-    </Field>
-  )
-}
-
 /** Every section of the contact form, in order: Identity, Contacts, Phones and
  *  web, Addresses, Bank, Commission, Team, Business unit, Locations and
  *  Counts, Production profile, Remarks. `businessUnit` is the page's own
@@ -838,8 +819,6 @@ export function PartyProfileSections({
   const mobileHint = (v: string) => (v && !isMobile(v) ? 'Must be exactly 10 digits.' : undefined)
   const phoneHint = (v: string) => (v && !isPhone(v) ? 'Phone numbers are 6 to 15 digits.' : undefined)
   const emailHint = (v: string) => (v && !isEmail(v) ? 'An email address contains an @.' : undefined)
-  const toggleMachine = (m: string, on: boolean) =>
-    set('machine_types', on ? [...form.machine_types.filter((x) => x !== m), m] : form.machine_types.filter((x) => x !== m))
 
   const sideWord = showBuyer && showSupplier ? '' : showBuyer ? 'Buyer ' : 'Supplier '
 
@@ -991,7 +970,10 @@ export function PartyProfileSections({
       </FormSection>
 
       {showBuyer && (
-        <FormSection title="Incase of Buyer / Supplier" description="Shown for a Buyer." count={7}>
+        <FormSection title="Incase of Buyer / Supplier" description="Shown for a Buyer." count={9}>
+          <Field id={`${p}-quantity`} label="Quantity" hint={badNumber(form.quantity) ? 'A number.' : undefined}>
+            <input id={`${p}-quantity`} inputMode="decimal" value={form.quantity} placeholder="Enter Quantity" onChange={(e) => set('quantity', e.target.value)} />
+          </Field>
           <Field id={`${p}-fabric`} label="Fabric Producing">
             <input id={`${p}-fabric`} value={form.fabric_producing} placeholder="Enter Fabric Producing" onChange={(e) => set('fabric_producing', e.target.value)} />
           </Field>
@@ -1010,21 +992,9 @@ export function PartyProfileSections({
           <Field id={`${p}-width`} label="Width">
             <input id={`${p}-width`} value={form.width} placeholder="Enter Width" onChange={(e) => set('width', e.target.value)} />
           </Field>
-          <FullWidth>
-            <div className="field">
-              <span className="muted small">Buyer Machine Type</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 6 }}>
-                {BUYER_MACHINE_TYPES.map((m) => (
-                  <label key={m} className="check">
-                    <input type="checkbox" checked={form.machine_types.includes(m)} onChange={(e) => toggleMachine(m, e.target.checked)} />
-                    <span className="check-body">
-                      <span className="check-label">{m}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </FullWidth>
+          <Field id={`${p}-typetext`} label="Type">
+            <input id={`${p}-typetext`} value={form.type_text} placeholder="Enter Type" onChange={(e) => set('type_text', e.target.value)} />
+          </Field>
         </FormSection>
       )}
       {showSupplier && (
@@ -1034,6 +1004,9 @@ export function PartyProfileSections({
           </Field>
           <Field id={`${p}-csup`} label="Counts Supplying" hint={form.counts_supplying && !isCount(form.counts_supplying) ? 'A whole number.' : undefined}>
             <input id={`${p}-csup`} inputMode="numeric" value={form.counts_supplying} placeholder="Enter Counts Supplying" onChange={(e) => set('counts_supplying', e.target.value.replace(/\D/g, ''))} />
+          </Field>
+          <Field id={`${p}-curmach`} label="Current Machines">
+            <input id={`${p}-curmach`} value={form.current_machines} placeholder="Enter Current Machines" onChange={(e) => set('current_machines', e.target.value)} />
           </Field>
           <Field id={`${p}-spindles`} label="Supplier No. of Roters & Spindles" hint={form.spindles && !isCount(form.spindles) ? 'A whole number.' : undefined}>
             <input id={`${p}-spindles`} inputMode="numeric" value={form.spindles} placeholder="Enter Supplier No. of Roters & Spindles" onChange={(e) => set('spindles', e.target.value.replace(/\D/g, ''))} />
@@ -1063,34 +1036,6 @@ export function PartyProfileSections({
         </Field>
       </FormSection>
 
-      <FormSection title="More details" description="Columns of the monday board that its creation form does not ask for, kept here so a record can still be completed.">
-        <Field id={`${p}-short`} label="Short Name">
-          <input id={`${p}-short`} value={form.short_name} onChange={(e) => set('short_name', e.target.value)} />
-        </Field>
-        <Field id={`${p}-ccode`} label="Customer Code" hint="Your own code for this party. Unique within its master.">
-          <input id={`${p}-ccode`} className="mono" value={form.customer_code} onChange={(e) => set('customer_code', e.target.value)} />
-        </Field>
-        <Field id={`${p}-scode`} label="State Code">
-          <input id={`${p}-scode`} className="mono" maxLength={2} inputMode="numeric" value={form.state_code} onChange={(e) => set('state_code', e.target.value.replace(/\D/g, ''))} />
-        </Field>
-        <Field id={`${p}-rphone`} label="Res Phone" hint={phoneHint(form.res_phone)}>
-          <input id={`${p}-rphone`} inputMode="numeric" maxLength={15} className="mono" value={form.res_phone} onChange={digits('res_phone')} />
-        </Field>
-        <Field id={`${p}-web`} label="Website URL">
-          <input id={`${p}-web`} value={form.website} onChange={(e) => set('website', e.target.value)} />
-        </Field>
-        <Field id={`${p}-map`} label="Map Location">
-          <input id={`${p}-map`} value={form.map_url} onChange={(e) => set('map_url', e.target.value)} />
-        </Field>
-        <Field id={`${p}-bank1`} label="Bank Account Details 1">
-          <input id={`${p}-bank1`} className="mono" value={form.bank_account_1} onChange={(e) => set('bank_account_1', e.target.value)} />
-        </Field>
-        <Field id={`${p}-bank2`} label="Bank Account Details 2">
-          <input id={`${p}-bank2`} className="mono" value={form.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
-        </Field>
-        <TeamSelect id={`${p}-sales`} label="Sales Person" value={form.sales_person_id} people={people} onChange={(v) => set('sales_person_id', v)} />
-        <TeamSelect id={`${p}-coll`} label="Collection Staff" value={form.collection_staff_id} people={people} onChange={(v) => set('collection_staff_id', v)} />
-      </FormSection>
     </>
   )
 }

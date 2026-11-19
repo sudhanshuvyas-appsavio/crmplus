@@ -18,7 +18,7 @@ import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { findDuplicate, focusFirstError, isEmail, isPan, isStateCode, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, isPan, isStateCode, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
@@ -31,6 +31,7 @@ import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { GST_STATES, errMessage, isGst, isMobile } from '../lib/party'
 import { formatDate } from '../lib/format'
+import { todayIST } from '../lib/tasks'
 
 type Company = { id: string; name: string; is_active: boolean }
 
@@ -56,6 +57,7 @@ const CSV_COLUMNS = [
 ] as const
 
 type Form = {
+  record_date: string
   transporter_type: 'internal' | 'third_party'
   name: string
   short_name: string
@@ -86,13 +88,14 @@ type Form = {
 }
 
 const blank: Form = {
-  transporter_type: 'third_party', name: '', short_name: '', station_id: '', office_address: '', delivery_address: '',
+  record_date: '', transporter_type: 'third_party', name: '', short_name: '', station_id: '', office_address: '', delivery_address: '',
   contact_person: '', mobile: '', contact_person_2: '', mobile_2: '', office_phone: '', res_phone: '',
   gst: '', state_code: '', state: '', pan: '', bank_account: '', company_id: '', info: '', remarks: '', is_active: true,
   email: '', vehicle_type: '', vehicle_no_1: '', vehicle_no_2: '', vehicle_no_3: '', bank_account_2: '',
 }
 
 const fromRow = (r: Transporter): Form => ({
+  record_date: r.record_date ?? '',
   transporter_type: r.transporter_type, name: r.name, short_name: r.short_name ?? '', station_id: r.station_id ?? '',
   office_address: r.office_address ?? '', delivery_address: r.delivery_address ?? '', contact_person: r.contact_person ?? '',
   mobile: r.mobile ?? '', contact_person_2: r.contact_person_2 ?? '', mobile_2: r.mobile_2 ?? '', office_phone: r.office_phone ?? '',
@@ -108,6 +111,7 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
   const er: FieldErrors = {}
   requireText(er, 't-name', f.name, 'Name is required.')
   if (!er['t-name'] && findDuplicate(rows, selfId, (r) => r.name, f.name, nameKey)) er['t-name'] = 'A transport company with this name already exists.'
+  if (!er['t-name']) { const m = nameProblem('Name', f.name); if (m) er['t-name'] = m }
   if (f.email.trim() && !isEmail(f.email)) er['t-email'] = 'Enter a valid email, like name@company.com.'
   if (isNew) requireText(er, 't-gst', f.gst, 'GST No. is required.')
   const gst = f.gst.trim().toUpperCase()
@@ -116,6 +120,7 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
   if (f.office_phone.trim() && !/^[0-9]{6,15}$/.test(f.office_phone.trim())) er['t-ophone'] = 'Office Phone must be 6 to 15 digits.'
   if (f.res_phone.trim() && !/^[0-9]{6,15}$/.test(f.res_phone.trim())) er['t-rphone'] = 'Res Phone must be 6 to 15 digits.'
   if (isNew) requireText(er, 't-state', f.state, 'State is required.')
+  { const m = placeProblem('State', f.state); if (m) er['t-state'] = m }
   if (isNew) requireText(er, 't-sc', f.state_code, 'State Code is required.')
   if (f.state_code.trim() && !isStateCode(f.state_code)) er['t-sc'] = 'State Code must be 2 digits.'
   else if (gst && isGst(gst) && f.state_code.trim() && gst.slice(0, 2) !== f.state_code.trim()) er['t-sc'] = 'State Code must match the first two digits of the GST number.'
@@ -125,6 +130,8 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
   if (isNew) requireText(er, 't-pan', f.pan, 'IT PAN is required.')
   if (f.pan.trim() && !isPan(f.pan)) er['t-pan'] = 'Enter a valid PAN: 5 letters, 4 digits, 1 letter (like AHFPS5121G).'
   if (isNew) requireText(er, 't-cp', f.contact_person, 'Contact Person 1 is required.')
+  { const m = personProblem('Contact Person 1', f.contact_person); if (m) er['t-cp'] = m }
+  { const m = personProblem('Contact Person 2', f.contact_person_2); if (m) er['t-cp2'] = m }
   if (isNew) requireText(er, 't-mob', f.mobile, 'Contact Person 1 Phone is required.')
   if (f.mobile.trim() && !isMobile(f.mobile)) er['t-mob'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
   if (f.mobile_2.trim() && !isMobile(f.mobile_2)) er['t-mob2'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
@@ -135,7 +142,7 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
 const payload = (f: Form) => {
   const t = (v: string) => v.trim() || null
   return {
-    transporter_type: f.transporter_type, name: f.name.trim(), short_name: t(f.short_name), station_id: f.station_id || null,
+    record_date: f.record_date || null, transporter_type: f.transporter_type, name: f.name.trim(), short_name: t(f.short_name), station_id: f.station_id || null,
     office_address: t(f.office_address), delivery_address: t(f.delivery_address), contact_person: t(f.contact_person),
     mobile: t(f.mobile), contact_person_2: t(f.contact_person_2), mobile_2: t(f.mobile_2), office_phone: t(f.office_phone),
     res_phone: t(f.res_phone), gst: t(f.gst.toUpperCase()), state_code: t(f.state_code), state: t(f.state),
@@ -214,7 +221,7 @@ export default function Transporters() {
       if (!q) return true
       // Every column the grid shows.
       return [
-        x.name, VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type, formatDate(x.created_at), x.email,
+        x.name, VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type, formatDate(x.record_date ?? x.created_at), x.email,
         x.office_address, x.delivery_address, x.office_phone, x.res_phone, x.gst, x.state, x.state_code, x.bank_account,
         x.bank_account_2, x.pan, x.contact_person, x.mobile, x.contact_person_2, x.mobile_2, x.vehicle_no_1, x.vehicle_no_2,
         x.vehicle_no_3, x.remarks, (locationsOf[x.id] ?? []).join(' '), x.company_id ? companyName.get(x.company_id) : '',
@@ -428,7 +435,7 @@ export default function Transporters() {
                     {!x.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                   </td>
                   <td className="small">{x.vehicle_type ? <span className="chip">{VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type}</span> : '—'}</td>
-                  <td className="mono small">{formatDate(x.created_at)}</td>
+                  <td className="mono small">{formatDate(x.record_date ?? x.created_at)}</td>
                   <td className="small">{x.email ?? '—'}</td>
                   <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.office_address ?? '—'}</td>
                   <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.delivery_address ?? '—'}</td>
@@ -521,7 +528,7 @@ export default function Transporters() {
 }
 
 function TransporterDrawer({
-  row: existing, rows, canManage: canManageRecords, viewOnly = false, stations, companies, onClose, onDone, onDocsChanged,
+  row: existing, rows, canManage: canManageRecords, viewOnly = false, companies, onClose, onDone, onDocsChanged,
 }: {
   onDocsChanged?: () => void
   row: Transporter | null
@@ -536,7 +543,7 @@ function TransporterDrawer({
   const canManage = canManageRecords && !viewOnly
   const [files, setFiles] = useState<File[]>([])
   const row = existing
-  const [f, setF] = useState<Form>(existing ? fromRow(existing) : blank)
+  const [f, setF] = useState<Form>(existing ? fromRow(existing) : { ...blank, record_date: todayIST() })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const locationOptions = useLocationOptions()
@@ -549,7 +556,7 @@ function TransporterDrawer({
   const fieldValue: Record<string, string> = {
     't-name': f.name, 't-email': f.email, 't-gst': f.gst, 't-ophone': f.office_phone, 't-state': f.state, 't-sc': f.state_code,
     't-oaddr': f.office_address, 't-company': f.company_id, 't-bank': f.bank_account, 't-pan': f.pan, 't-cp': f.contact_person,
-    't-mob': f.mobile, 't-mob2': f.mobile_2, 't-rphone': f.res_phone, 't-vtype': f.vehicle_type,
+    't-mob': f.mobile, 't-mob2': f.mobile_2, 't-cp2': f.contact_person_2, 't-rphone': f.res_phone, 't-vtype': f.vehicle_type,
   }
   const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
 
@@ -631,9 +638,12 @@ function TransporterDrawer({
       <ErrorBanner message={err} />
       {!canManage && !viewOnly && <div className="notice small">You can view this record; changing it needs the “Add and edit transporters” permission.</div>}
       <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-          <FormSection title="Transport Type Details" count={11}>
+          <FormSection title="Transport Type Details" count={12}>
             <Field id="t-name" label="Name" required error={show('t-name')}>
               <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
+            </Field>
+            <Field id="t-date" label="Date">
+              <input id="t-date" type="date" value={f.record_date} onChange={(ev) => set('record_date', ev.target.value)} />
             </Field>
             <Field id="t-email" label="Email" error={show('t-email')}>
               <input id="t-email" type="email" value={f.email} placeholder="Enter Email" onChange={(ev) => set('email', ev.target.value)} />
@@ -697,7 +707,7 @@ function TransporterDrawer({
             <Field id="t-mob" label="Contact Person 1 Phone" required error={show('t-mob')} hint="10 digits.">
               <input id="t-mob" className="mono" inputMode="numeric" maxLength={10} value={f.mobile} placeholder="Contact Person 1 Phone number" onChange={(ev) => set('mobile', ev.target.value.replace(/\D/g, ''))} />
             </Field>
-            <Field id="t-cp2" label="Contact Person 2">
+            <Field id="t-cp2" label="Contact Person 2" error={show('t-cp2')}>
               <input id="t-cp2" value={f.contact_person_2} placeholder="Enter Contact Person 2" onChange={(ev) => set('contact_person_2', ev.target.value)} />
             </Field>
             <Field id="t-mob2" label="Contact Person 2 Phone" error={show('t-mob2')} hint="10 digits.">
@@ -739,30 +749,7 @@ function TransporterDrawer({
             </FormSection>
           )}
 
-          <FormSection title="More details" description="Kept in CRM+ for transport; not on the monday form.">
-            <Field id="t-type" label="Type" hint="Internal = our own vehicle or resource.">
-              <select id="t-type" value={f.transporter_type} onChange={(ev) => set('transporter_type', ev.target.value as Form['transporter_type'])}>
-                {TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
-              </select>
-            </Field>
-            <Field id="t-short" label="Short name">
-              <input id="t-short" value={f.short_name} onChange={(ev) => set('short_name', ev.target.value)} />
-            </Field>
-            <Field id="t-station" label="Station">
-              <select id="t-station" value={f.station_id} onChange={(ev) => set('station_id', ev.target.value)}>
-                <option value="">—</option>
-                {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-              </select>
-            </Field>
-            <FullWidth>
-              <label className="check">
-                <input type="checkbox" checked={f.is_active} onChange={(ev) => set('is_active', ev.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Active</span>
-                </span>
-              </label>
-            </FullWidth>
-          </FormSection>
+
       </fieldset>
 
 

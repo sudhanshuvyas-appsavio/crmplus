@@ -148,6 +148,8 @@ export interface Company {
 
 /** A delivery / station name (`station_master`), the monday "Location MDM" list. */
 export interface StationMaster {
+  /** monday's Date field: the day the record is dated; falls back to created_at. */
+  record_date?: string | null
   id: string
   name: string
   is_active: boolean
@@ -332,6 +334,8 @@ export interface SupplierMaster extends PartyProfile {
   counts_supplying: number | null
   spindles: number | null
   monthly_production: number | null
+  /** monday's supplier "Current Machines" (text). */
+  current_machines: string | null
   created_at: string
   updated_at: string
 }
@@ -370,6 +374,9 @@ export interface BuyerMaster extends PartyProfile {
   fabric_producing: string | null
   reed_pick: string | null
   width: string | null
+  /** monday's buyer "Quantity" and "Type" (text) fields. */
+  quantity: number | null
+  type_text: string | null
   created_at: string
   updated_at: string
 }
@@ -856,6 +863,8 @@ export interface SalesConfirmation {
 /* ---- Transportation ---------------------------------------------------------- */
 
 export interface Transporter {
+  /** monday's Date field: the day the record is dated; falls back to created_at. */
+  record_date?: string | null
   id: string
   transporter_code: string
   transporter_type: 'internal' | 'third_party'
@@ -892,6 +901,8 @@ export interface Transporter {
 /* ---- Job process ------------------------------------------------------------- */
 
 export interface JobProcess {
+  /** monday's Date field: the day the record is dated; falls back to created_at. */
+  record_date?: string | null
   id: string
   process_code: string
   name: string

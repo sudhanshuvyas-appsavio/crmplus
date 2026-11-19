@@ -13,7 +13,7 @@ Before testing: run `supabase/manual/20261118_business_unit_test_data_cleanup.sq
 | 3 | Create form | Opens with monday's sections and fields in monday's order (no Select Action: changing a saved record is Actions > Edit only) |
 | 4 | Click Create with nothing entered | The button works; a message appears under **each** required field and the first one is focused; nothing is saved |
 | 5 | Required fields | Only the fields marked * are required (see the table below) |
-| 6 | Wrong formats | Email (`karthikaagency@`), phone/mobile (`98abc`, `123`), GST (`33ABC`), PAN (`12345ABCDE`), state code (`3`), numbers (`-1`) each show a message next to the field while typing; save is blocked |
+| 6 | Wrong formats | Email (`invalid@`), phone/mobile (`98abc`, `123`), GST (`33ABC`), PAN (`12345ABCDE`), state code (`3`), numbers (`-1`) each show a message next to the field while typing; save is blocked |
 | 7 | Duplicates | Same name (also `  name  ` and different capitals), same GST, same customer code are refused with a message that says which field and which record clashes |
 | 8 | Server errors | Any error from the database is a sentence about the field, shown at the top of the form (the form scrolls to it), never "Could not save" alone |
 | 9 | Edit (Actions > Edit) | The saved values load; clearing a required field shows its message; Save works when valid |
@@ -57,3 +57,13 @@ Before testing: run `supabase/manual/20261118_business_unit_test_data_cleanup.sq
 | D3 | A file over the size limit | Refused with its name in the message |
 | D4 | Upload or delete inside the edit form, then close it | The Documents column / count on the list is already correct |
 | D5 | A user without edit rights | Sees and previews files; cannot upload or delete |
+
+## Field data types (every register)
+
+| # | Scenario | Expected |
+|---|---|---|
+| T1 | Name fields (Name, Trade Name, Legal Name) typed as `12345` or `###` | Message "Name must contain letters, not only numbers or symbols."; digits inside a name ("Shree 5 Mills") are fine |
+| T2 | Contact Person fields typed as `Ravi2` or `99999` | Message that a person's name cannot contain digits / must contain letters |
+| T3 | State typed as `12` or `T4mil` (free-text State fields) | Message that State must be a name made of letters |
+| T4 | Phone / mobile with letters, numbers fields (Days, Thread Count, Quantity, Qty) with letters or negatives | Message next to the field; save blocked |
+| T5 | Date fields with a non-date value | The date picker only accepts dates; an empty Date defaults to today |

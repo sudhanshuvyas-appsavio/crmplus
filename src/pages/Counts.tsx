@@ -20,8 +20,8 @@ import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { focusFirstError, type FieldErrors, searchKey } from '../lib/validate'
+import { ErrorBanner, FormSection } from '../components/FormKit'
+import { focusFirstError, nameProblem, type FieldErrors, searchKey } from '../lib/validate'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
@@ -475,6 +475,7 @@ function CountDrawer({
   const errors = useMemo(() => {
     const er: FieldErrors = {}
     if (!existing && !form.name.trim()) er['ct-name'] = 'Name is required.'
+    else if (form.name.trim() && nameProblem('Name', form.name)) er['ct-name'] = nameProblem('Name', form.name) as string
     const n = Number(form.count_no)
     if (!form.count_no.trim()) er['ct-no'] = 'Thread Count is required (6 to 120).'
     else if (!Number.isInteger(n) || n < 6 || n > 120) er['ct-no'] = 'Thread Count must be a whole number from 6 to 120.'
@@ -589,11 +590,6 @@ function CountDrawer({
             <Field id="ct-ply" label="Yarn">
               {select('ct-ply', form.ply, COUNT_PLIES, (v) => set('ply', v), '-- Select Yarn --')}
             </Field>
-            {opened && (
-              <Field id="ct-item" label="Item ID" hint="Assigned automatically.">
-                <input id="ct-item" className="mono" readOnly style={readOnlyStyle} value={opened.item_no} />
-              </Field>
-            )}
           </FormSection>
 
           <FormSection title="Fabric Composition" count={5}>
@@ -635,15 +631,7 @@ function CountDrawer({
             <Field id="ct-overall-yarn" label="Overall Yarn" hint="Calculated field.">
               <input id="ct-overall-yarn" readOnly style={readOnlyStyle} value={state.pct1 === null ? '' : state.overallYarn} placeholder="(Calculated field)" />
             </Field>
-            <FullWidth>
-              <label className="check">
-                <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Active</span>
-                  <span className="check-hint">Inactive counts stay on record but should not be used on new leads.</span>
-                </span>
-              </label>
-            </FullWidth>
+
           </FormSection>
       </>
 

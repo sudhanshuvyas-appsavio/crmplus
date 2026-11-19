@@ -56,11 +56,11 @@ Every form ends with Create Item. (monday's forms open with Select Action, Creat
 | Sizing/Delivery Address | Sizing/Delivery Address Information (6): Name\*, Date, GST No.\*, State\*, Office Address\*, Locations. Contact Details (6): Contact Person 1\* and 2\*, their Phones\* and Emails\*. Remarks (1): Remarks 1\*. Documents (1)\* (at least one file). |
 
 Differences from monday, on purpose or by necessity:
-- **Date** is not asked on Location, Transport or Sizing/Delivery (no date column in CRM+; the record's created date is shown instead).
+- Buyers & Suppliers: monday's "Current Machines" and "Current Machine" status fields (a template leftover: Working on it / Done / Stuck) are not asked; the text "Current Machines" (supplier), Quantity and Type (buyer) are.
 - Transport "CGST" is labelled **GST No.**
-- **Buyers & Suppliers** on a Location form is not editable at creation; link a party to a location from the party's Location MDM field.
-- Buyers & Suppliers fields without a CRM+ column are not asked: Quantity, Type (text) and the Current Machines fields.
 - A new Buyer or Supplier shows only its own commission pair and its own "Incase of" fields.
-- **Edit / View of a Buyer or Supplier** use the same sections, labels and order as the creation form, plus a final "More details" card for monday columns its form does not ask for (Short Name, Customer Code, State Code, Res Phone, Website URL, Map Location, Bank Account Details 1-2, Sales Person, Collection Staff). GST verification, documents, MD contact numbers and history stay below the form.
+- **Edit of a Buyer or Supplier** uses the same sections, labels and order as the creation form, plus the record's Documents. monday columns that are not on its creation form (Short Name, Customer Code, Res Phone, Website URL, Map Location, Bank Account Details, Sales Person, Collection Staff) are not editable in the form; they keep what is stored.
 - **Counts** options are shown in title case (Ring Spun, Cotton) as in monday; the stored value stays upper case. "OEKO TEX" corrects monday's "OKEA TEX" typo, and monday's "None" option is the empty choice.
 - **Category** options are 1-4 as in monday; "Bagwise Rate" drops the stray full stop of monday's label.
+- **Create and Edit forms show only monday's fields.** The CRM+-only fields (Active toggles, Business Units' Company settings, the "More details" cards of Transport Company and Sizing/Delivery Address, Counts' Item ID, the Buyer machine-type tick boxes, GST verification, MD contact numbers and history) are no longer on the forms. A new Business Unit gets its short name, reference prefix (made unique with a number if another unit uses the same initials), Date, currency (INR) and Active filled in automatically; existing records keep their stored values.
+- **Fields added to match monday's forms:** Date on Location MDM, Transport Company and Sizing/Delivery Address; Buyers & Suppliers Quantity and Type (buyer) and Current Machines (supplier), also as grid columns; the Buyers & Suppliers picker on the Location MDM form (the Location form now edits which parties use that location).
