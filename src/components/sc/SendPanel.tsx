@@ -57,7 +57,7 @@ export function SendPanel({
 
   return (
     <>
-      <h3 className="section-title">D · Send</h3>
+      <h3 className="section-title">Send</h3>
       <p className="muted small">The supplier and the buyer are messaged separately.</p>
       <div className="drawer-actions">
         <button className={`btn${target === 'supplier' ? ' primary' : ''}`} type="button" onClick={() => setTarget('supplier')}>

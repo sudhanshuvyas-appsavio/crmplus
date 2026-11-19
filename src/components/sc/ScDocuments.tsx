@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase'
 import { errMessage } from '../../lib/party'
 import { formatDate } from '../../lib/format'
 import { useProfileNames } from '../PartyExtras'
+import { ConfirmDialog } from '../ConfirmDialog'
 
 const BUCKET = 'sc-documents'
 const MAX = 10
@@ -16,11 +17,31 @@ type ScDoc = { id: string; file_name: string; storage_path: string; size_bytes: 
 
 const sizeText = (n: number | null) => (!n ? '' : n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 
+/** Uploads files to a confirmation (used by the creation form once the confirmation exists).
+ *  Returns what went wrong, one sentence per file; empty when everything was attached. */
+export async function uploadScFiles(scId: string, kind: 'buyer' | 'supplier', files: File[]): Promise<string[]> {
+  const problems: string[] = []
+  for (const file of files.slice(0, MAX)) {
+    if (file.size > 10 * 1048576) { problems.push(`${file.name} is larger than 10 MB`); continue }
+    const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, '_')
+    const path = `${scId}/${crypto.randomUUID()}-${safe}`
+    const up = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type || undefined })
+    if (up.error) { problems.push(`${file.name}: ${up.error.message || 'upload failed'}`); continue }
+    const { error } = await supabase.from('sc_documents').insert({ sc_id: scId, kind, file_name: file.name, storage_path: path, size_bytes: file.size, mime_type: file.type || null })
+    if (error) {
+      await supabase.storage.from(BUCKET).remove([path])
+      problems.push(`${file.name}: ${errMessage(error, 'could not be recorded')}`)
+    }
+  }
+  return problems
+}
+
 export function ScDocuments({ scId, kind, canEdit }: { scId: string; kind: 'buyer' | 'supplier'; canEdit: boolean }) {
   const names = useProfileNames()
   const [docs, setDocs] = useState<ScDoc[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<ScDoc | null>(null)
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from('sc_documents').select('*').eq('sc_id', scId).eq('kind', kind).order('uploaded_at', { ascending: false })
@@ -66,15 +87,16 @@ export function ScDocuments({ scId, kind, canEdit }: { scId: string; kind: 'buye
   }
 
   async function remove(d: ScDoc) {
-    if (!window.confirm(`Remove ${d.file_name}?`)) return
     setBusy(true)
     const { data, error } = await supabase.from('sc_documents').delete().eq('id', d.id).select('id')
     if (error || !data || data.length === 0) {
       setBusy(false)
+      setRemoving(null)
       return setMsg(error ? errMessage(error) : 'Your account cannot remove this document.')
     }
     await supabase.storage.from(BUCKET).remove([d.storage_path])
     setBusy(false)
+    setRemoving(null)
     await load()
   }
 
@@ -90,7 +112,7 @@ export function ScDocuments({ scId, kind, canEdit }: { scId: string; kind: 'buye
             <li key={d.id} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <button className="btn ghost sm" type="button" onClick={() => void open(d)}>{d.file_name}</button>
               <span className="muted small">{sizeText(d.size_bytes)} · {names[d.uploaded_by ?? ''] ?? 'someone'} · {formatDate(d.uploaded_at)}</span>
-              {canEdit && <button className="btn ghost sm push" type="button" disabled={busy} onClick={() => void remove(d)}>Remove</button>}
+              {canEdit && <button className="btn ghost sm push" type="button" disabled={busy} onClick={() => setRemoving(d)}>Remove</button>}
             </li>
           ))}
         </ul>
@@ -100,6 +122,11 @@ export function ScDocuments({ scId, kind, canEdit }: { scId: string; kind: 'buye
           {busy ? 'Uploading…' : 'Attach files'}
           <input type="file" multiple hidden disabled={busy} onChange={(e) => { if (e.target.files?.length) void upload(e.target.files); e.target.value = '' }} />
         </label>
+      )}
+      {removing && (
+        <ConfirmDialog title={`Remove ${removing.file_name}?`} confirmLabel="Remove" busy={busy} onConfirm={() => void remove(removing)} onClose={() => setRemoving(null)}>
+          The file is deleted from this confirmation.
+        </ConfirmDialog>
       )}
     </>
   )

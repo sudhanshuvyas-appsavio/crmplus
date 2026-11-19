@@ -13,23 +13,31 @@
  *  If the party is not in a master yet, the Qualify panel lets the user
  *  create the master record there and then, with its required fields. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { LEAD_ROLES, LEAD_SOURCES, LEAD_STATUSES, LEAD_UOMS } from '../api/types'
+import { LEAD_ROLES, LEAD_STATUSES, LEAD_UOMS } from '../api/types'
 import { uomLabel } from '../lib/deals'
 import type { Activity, CountRow, Lead, LeadRole, LeadStatus, Station } from '../api/types'
 import { useNavigate } from 'react-router-dom'
 import { ActivityPanel } from '../components/PartyExtras'
+import { LeadQuotationPage } from '../components/LeadQuotation'
+import { BoardTabs } from '../components/board/BoardTabs'
+import { LeadDocuments } from '../components/LeadDocuments'
+import { LeadFormModal } from '../components/LeadFormModal'
+import { LeadSubitems, type SubLine } from '../components/LeadSubitems'
+import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { leadPayload, leadProblems, type LeadForm } from '../lib/leadForm'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { Drawer, DeleteControl } from '../components/Drawer'
+import { Drawer } from '../components/Drawer'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, useSelection } from '../components/ListTools'
 import { Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, pickOne } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
-import { errMessage, isGst, isMobile, numOrNull } from '../lib/party'
+import { errMessage, numOrNull } from '../lib/party'
 import { formatDate, formatDateTime } from '../lib/format'
 
 const LEAD_CSV_COLUMNS = [
@@ -39,23 +47,15 @@ const LEAD_CSV_COLUMNS = [
 ] as const
 
 type StaffOption = { id: string; name: string }
-type MasterParty = { id: string; name: string; contact_person: string | null; mobile: string | null; gst: string | null; address: string | null; is_active: boolean }
 type Editing = { mode: 'create' } | { mode: 'edit'; lead: Lead } | null
 type Banner = { kind: 'ok' | 'bad'; text: string } | null
 
-const STATUS_CHIP: Record<LeadStatus, string> = {
-  new: 'chip brand',
-  contacted: 'chip warn',
-  qualified: 'chip good',
-  lost: 'chip bad',
-}
-
 /** Board groups, one per lead status, coloured like the other boards. */
 const LEAD_GROUPS: BoardGroup[] = [
-  { value: 'new', label: 'New', tone: 'blue' },
+  { value: 'new', label: 'New Leads', tone: 'blue' },
   { value: 'contacted', label: 'Contacted', tone: 'orange' },
   { value: 'qualified', label: 'Qualified', tone: 'green' },
-  { value: 'lost', label: 'Lost', tone: 'red' },
+  { value: 'lost', label: 'Disqualified', tone: 'red' },
 ]
 
 function statusLabel(status: LeadStatus): string {
@@ -73,9 +73,17 @@ export default function Leads() {
 
   const [leads, setLeads] = useState<Lead[] | null>(null)
   const [counts, setCounts] = useState<CountRow[]>([])
+  const [subLines, setSubLines] = useState<SubLine[]>([])
+  const [supplierNames, setSupplierNames] = useState<Map<string, string>>(new Map())
   const [stations, setStations] = useState<Station[]>([])
   const [staff, setStaff] = useState<StaffOption[]>([])
   const [editing, setEditing] = useState<Editing>(null)
+  const [editLead, setEditLead] = useState<Lead | null>(null)
+  const [tab, setTab] = useState<'table' | 'quotation'>('table')
+  const [quoteLeadId, setQuoteLeadId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<Lead | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [qualifying, setQualifying] = useState<Lead | null>(null)
   const [dealPrompt, setDealPrompt] = useState<{ id: string; lead_no: string } | null>(null)
   const [dealBusy, setDealBusy] = useState(false)
@@ -95,6 +103,7 @@ export default function Leads() {
     navigate(`/deals?open=${data as string}`)
   }
   const [statusFilter, setStatusFilter] = useState<'all' | LeadStatus>('all')
+  const [ownerFilter, setOwnerFilter] = useStoredState('leads.owner', '')
   const [view, setView] = useStoredState<'table' | 'kanban'>('leads.view', 'table')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const importInput = useRef<HTMLInputElement>(null)
@@ -104,12 +113,16 @@ export default function Leads() {
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
 
   const load = useCallback(async () => {
-    const [leadRes, countRes, staffRes, stationRes] = await Promise.all([
+    const [leadRes, countRes, staffRes, stationRes, subRes, supRes] = await Promise.all([
       supabase.from('leads').select('*').order('created_at', { ascending: false }),
       supabase.from('count_master').select('*').order('count_no').order('display_name'),
       supabase.from('profiles').select('id, name').eq('is_active', true).order('name'),
       supabase.from('station_master').select('*').order('name'),
+      supabase.from('lead_quote_lines').select('lead_id, line_no, count_id, supplier_id, rate, created_by, created_at').order('line_no'),
+      supabase.from('supplier_master').select('id, name'),
     ])
+    setSubLines((subRes.data ?? []) as SubLine[])
+    setSupplierNames(new Map(((supRes.data ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name])))
     setStations((stationRes.data ?? []) as Station[])
     if (leadRes.error) {
       setBanner({ kind: 'bad', text: errMessage(leadRes.error, 'Could not load leads') })
@@ -126,6 +139,11 @@ export default function Leads() {
   }, [load])
 
   const countById = useMemo(() => new Map(counts.map((c) => [c.id, c])), [counts])
+  const subsByLead = useMemo(() => {
+    const m = new Map<string, SubLine[]>()
+    for (const s of subLines) m.set(s.lead_id, [...(m.get(s.lead_id) ?? []), s])
+    return m
+  }, [subLines])
   const staffById = useMemo(() => new Map(staff.map((s) => [s.id, s.name])), [staff])
 
   /** Adds a station to the Station Master when it is new (case-insensitive).
@@ -155,6 +173,7 @@ export default function Leads() {
     const q = search.trim().toLowerCase()
     return (leads ?? []).filter((l) => {
       if (statusFilter !== 'all' && l.status !== statusFilter) return false
+      if (ownerFilter && l.sales_staff_id !== ownerFilter) return false
       if (!q) return true
       const count = l.count_id ? countById.get(l.count_id)?.display_name ?? '' : ''
       return (
@@ -165,7 +184,7 @@ export default function Leads() {
         count.toLowerCase().includes(q)
       )
     })
-  }, [leads, statusFilter, search, countById])
+  }, [leads, statusFilter, ownerFilter, search, countById])
 
   const selection = useSelection(useMemo(() => shown.map((l) => l.id), [shown]))
 
@@ -263,6 +282,7 @@ export default function Leads() {
           remarks: r.get('remarks'),
           sales_staff_id: staffId ?? '',
           follow_up_at: /^\d{4}-\d{2}-\d{2}$/.test(followDate) ? `${followDate}T10:00` : '',
+          entry_weaves_yarn: '', entry_payment_cycle: '', entry_current_supplier: '', entry_price_range: '', entry_next_purchase: '',
         }
         const missing = leadProblems(form).filter((m) => !m.startsWith('Buyer from') && !m.startsWith('Supplier from'))
         if (form.expected_rate && numOrNull(form.expected_rate) === null) missing.push('Expected rate (a number)')
@@ -287,7 +307,60 @@ export default function Leads() {
     setBusy(false)
   }
 
+  function openQuotation(l: Lead) {
+    setEditing(null)
+    setQuoteLeadId(l.id)
+    setTab('quotation')
+  }
+
+  async function deleteLead() {
+    if (!deleting) return
+    setDeleteBusy(true)
+    setDeleteError(null)
+    // the lead's files and quotation PDFs live in storage; remember them to clear after the delete
+    const [docs, quotes] = await Promise.all([
+      supabase.from('lead_documents').select('storage_path').eq('lead_id', deleting.id),
+      supabase.from('lead_quotations').select('storage_path').eq('lead_id', deleting.id),
+    ])
+    const { data, error } = await supabase.from('leads').delete().eq('id', deleting.id).select('id')
+    setDeleteBusy(false)
+    if (error || !data || data.length === 0) {
+      setDeleteError(error ? errMessage(error, 'Could not delete this lead') : 'Your account cannot delete this lead.')
+      return
+    }
+    const paths = (rows: { data: unknown }) => ((rows.data ?? []) as { storage_path: string | null }[]).map((r) => r.storage_path).filter((p): p is string => !!p)
+    if (paths(docs).length) void supabase.storage.from('lead-documents').remove(paths(docs))
+    if (paths(quotes).length) void supabase.storage.from('lead-quotations').remove(paths(quotes))
+    setBanner({ kind: 'ok', text: `${deleting.lead_no} deleted.` })
+    setDeleting(null)
+    await load()
+  }
+
   if (!leads) return <Loading label="Loading leads" />
+
+  // a lead that has become a deal is read-only (the database refuses changes to it)
+  const lockedIds = new Set(leads.filter((l) => l.converted_deal_id).map((l) => l.id))
+
+
+  /** Row Actions, in the Pharma ERP order: read, edit, status moves, destructive last.
+   *  An item that cannot be used stays visible with the reason. */
+  function actionsFor(l: Lead): RowAction[] {
+    const converted = Boolean(l.converted_deal_id)
+    const open = (l.status === 'new' || l.status === 'contacted') && !converted
+    const items: RowAction[] = [
+      { label: 'View details', onSelect: () => setEditing({ mode: 'edit', lead: l }) },
+      { label: 'Edit', onSelect: () => setEditLead(l), disabledReason: !canManage ? 'You need the "Manage leads" permission.' : converted ? 'This lead has been converted to a deal, so it is read-only.' : null },
+    ]
+    items.push({ label: 'Quotation', onSelect: () => openQuotation(l) })
+    if (converted && can('deal.read')) items.push({ label: 'Go to deal', onSelect: () => navigate(`/deals?open=${l.converted_deal_id}`) })
+    if (canQualify && open) items.push({ label: 'Qualify…', onSelect: () => setQualifying(l) })
+    items.push({
+      label: 'Delete', tone: 'danger',
+      onSelect: () => { setDeleteError(null); setDeleting(l) },
+      disabledReason: !canManage ? 'You need the "Manage leads" permission.' : converted ? 'This lead has a deal, so it cannot be deleted.' : null,
+    })
+    return items
+  }
 
   const columns: BoardColumn<Lead>[] = [
     { key: 'no', label: 'Lead', width: 130, render: (l) => <span className="mono">{l.lead_no}</span> },
@@ -303,34 +376,20 @@ export default function Leads() {
     },
     { key: 'count', label: 'Count', render: (l) => <span className="small">{(l.count_id ? countById.get(l.count_id)?.display_name : '') || <span className="muted">—</span>}</span> },
     { key: 'qty', label: 'Quantity', align: 'right', render: (l) => <span className="mono">{l.quantity !== null ? `${l.quantity} ${l.uom ?? ''}` : '—'}</span> },
-    { key: 'status', label: 'Status', width: 140, render: (l) => <StatusPill label={statusLabel(l.status)} tone={LEAD_GROUPS.find((g) => g.value === l.status)?.tone ?? 'grey'} /> },
+    {
+      key: 'status', label: 'Status', width: 150,
+      render: (l) => (
+        <>
+          <StatusPill label={statusLabel(l.status)} tone={LEAD_GROUPS.find((g) => g.value === l.status)?.tone ?? 'grey'} />
+          {l.converted_deal_id && <div className="small muted" style={{ marginTop: 2 }}>Converted to deal</div>}
+        </>
+      ),
+    },
     { key: 'follow', label: 'Follow-up', render: (l) => <span className="mono small">{formatDate(l.follow_up_date)}</span> },
     { key: 'staff', label: 'Sales staff', render: (l) => <span className="small">{l.sales_staff_id ? staffById.get(l.sales_staff_id) ?? '—' : '—'}</span> },
     {
-      key: 'action', label: 'Change status', interactive: true,
-      render: (l) => {
-        const open = (l.status === 'new' || l.status === 'contacted') && !l.converted_deal_id
-        return (
-          <>
-            {canQualify && open && (
-              <button className="btn sm" type="button" onClick={() => setQualifying(l)} style={{ marginRight: 8 }}>Qualify</button>
-            )}
-            {l.converted_deal_id && <span className="chip good">Converted to deal</span>}
-            {(canManage || canQualify) && !l.converted_deal_id && (
-              <StatusMover
-                lead={l}
-                canQualify={canQualify}
-                onQualify={setQualifying}
-                onChanged={async (text) => {
-                  setBanner({ kind: 'ok', text })
-                  await load()
-                }}
-                onError={(text) => setBanner({ kind: 'bad', text })}
-              />
-            )}
-          </>
-        )
-      },
+      key: 'action', label: 'Actions', interactive: true, pinRight: true,
+      render: (l) => <RowActionMenu label={`Actions for ${l.lead_no}`} actions={actionsFor(l)} />,
     },
   ]
 
@@ -346,7 +405,7 @@ export default function Leads() {
         </div>
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
-            Add a lead
+            + New lead
           </button>
         )}
       </header>
@@ -360,6 +419,14 @@ export default function Leads() {
         </div>
       )}
 
+      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }, { key: 'quotation', label: 'Lead-Quotation' }]} active={tab} onChange={(k) => { setTab(k as 'table' | 'quotation'); if (k === 'table') void load() }} />
+
+      {tab === 'quotation' && (
+        <LeadQuotationPage key={quoteLeadId ?? 'none'} leads={leads} counts={counts} canEdit={canManage} initialLeadId={quoteLeadId} />
+      )}
+
+      {tab === 'table' && (
+        <>
       <ImportIssues results={importResults} />
 
       <FollowUps leads={leads} onOpen={(l) => canManage && setEditing({ mode: 'edit', lead: l })} />
@@ -378,6 +445,11 @@ export default function Leads() {
           {LEAD_STATUSES.map((s) => (
             <option key={s.value} value={s.value}>{s.label}</option>
           ))}
+        </select>
+        <select aria-label="Owner" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+          <option value="">All owners</option>
+          {me && <option value={me.id}>My leads</option>}
+          {staff.filter((p) => p.id !== me?.id).map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
         </select>
         {canManage && (
           <>
@@ -421,6 +493,19 @@ export default function Leads() {
         columns={columns}
         rowKey={(l) => l.id}
         onOpen={(l) => canManage && setEditing({ mode: 'edit', lead: l })}
+        rowOpens={false}
+        expandable={{
+          count: (l) => subsByLead.get(l.id)?.length ?? 0,
+          render: (l) => (
+            <LeadSubitems
+              lines={subsByLead.get(l.id) ?? []}
+              countName={new Map(counts.map((c) => [c.id, c.display_name]))}
+              supplierName={supplierNames}
+              canEdit={canManage && !lockedIds.has(l.id)}
+              onEdit={() => openQuotation(l)}
+            />
+          ),
+        }}
         view={view}
         selection={canManage ? { isSelected: selection.isSelected, toggle: selection.toggle } : undefined}
         emptyText={leads.length === 0 ? `No leads yet.${canManage ? ' Add the first inquiry.' : ''}` : 'No lead matches that filter.'}
@@ -429,6 +514,7 @@ export default function Leads() {
             <span className="kcard-top">
               <span className="mono small">{l.lead_no}</span>
               <span className="small muted">{formatDate(l.follow_up_date)}</span>
+              <RowActionMenu label={`Actions for ${l.lead_no}`} actions={actionsFor(l)} />
             </span>
             <strong className="kcard-title">{l.party_name}</strong>
             <span className="small muted">{(l.count_id ? countById.get(l.count_id)?.display_name : '') || 'no count'}</span>
@@ -439,29 +525,62 @@ export default function Leads() {
           </>
         )}
       />
+        </>
+      )}
 
-      {editing && canManage && (
-        <LeadDrawer
-          key={editing.mode === 'edit' ? editing.lead.id : 'create'}
-          editing={editing}
+      {(editing?.mode === 'create' || editLead) && canManage && (
+        <LeadFormModal
+          key={editLead?.id ?? 'create'}
           counts={counts}
-          staff={staff}
           stations={stations}
           ensureStation={ensureStation}
-          onRefresh={load}
           defaultStaffId={me?.id ?? null}
+          leads={leads}
+          lockedIds={lockedIds}
+          initialLead={editLead}
+          onClose={() => { setEditing(null); setEditLead(null) }}
+          onDone={async (text) => {
+            setBanner({ kind: 'ok', text })
+            setEditing(null)
+            setEditLead(null)
+            await load()
+          }}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="Delete lead"
+          confirmLabel="Delete"
+          busy={deleteBusy}
+          error={deleteError}
+          onConfirm={() => void deleteLead()}
+          onClose={() => setDeleting(null)}
+        >
+          Are you sure you want to delete this lead? <strong>{deleting.lead_no} · {deleting.party_name}</strong>
+          <p className="small muted" style={{ marginTop: 8 }}>This cannot be undone.</p>
+        </ConfirmDialog>
+      )}
+
+      {editing?.mode === 'edit' && (
+        <LeadDetails
+          key={editing.lead.id}
+          lead={editing.lead}
+          counts={counts}
+          staff={staff}
+          locked={lockedIds.has(editing.lead.id)}
           canQualify={canQualify}
           onClose={() => setEditing(null)}
           onQualify={(lead) => {
             setEditing(null)
             setQualifying(lead)
           }}
-          onDone={async (text) => {
-            setBanner({ kind: 'ok', text })
+          onEdit={(lead) => {
             setEditing(null)
-            await load()
+            setEditLead(lead)
           }}
-          onError={(text) => setBanner({ kind: 'bad', text })}
+          onQuote={openQuotation}
+          onRefresh={load}
         />
       )}
 
@@ -501,599 +620,137 @@ export default function Leads() {
   )
 }
 
-/* ---- create / edit a lead (T-009) ------------------------------------------ */
+const CYCLE_LABEL: Record<string, string> = { '7_days': '7 days', '30_days': '30 days', '60_days': '60 days', advance: 'Advance' }
 
-type LeadForm = {
-  lead_type: 'existing' | 'new'
-  lead_source: string
-  party_role: LeadRole
-  party_name: string
-  contact_person: string
-  mobile_cc: string
-  mobile: string
-  station: string
-  office_address: string
-  gst: string
-  buyer_id: string
-  supplier_id: string
-  count_id: string
-  quantity: string
-  uom: string
-  expected_rate: string
-  timeline: string
-  timeline_from: string
-  timeline_to: string
-  remarks: string
-  sales_staff_id: string
-  /** datetime-local value (browser time), e.g. 2026-11-20T15:30 */
-  follow_up_at: string
-}
-
-/** ISO timestamp -> value for <input type="datetime-local"> in the browser's time zone. */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function leadToForm(lead: Lead): LeadForm {
-  return {
-    lead_type: lead.lead_type ?? (lead.buyer_id || lead.supplier_id ? 'existing' : 'new'),
-    lead_source: lead.lead_source ?? '',
-    party_role: lead.party_role,
-    party_name: lead.party_name,
-    contact_person: lead.contact_person ?? '',
-    mobile_cc: lead.mobile_cc ?? '+91',
-    mobile: lead.mobile ?? '',
-    station: lead.station ?? '',
-    office_address: lead.office_address ?? '',
-    gst: lead.gst ?? '',
-    buyer_id: lead.buyer_id ?? '',
-    supplier_id: lead.supplier_id ?? '',
-    count_id: lead.count_id ?? '',
-    quantity: lead.quantity === null ? '' : String(lead.quantity),
-    uom: lead.uom ?? '',
-    expected_rate: lead.expected_rate === null ? '' : String(lead.expected_rate),
-    timeline: lead.timeline ?? '',
-    timeline_from: lead.timeline_from ?? '',
-    timeline_to: lead.timeline_to ?? '',
-    remarks: lead.remarks ?? '',
-    sales_staff_id: lead.sales_staff_id ?? '',
-    follow_up_at: lead.follow_up_at ? toLocalInput(lead.follow_up_at) : lead.follow_up_date ? `${lead.follow_up_date}T10:00` : '',
-  }
-}
-
-const phoneOk = (cc: string, n: string) => (cc === '+91' ? isMobile(n) : /^[0-9]{6,14}$/.test(n))
-
-function leadProblems(f: LeadForm): string[] {
-  const out: string[] = []
-  if (!f.party_name.trim()) out.push('Party name')
-  if (f.lead_type === 'existing' && (f.party_role === 'buyer' || f.party_role === 'both') && !f.buyer_id) out.push('Buyer from Buyers & Suppliers')
-  if (f.lead_type === 'existing' && (f.party_role === 'supplier' || f.party_role === 'both') && !f.supplier_id) out.push('Supplier from Buyers & Suppliers')
-  if (!/^\+[0-9]{1,4}$/.test(f.mobile_cc)) out.push('Country code (like +91)')
-  if (f.mobile.trim() && !phoneOk(f.mobile_cc, f.mobile)) out.push(f.mobile_cc === '+91' ? 'Mobile (10 digits, or leave blank)' : 'Mobile (6 to 14 digits)')
-  if (f.gst.trim() && !isGst(f.gst)) out.push('GST (15-character format, or leave blank)')
-  if (f.quantity.trim()) {
-    const q = numOrNull(f.quantity)
-    if (q === null || q <= 0) out.push('Quantity (more than zero)')
-  }
-  if (f.quantity.trim() && !f.uom) out.push('Unit of measure')
-  if (f.timeline_from && f.timeline_to && f.timeline_to < f.timeline_from) out.push('Timeline: "to" on or after "from"')
-  return out
-}
-
-function leadPayload(form: LeadForm) {
-  const existing = form.lead_type === 'existing'
-  return {
-    lead_type: form.lead_type,
-    lead_source: form.lead_source.trim() || null,
-    party_role: form.party_role,
-    party_name: form.party_name.trim(),
-    contact_person: form.contact_person.trim() || null,
-    mobile_cc: form.mobile_cc,
-    mobile: form.mobile.trim() || null,
-    station: form.station.trim() || null,
-    office_address: form.office_address.trim() || null,
-    gst: form.gst.trim().toUpperCase() || null,
-    ...(existing
-      ? {
-          buyer_id: form.party_role !== 'supplier' ? form.buyer_id || null : null,
-          supplier_id: form.party_role !== 'buyer' ? form.supplier_id || null : null,
-        }
-      : {}),
-    count_id: form.count_id || null,
-    quantity: numOrNull(form.quantity),
-    uom: form.uom || null,
-    expected_rate: numOrNull(form.expected_rate),
-    timeline: form.timeline.trim() || null,
-    timeline_from: form.timeline_from || null,
-    timeline_to: form.timeline_to || null,
-    remarks: form.remarks.trim() || null,
-    sales_staff_id: form.sales_staff_id || null,
-    follow_up_at: form.follow_up_at ? new Date(form.follow_up_at).toISOString() : null,
-  }
-}
-
-/** Moves a lead to any status from any status. Qualified is the one target that
- *  goes through the Qualify panel (its rules are unchanged); every other move,
- *  including out of Qualified to undo a mistaken qualification, is direct. */
-function StatusMover({
-  lead,
-  canQualify,
-  onQualify,
-  onChanged,
-  onError,
-}: {
-  lead: Lead
-  canQualify: boolean
-  onQualify: (lead: Lead) => void
-  onChanged: (message: string) => void | Promise<void>
-  onError: (message: string) => void
-}) {
-  const [busy, setBusy] = useState(false)
-
-  async function change(next: LeadStatus) {
-    if (next === lead.status) return
-    if (next === 'qualified') {
-      onQualify(lead)
-      return
-    }
-    if (
-      lead.status === 'qualified' &&
-      !window.confirm(
-        `${lead.lead_no} is Qualified. Move it to ${statusLabel(next)}? Its qualification is cleared, and you can qualify it again later.`,
-      )
-    ) {
-      return
-    }
-    setBusy(true)
-    const { data, error } = await supabase.from('leads').update({ status: next }).eq('id', lead.id).select('id')
-    setBusy(false)
-    if (error) {
-      onError(errMessage(error, 'Could not change the status'))
-      return
-    }
-    if ((data ?? []).length === 0) {
-      onError('Your account does not have permission to change this lead.')
-      return
-    }
-    await onChanged(`${lead.lead_no} moved to ${statusLabel(next)}.`)
-  }
-
-  return (
-    <select
-      aria-label={`Change status of ${lead.lead_no}`}
-      value={lead.status}
-      disabled={busy}
-      onChange={(e) => void change(e.target.value as LeadStatus)}
-    >
-      {LEAD_STATUSES.map((st) => (
-        <option key={st.value} value={st.value} disabled={st.value === 'qualified' && !canQualify && lead.status !== 'qualified'}>
-          {st.label}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function LeadDrawer({
-  editing,
+/** The lead's details, read-only. Changing the lead is Actions > Edit (the pop-up form), so this
+ *  view carries what the form does not: documents, quotation, discussion and history. */
+function LeadDetails({
+  lead: initial,
   counts,
   staff,
-  stations,
-  ensureStation,
-  onRefresh,
-  defaultStaffId,
+  locked,
   canQualify,
   onClose,
   onQualify,
-  onDone,
-  onError,
+  onEdit,
+  onQuote,
+  onRefresh,
 }: {
-  editing: NonNullable<Editing>
+  lead: Lead
   counts: CountRow[]
   staff: StaffOption[]
-  stations: Station[]
-  ensureStation: (name: string) => Promise<string>
-  onRefresh: () => Promise<void>
-  defaultStaffId: string | null
+  locked: boolean
   canQualify: boolean
   onClose: () => void
   onQualify: (lead: Lead) => void
-  onDone: (message: string) => void | Promise<void>
-  onError: (message: string) => void
+  onEdit: (lead: Lead) => void
+  onQuote: (lead: Lead) => void
+  onRefresh: () => Promise<void>
 }) {
-  const initial = editing.mode === 'edit' ? editing.lead : null
-  const [existing, setExisting] = useState<Lead | null>(initial)
   const { can } = useAuth()
   const navigate = useNavigate()
+  const [lead, setLead] = useState<Lead>(initial)
   const [dealNo, setDealNo] = useState<string | null>(null)
   const [historyKey, setHistoryKey] = useState(0)
-  const [form, setForm] = useState<LeadForm>(
-    existing
-      ? leadToForm(existing)
-      : {
-          lead_type: 'new', lead_source: '', party_role: 'buyer', party_name: '', contact_person: '', mobile_cc: '+91', mobile: '', station: '',
-          office_address: '', gst: '', buyer_id: '', supplier_id: '', count_id: '', quantity: '', uom: 'KG', expected_rate: '',
-          timeline: '', timeline_from: '', timeline_to: '', remarks: '', sales_staff_id: defaultStaffId ?? '', follow_up_at: '',
-        },
-  )
+  const [convertOpen, setConvertOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [editMode, setEditMode] = useState(!initial)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [masters, setMasters] = useState<{ buyers: MasterParty[]; suppliers: MasterParty[] }>({ buyers: [], suppliers: [] })
-  useEffect(() => {
-    const cols = 'id,name,contact_person,mobile,gst,address,is_active'
-    void Promise.all([
-      supabase.from('buyer_master').select(cols).order('name'),
-      supabase.from('supplier_master').select(cols).order('name'),
-    ]).then(([b, s]) => setMasters({ buyers: (b.data ?? []) as MasterParty[], suppliers: (s.data ?? []) as MasterParty[] }))
-  }, [])
-
-  function set<K extends keyof LeadForm>(key: K, value: LeadForm[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }))
-  }
-
-  /** Existing lead: picking the party copies its details from the master (no retyping). */
-  function pickMaster(side: 'buyer' | 'supplier', id: string) {
-    const p = (side === 'buyer' ? masters.buyers : masters.suppliers).find((x) => x.id === id)
-    setForm((prev) => ({
-      ...prev,
-      [`${side}_id`]: id,
-      ...(p
-        ? {
-            party_name: p.name,
-            contact_person: p.contact_person ?? prev.contact_person,
-            mobile_cc: p.mobile ? '+91' : prev.mobile_cc,
-            mobile: p.mobile ?? prev.mobile,
-            gst: p.gst ?? prev.gst,
-            office_address: p.address ?? prev.office_address,
-          }
-        : {}),
-    }))
-  }
-
-  const missing = leadProblems(form)
-  const selectedCount = counts.find((c) => c.id === form.count_id)
-  const qualified = existing?.status === 'qualified'
-  const locked = Boolean(existing?.converted_deal_id)
-  // Editable until the lead is converted into a deal.
-  const editable = !locked && (editMode || !existing)
-  // qualifying creates the deal by itself; this button only covers leads qualified before that
-  const canConvert = can('deal.create') && qualified && !locked
+  const [convertError, setConvertError] = useState<string | null>(null)
 
   useEffect(() => {
-    const id = existing?.converted_deal_id
+    const id = lead.converted_deal_id
     if (!id) return
-    void supabase
-      .from('crm_deals')
-      .select('deal_no')
-      .eq('id', id)
-      .maybeSingle()
+    void supabase.from('crm_deals').select('deal_no').eq('id', id).maybeSingle()
       .then(({ data }) => setDealNo((data as { deal_no: string } | null)?.deal_no ?? null))
-  }, [existing?.converted_deal_id])
+  }, [lead.converted_deal_id])
 
-  /** Re-reads the lead after a change made by the database (discussion log,
-   *  conversion) so the form never holds stale values that a later Save
-   *  would write back. */
+  /** Re-reads the lead after a change made by the database (discussion log, conversion). */
   async function reloadLead() {
-    if (!existing) return
-    const { data } = await supabase.from('leads').select('*').eq('id', existing.id).maybeSingle()
-    if (data) {
-      setExisting(data as Lead)
-      setForm(leadToForm(data as Lead))
-    }
+    const { data } = await supabase.from('leads').select('*').eq('id', lead.id).maybeSingle()
+    if (data) setLead(data as Lead)
     setHistoryKey((k) => k + 1)
     await onRefresh()
   }
 
   async function convert() {
-    if (!existing) return
-    if (!window.confirm(`Create the deal for ${existing.lead_no}? The lead becomes read-only.`)) return
     setBusy(true)
-    setFormError(null)
-    const { data, error } = await supabase.rpc('convert_lead_to_deal', { p_lead: existing.id })
+    setConvertError(null)
+    const { data, error } = await supabase.rpc('convert_lead_to_deal', { p_lead: lead.id })
     setBusy(false)
     if (error) {
-      setFormError(errMessage(error, 'Could not convert this lead'))
+      setConvertError(errMessage(error, 'Could not convert this lead'))
       return
     }
     await onRefresh()
     navigate(`/deals?open=${data as string}`)
   }
 
-  async function save() {
-    setBusy(true)
-    setFormError(null)
-    let stationName = ''
-    try {
-      stationName = await ensureStation(form.station)
-    } catch (caught) {
-      setBusy(false)
-      setFormError(errMessage(caught, 'Could not add the station'))
-      return
-    }
-    const payload = { ...leadPayload(form), station: stationName || null }
-    const { error } = existing
-      ? await supabase.from('leads').update(payload).eq('id', existing.id)
-      : await supabase.from('leads').insert(payload)
-    setBusy(false)
-    if (error) {
-      setFormError(errMessage(error, 'Could not save this lead'))
-      return
-    }
-    setEditMode(false)
-    await onDone(existing ? `${existing.lead_no} updated.` : 'Lead created.')
-  }
-
-  async function remove() {
-    if (!existing) return
-    setBusy(true)
-    const { error } = await supabase.from('leads').delete().eq('id', existing.id)
-    setBusy(false)
-    if (error) {
-      onError(errMessage(error, 'Could not delete this lead'))
-      onClose()
-      return
-    }
-    await onDone(`${existing.lead_no} deleted.`)
-  }
+  const count = counts.find((c) => c.id === lead.count_id)
+  const owner = staff.find((x) => x.id === lead.sales_staff_id)
+  const qualified = lead.status === 'qualified'
+  const open = (lead.status === 'new' || lead.status === 'contacted') && !lead.converted_deal_id
+  const canConvert = can('deal.create') && qualified && !lead.converted_deal_id
+  const rows: [string, string | null][] = [
+    ['Type', lead.lead_type === 'existing' ? 'Existing' : 'New'],
+    ['Lead source', lead.lead_source],
+    ['Party role', roleLabel(lead.party_role)],
+    ['Contact person', lead.contact_person],
+    ['Phone', lead.mobile ? `${lead.mobile_cc ?? '+91'} ${lead.mobile}` : null],
+    ['Station', lead.station],
+    ['GST', lead.gst],
+    ['Office address', lead.office_address],
+    ['Count', count?.display_name ?? null],
+    ['Quantity', lead.quantity !== null ? `${lead.quantity} ${uomLabel(lead.uom ?? '')}`.trim() : null],
+    ['Expected rate', lead.expected_rate !== null ? String(lead.expected_rate) : null],
+    ['Timeline', lead.timeline_from || lead.timeline_to ? `${formatDate(lead.timeline_from)} → ${formatDate(lead.timeline_to)}` : lead.timeline],
+    ['Follow-up', lead.follow_up_at ? formatDateTime(lead.follow_up_at) : null],
+    ['Lead owner', owner?.name ?? null],
+    ['Weaving yarn buyer', lead.entry_weaves_yarn === 'yes' ? 'Yes' : lead.entry_weaves_yarn === 'no' ? 'No' : null],
+    ['Payment cycle', lead.entry_payment_cycle ? CYCLE_LABEL[lead.entry_payment_cycle] ?? lead.entry_payment_cycle : null],
+    ['Currently buying from', lead.entry_current_supplier],
+    ['Purchase price range', lead.entry_price_range],
+    ['Next purchase', lead.entry_next_purchase ? formatDate(lead.entry_next_purchase) : null],
+    ['Remarks', lead.remarks],
+    ['Created', formatDateTime(lead.created_at)],
+  ]
 
   return (
-    <Drawer title={existing ? `${existing.lead_no} · ${existing.party_name}` : 'Add a lead'} onClose={onClose}>
-      {existing && (
-        <p className="small">
-          <span className={STATUS_CHIP[existing.status]}>{statusLabel(existing.status)}</span>
-          {qualified && existing.qualified_at && (
-            <span className="muted"> · qualified {formatDateTime(existing.qualified_at)}</span>
-          )}
-          {locked ? (
-            <span className="chip good" style={{ marginLeft: 12 }}>
-              Converted → {dealNo ?? 'deal'}
-            </span>
-          ) : (
-            <span style={{ marginLeft: 12 }}>
-              <StatusMover lead={existing} canQualify={canQualify} onQualify={onQualify} onChanged={onDone} onError={onError} />
-            </span>
-          )}
-        </p>
-      )}
+    <Drawer title={`${lead.lead_no} · ${lead.party_name}`} onClose={onClose}>
+      <p className="small">
+        <StatusPill label={statusLabel(lead.status)} tone={LEAD_GROUPS.find((g) => g.value === lead.status)?.tone ?? 'grey'} />
+        {qualified && lead.qualified_at && <span className="muted"> · qualified {formatDateTime(lead.qualified_at)}</span>}
+        {lead.converted_deal_id && <span className="muted"> · converted to {dealNo ?? 'a deal'}</span>}
+      </p>
       {locked && (
-        <div className="notice small">
-          This lead has been converted to a deal and is read-only. Change the deal instead
-          {can('deal.read') && existing?.converted_deal_id && (
-            <>
-              {' '}
-              (<a href={`/deals?open=${existing.converted_deal_id}`}>open {dealNo ?? 'the deal'}</a>)
-            </>
-          )}
-          .
-        </div>
+        <div className="notice small">This lead has been converted to a deal and is read-only. Change the deal instead.</div>
       )}
-      {formError && (
-        <div className="alert" role="alert">
-          {formError}
-        </div>
-      )}
-
-      <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-      <h3 className="section-title">Lead</h3>
-      <div className="form-grid">
-        <Field id="l-type" label="Lead type" required hint={form.lead_type === 'existing' ? 'Pick the party from Buyers & Suppliers.' : 'A party not yet in Buyers & Suppliers.'}>
-          <select id="l-type" value={form.lead_type} onChange={(e) => set('lead_type', e.target.value as LeadForm['lead_type'])}>
-            <option value="new">New</option>
-            <option value="existing">Existing</option>
-          </select>
-        </Field>
-        <Field id="l-source" label="Lead source">
-          <input id="l-source" list="l-source-list" value={form.lead_source} onChange={(e) => set('lead_source', e.target.value)} />
-          <datalist id="l-source-list">
-            {LEAD_SOURCES.map((s) => (<option key={s} value={s} />))}
-          </datalist>
-        </Field>
-        <Field id="l-role" label="Party role" required>
-          <select id="l-role" value={form.party_role} onChange={(e) => set('party_role', e.target.value as LeadRole)}>
-            {LEAD_ROLES.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {existing && (
-          <Field id="l-created" label="Created">
-            <input id="l-created" readOnly value={formatDateTime(existing.created_at)} />
-          </Field>
-        )}
-      </div>
-
-      <h3 className="section-title">Party</h3>
-      {form.lead_type === 'existing' ? (
-        <div className="form-grid">
-          {form.party_role !== 'supplier' && (
-            <Field id="l-buyer" label="Buyer" required>
-              <select id="l-buyer" value={form.buyer_id} onChange={(e) => pickMaster('buyer', e.target.value)}>
-                <option value="">Choose…</option>
-                {masters.buyers.filter((x) => x.is_active || x.id === form.buyer_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
-              </select>
-            </Field>
-          )}
-          {form.party_role !== 'buyer' && (
-            <Field id="l-supplier" label="Supplier" required>
-              <select id="l-supplier" value={form.supplier_id} onChange={(e) => pickMaster('supplier', e.target.value)}>
-                <option value="">Choose…</option>
-                {masters.suppliers.filter((x) => x.is_active || x.id === form.supplier_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
-              </select>
-            </Field>
-          )}
-        </div>
-      ) : (
-        <p className="muted small">
-          Temporary details, held until the party is validated against Buyers &amp; Suppliers (at Qualify).
-        </p>
-      )}
-      <div className="form-grid">
-        <Field id="l-name" label="Party name" required>
-          <input id="l-name" value={form.party_name} readOnly={form.lead_type === 'existing'} onChange={(e) => set('party_name', e.target.value)} autoFocus={form.lead_type === 'new'} />
-        </Field>
-        <Field id="l-contact" label="Contact person">
-          <input id="l-contact" value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
-        </Field>
-        <Field
-          id="l-mobile"
-          label="Mobile"
-          hint={form.mobile && !phoneOk(form.mobile_cc, form.mobile) ? (form.mobile_cc === '+91' ? 'Mobile must be exactly 10 digits.' : '6 to 14 digits.') : undefined}
-        >
-          <div className="phone-row">
-            <input
-              aria-label="Country code"
-              className="mono cc"
-              value={form.mobile_cc}
-              onChange={(e) => set('mobile_cc', '+' + e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-            />
-            <input
-              id="l-mobile"
-              className="mono"
-              inputMode="numeric"
-              maxLength={form.mobile_cc === '+91' ? 10 : 14}
-              value={form.mobile}
-              onChange={(e) => set('mobile', e.target.value.replace(/\D/g, ''))}
-            />
-          </div>
-        </Field>
-        <Field id="l-station" label="Station" hint="Pick from the Station Master, or add a new one.">
-          <StationPicker value={form.station} stations={stations} onChange={(v) => set('station', v)} />
-        </Field>
-        <Field
-          id="l-gst"
-          label="GST"
-          hint={form.gst && !isGst(form.gst) ? 'Not a valid GST number yet.' : 'Optional at lead stage.'}
-        >
-          <input
-            id="l-gst"
-            className="mono"
-            maxLength={15}
-            value={form.gst}
-            onChange={(e) => set('gst', e.target.value.toUpperCase().replace(/\s+/g, ''))}
-          />
-        </Field>
-      </div>
-      <Field id="l-address" label="Office address">
-        <textarea id="l-address" rows={2} value={form.office_address} onChange={(e) => set('office_address', e.target.value)} />
-      </Field>
-
-      <h3 className="section-title">Product requirement</h3>
-      <Field id="l-count" label="Count" hint="From the Count Master. Needed before the lead can be qualified.">
-        <select id="l-count" value={form.count_id} onChange={(e) => set('count_id', e.target.value)}>
-          <option value="">—</option>
-          {counts
-            .filter((c) => c.is_active || c.id === form.count_id)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.display_name}
-              </option>
-            ))}
-        </select>
-      </Field>
-      {selectedCount && (
-        <dl className="kv">
-          <dt>Machine</dt>
-          <dd>{selectedCount.machine}</dd>
-          <dt>Composition</dt>
-          <dd>{selectedCount.composition}</dd>
-          <dt>Ratio</dt>
-          <dd>{selectedCount.ratio}</dd>
-          <dt>Blended</dt>
-          <dd>{selectedCount.blended ?? '—'}</dd>
-          <dt>Type</dt>
-          <dd>{selectedCount.yarn_type}</dd>
-          <dt>Process</dt>
-          <dd>{selectedCount.process ?? '—'}</dd>
-          <dt>Certification</dt>
-          <dd>{selectedCount.certification ?? '—'}</dd>
-          <dt>Single / double</dt>
-          <dd>{selectedCount.ply ?? '—'}</dd>
-        </dl>
-      )}
-
-      <h3 className="section-title">Preliminary commercials</h3>
-      <div className="form-grid">
-        <Field id="l-qty" label="Quantity" hint="Needed before the lead can be qualified.">
-          <input id="l-qty" inputMode="decimal" className="mono" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} />
-        </Field>
-        <Field id="l-uom" label="UOM">
-          <select id="l-uom" value={form.uom} onChange={(e) => set('uom', e.target.value)}>
-            <option value="">—</option>
-            {LEAD_UOMS.map((u) => (
-              <option key={u} value={u}>
-                {uomLabel(u)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field id="l-rate" label="Expected rate">
-          <input id="l-rate" inputMode="decimal" className="mono" value={form.expected_rate} onChange={(e) => set('expected_rate', e.target.value)} />
-        </Field>
-        <Field id="l-tfrom" label="Timeline from">
-          <input id="l-tfrom" type="date" value={form.timeline_from} onChange={(e) => set('timeline_from', e.target.value)} />
-        </Field>
-        <Field id="l-tto" label="Timeline to" hint={form.timeline && !form.timeline_from && !form.timeline_to ? `Earlier note: ${form.timeline}` : undefined}>
-          <input id="l-tto" type="date" min={form.timeline_from || undefined} value={form.timeline_to} onChange={(e) => set('timeline_to', e.target.value)} />
-        </Field>
-        <Field id="l-staff" label="Sales staff">
-          <select id="l-staff" value={form.sales_staff_id} onChange={(e) => set('sales_staff_id', e.target.value)}>
-            <option value="">—</option>
-            {staff.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field id="l-follow" label="Follow-up date and time">
-          <input id="l-follow" type="datetime-local" value={form.follow_up_at} onChange={(e) => set('follow_up_at', e.target.value)} />
-        </Field>
-      </div>
-      <Field id="l-remarks" label="Remarks">
-        <textarea id="l-remarks" rows={2} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} />
-      </Field>
-      </fieldset>
-
-      {missing.length > 0 && editable && <p className="field-hint">Still needed: {missing.join(', ')}.</p>}
+      <dl className="kv">
+        {rows.filter(([, v]) => v !== null && v !== '').map(([k, v]) => (
+          <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>
+        ))}
+      </dl>
       <div className="drawer-actions">
-        {existing && !locked && !editMode && (
-          <button className="btn" type="button" onClick={() => setEditMode(true)} disabled={busy}>
-            Edit
-          </button>
-        )}
-        {editable && (
-        <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || missing.length > 0}>
-          {busy ? 'Saving…' : existing ? 'Save changes' : 'Create the lead'}
-        </button>
-        )}
-        {existing && editable && (
-          <button className="btn ghost" type="button" onClick={() => { setForm(leadToForm(existing)); setFormError(null); setEditMode(false) }} disabled={busy}>
-            Cancel editing
-          </button>
-        )}
-        {canConvert && (
-          <button className="btn" type="button" onClick={() => void convert()} disabled={busy}>
-            Convert to deal…
-          </button>
-        )}
-        {!locked && existing && canQualify && !qualified && existing.status !== 'lost' && (
-          <button className="btn" type="button" onClick={() => onQualify(existing)} disabled={busy}>
-            Qualify…
-          </button>
-        )}
-        <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
-          Cancel
-        </button>
-        {!locked && existing && <DeleteControl label="Delete this lead" name={existing.lead_no} busy={busy} onConfirm={() => void remove()} />}
+        <button className="btn" type="button" disabled={locked} title={locked ? 'This lead has been converted to a deal, so it is read-only.' : undefined} onClick={() => onEdit(lead)}>Edit</button>
+        {canQualify && open && <button className="btn" type="button" onClick={() => onQualify(lead)}>Qualify…</button>}
+        <button className="btn" type="button" onClick={() => onQuote(lead)}>Quotation</button>
+        {canConvert && <button className="btn" type="button" onClick={() => { setConvertError(null); setConvertOpen(true) }}>Convert to deal…</button>}
+        {lead.converted_deal_id && can('deal.read') && <button className="btn" type="button" onClick={() => navigate(`/deals?open=${lead.converted_deal_id}`)}>Go to deal</button>}
+        <button className="btn ghost" type="button" onClick={onClose}>Close</button>
       </div>
-      {existing && !locked && <DiscussionPanel lead={existing} onLogged={reloadLead} />}
-      {existing && <ActivityPanel entityType="lead" entityId={existing.id} canWrite={!locked} title="Discussion history, notes and tasks" refreshKey={historyKey} />}
+      <LeadDocuments leadId={lead.id} canEdit={!locked} />
+      {!locked && <DiscussionPanel lead={lead} onLogged={reloadLead} />}
+      <ActivityPanel entityType="lead" entityId={lead.id} canWrite={!locked} title="Discussion history, notes and tasks" refreshKey={historyKey} />
+      {convertOpen && (
+        <ConfirmDialog
+          title={`Convert ${lead.lead_no} to a deal?`}
+          confirmLabel="Create the deal"
+          busy={busy}
+          error={convertError}
+          onConfirm={() => void convert()}
+          onClose={() => setConvertOpen(false)}
+        >
+          The deal is created from this lead, and the lead becomes read-only.
+        </ConfirmDialog>
+      )}
     </Drawer>
   )
 }
@@ -1231,46 +888,6 @@ function QualifyPanel({
 }
 
 /* ---- station picker, discussion log, follow-ups ------------------------------ */
-
-const NEW_STATION = '__new_station__'
-
-function StationPicker({ value, stations, onChange }: { value: string; stations: Station[]; onChange: (v: string) => void }) {
-  const known = stations.some((st) => st.name.toLowerCase() === value.trim().toLowerCase())
-  const [adding, setAdding] = useState(false)
-  if (adding) {
-    return (
-      <span style={{ display: 'flex', gap: 8 }}>
-        <input id="l-station" autoFocus placeholder="New station name" value={value} onChange={(e) => onChange(e.target.value)} />
-        <button className="btn ghost sm" type="button" onClick={() => { setAdding(false); onChange('') }}>
-          Use list
-        </button>
-      </span>
-    )
-  }
-  return (
-    <select
-      id="l-station"
-      value={value}
-      onChange={(e) => {
-        if (e.target.value === NEW_STATION) {
-          setAdding(true)
-          onChange('')
-        } else onChange(e.target.value)
-      }}
-    >
-      <option value="">—</option>
-      {value && !known && <option value={value}>{value} (new)</option>}
-      {stations
-        .filter((st) => st.is_active || st.name === value)
-        .map((st) => (
-          <option key={st.id} value={st.name}>
-            {st.name}
-          </option>
-        ))}
-      <option value={NEW_STATION}>+ Add new station…</option>
-    </select>
-  )
-}
 
 /** T-010: record what was discussed with the party. One database function
  *  stores the note with the user and time, applies any new quantity / rate /

@@ -88,7 +88,7 @@ export default function PendingConfirmations() {
       const t = termOf(x.payment_term_id)
       return {
         deal_no: x.deal_no, stage: dealStatus(x.status).label, buyer: nm(buyers, x.buyer_id), supplier: nm(suppliers, x.supplier_id),
-        count: countName.get(x.count_id) ?? '', quantity: x.quantity, uom: uomLabel(x.uom), final_rate: x.final_rate ?? '', deal_value: x.deal_value ?? '',
+        count: countName.get(x.count_id ?? '') ?? '', quantity: x.quantity, uom: uomLabel(x.uom), final_rate: x.final_rate ?? '', deal_value: x.deal_value ?? '',
         payment_terms: t?.name ?? '', payment_type: termType(t), sales_staff: (x.owner_id && names[x.owner_id]) || '',
         created: x.created_at.slice(0, 10), days_pending: days,
       }
@@ -145,7 +145,7 @@ export default function PendingConfirmations() {
                     <td><StatusPill label={dealStatus(x.status).label} tone={dealStatus(x.status).tone} /></td>
                     <td>{nm(buyers, x.buyer_id)}</td>
                     <td>{nm(suppliers, x.supplier_id)}</td>
-                    <td className="small">{countName.get(x.count_id) ?? '—'}</td>
+                    <td className="small">{countName.get(x.count_id ?? '') ?? '—'}</td>
                     <td className="right mono">{money(x.quantity)} {uomLabel(x.uom)}</td>
                     <td className="right mono">{money(x.final_rate)}</td>
                     <td className="right mono">{money(x.deal_value)}</td>
