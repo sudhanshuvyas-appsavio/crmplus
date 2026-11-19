@@ -217,7 +217,7 @@ left join public.buyer_master b on b.id = t.buyer_id
 left join public.tasks src on src.id = t.source_task_id
 where t.task_type = 'payment_collection';
 
--- Kaarthika Transport Freight Invoice
+-- Transport Freight Invoice
 create or replace view public.board_freight_invoice with (security_invoker = true) as
 select
   t.id,

@@ -18,7 +18,7 @@ import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
-import { findDuplicate, focusFirstError, isEmail, nameKey, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { PendingDocuments } from '../components/documents/PendingDocuments'
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
@@ -31,6 +31,7 @@ import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { GST_STATES, errMessage, isGst, isMobile } from '../lib/party'
 import { formatDate } from '../lib/format'
+import { todayIST } from '../lib/tasks'
 
 type Company = { id: string; name: string; is_active: boolean }
 
@@ -53,6 +54,7 @@ const CSV_COLUMNS = [
 ] as const
 
 type Form = {
+  record_date: string
   name: string
   short_name: string
   buyer_id: string
@@ -79,13 +81,14 @@ type Form = {
 }
 
 const blank: Form = {
-  name: '', short_name: '', buyer_id: '', station_id: '', office_address: '', delivery_address: '',
+  record_date: '', name: '', short_name: '', buyer_id: '', station_id: '', office_address: '', delivery_address: '',
   contact_person: '', mobile: '', contact_person_2: '', mobile_2: '', office_phone: '', res_phone: '',
   gst: '', state_code: '', state: '', pan: '', bank_account: '', company_id: '', info: '', remarks: '', is_active: true,
   email_1: '', email_2: '',
 }
 
 const fromRow = (r: JobProcess): Form => ({
+  record_date: r.record_date ?? '',
   name: r.name, short_name: r.short_name ?? '', buyer_id: r.buyer_id ?? '', station_id: r.station_id ?? '',
   office_address: r.office_address ?? '', delivery_address: r.delivery_address ?? '', contact_person: r.contact_person ?? '',
   mobile: r.mobile ?? '', contact_person_2: r.contact_person_2 ?? '', mobile_2: r.mobile_2 ?? '', office_phone: r.office_phone ?? '',
@@ -100,12 +103,16 @@ function jobErrors(f: Form, rows: readonly JobProcess[], selfId: string | null |
   const er: FieldErrors = {}
   requireText(er, 't-name', f.name, 'Name is required.')
   if (!er['t-name'] && findDuplicate(rows, selfId, (r) => r.name, f.name, nameKey)) er['t-name'] = 'A sizing / delivery address with this name already exists.'
+  if (!er['t-name']) { const m = nameProblem('Name', f.name); if (m) er['t-name'] = m }
   if (isNew) requireText(er, 't-gst', f.gst, 'GST No. is required.')
   if (f.gst.trim() && !isGst(f.gst.trim().toUpperCase())) er['t-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPS5121G2ZK).'
   if (isNew) requireText(er, 't-state', f.state, 'State is required.')
+  { const m = placeProblem('State', f.state); if (m) er['t-state'] = m }
   if (isNew) requireText(er, 't-oaddr', f.office_address, 'Office Address is required.')
   if (isNew) requireText(er, 't-cp', f.contact_person, 'Contact Person 1 is required.')
   if (isNew) requireText(er, 't-cp2', f.contact_person_2, 'Contact Person 2 is required.')
+  { const m = personProblem('Contact Person 1', f.contact_person); if (m && !er['t-cp']) er['t-cp'] = m }
+  { const m = personProblem('Contact Person 2', f.contact_person_2); if (m && !er['t-cp2']) er['t-cp2'] = m }
   if (isNew) requireText(er, 't-mob', f.mobile, 'Contact Person 1 Phone is required.')
   if (f.mobile.trim() && !isMobile(f.mobile)) er['t-mob'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
   if (isNew) requireText(er, 't-mob2', f.mobile_2, 'Contact Person 2 Phone is required.')
@@ -121,7 +128,7 @@ function jobErrors(f: Form, rows: readonly JobProcess[], selfId: string | null |
 const payload = (f: Form) => {
   const t = (v: string) => v.trim() || null
   return {
-    name: f.name.trim(), short_name: t(f.short_name), buyer_id: f.buyer_id || null, station_id: f.station_id || null,
+    record_date: f.record_date || null, name: f.name.trim(), short_name: t(f.short_name), buyer_id: f.buyer_id || null, station_id: f.station_id || null,
     office_address: t(f.office_address), delivery_address: t(f.delivery_address), contact_person: t(f.contact_person),
     mobile: t(f.mobile), contact_person_2: t(f.contact_person_2), mobile_2: t(f.mobile_2), office_phone: t(f.office_phone),
     res_phone: t(f.res_phone), gst: t(f.gst.toUpperCase()), state_code: t(isGst(f.gst.toUpperCase()) ? f.gst.slice(0, 2) : f.state_code), state: t(f.state),
@@ -201,7 +208,7 @@ export default function JobProcesses() {
       if (!q) return true
       // Every column the grid shows.
       return [
-        x.name, formatDate(x.created_at), x.office_address, x.gst, x.state, x.contact_person, x.mobile, x.email_1,
+        x.name, formatDate(x.record_date ?? x.created_at), x.office_address, x.gst, x.state, x.contact_person, x.mobile, x.email_1,
         x.contact_person_2, x.mobile_2, x.email_2, x.remarks, (locationsOf[x.id] ?? []).join(' '),
       ].some((v) => searchKey(v).includes(q))
     })
@@ -400,7 +407,7 @@ export default function JobProcesses() {
                     <strong>{x.name}</strong>
                     {!x.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                   </td>
-                  <td className="mono small">{formatDate(x.created_at)}</td>
+                  <td className="mono small">{formatDate(x.record_date ?? x.created_at)}</td>
                   <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.office_address ?? '—'}</td>
                   <td className="mono small">{x.gst ?? '—'}</td>
                   <td className="small">{x.state ?? '—'}</td>
@@ -485,7 +492,7 @@ export default function JobProcesses() {
 }
 
 function JobProcessDrawer({
-  row: existing, rows, canManage: canManageRecords, viewOnly = false, stations, companies, buyers, onClose, onDone, onDocsChanged,
+  row: existing, rows, canManage: canManageRecords, viewOnly = false, onClose, onDone, onDocsChanged,
 }: {
   onDocsChanged?: () => void
   row: JobProcess | null
@@ -501,7 +508,7 @@ function JobProcessDrawer({
   const canManage = canManageRecords && !viewOnly
   const [files, setFiles] = useState<File[]>([])
   const row = existing
-  const [f, setF] = useState<Form>(existing ? fromRow(existing) : blank)
+  const [f, setF] = useState<Form>(existing ? fromRow(existing) : { ...blank, record_date: todayIST() })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const locationOptions = useLocationOptions()
@@ -600,6 +607,9 @@ function JobProcessDrawer({
             <Field id="t-name" label="Name" required error={show('t-name')}>
               <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
             </Field>
+            <Field id="t-date" label="Date">
+              <input id="t-date" type="date" value={f.record_date} onChange={(ev) => set('record_date', ev.target.value)} />
+            </Field>
             <Field id="t-gst" label="GST No." required error={show('t-gst')} hint="Fills state code, state and PAN.">
               <input id="t-gst" className="mono" maxLength={15} value={f.gst} placeholder="Enter GST No." onChange={(ev) => setGst(ev.target.value)} />
             </Field>
@@ -668,43 +678,7 @@ function JobProcessDrawer({
             </FormSection>
           )}
 
-          <FormSection title="More details" description="Kept in CRM+ for deliveries; not on the monday form.">
-            <Field id="t-short" label="Short name">
-              <input id="t-short" value={f.short_name} onChange={(ev) => set('short_name', ev.target.value)} />
-            </Field>
-            <Field id="t-buyer" label="Buyer" hint="Optional: the buyer whose goods are delivered here.">
-              <select id="t-buyer" value={f.buyer_id} onChange={(ev) => set('buyer_id', ev.target.value)}>
-                <option value="">—</option>
-                {buyers.filter((b) => b.is_active || b.id === f.buyer_id).map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-              </select>
-            </Field>
-            <Field id="t-station" label="Station">
-              <select id="t-station" value={f.station_id} onChange={(ev) => set('station_id', ev.target.value)}>
-                <option value="">—</option>
-                {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-              </select>
-            </Field>
-            <Field id="t-company" label="Company">
-              <select id="t-company" value={f.company_id} onChange={(ev) => set('company_id', ev.target.value)}>
-                <option value="">—</option>
-                {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-              </select>
-            </Field>
-            <Field id="t-ophone" label="Office phone">
-              <input id="t-ophone" className="mono" value={f.office_phone} onChange={(ev) => set('office_phone', ev.target.value)} />
-            </Field>
-            <Field id="t-daddr" label="Mill / Factory / Delivery address">
-              <textarea id="t-daddr" rows={3} value={f.delivery_address} onChange={(ev) => set('delivery_address', ev.target.value)} />
-            </Field>
-            <FullWidth>
-              <label className="check">
-                <input type="checkbox" checked={f.is_active} onChange={(ev) => set('is_active', ev.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Active</span>
-                </span>
-              </label>
-            </FullWidth>
-          </FormSection>
+
       </fieldset>
 
 

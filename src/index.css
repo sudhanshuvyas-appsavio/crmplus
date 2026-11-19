@@ -343,6 +343,8 @@ select { width: auto; }
   text-decoration: none;
   font-size: 13.5px;
 }
+/* The Tasks group under CRM lines up with every other group: same heading and item indent. */
+.nav-subheading { padding-top: 12px; }
 .nav-item:hover { background: var(--surface-3); color: var(--ink); }
 .nav-item.active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
 .nav-item svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; }

@@ -660,10 +660,24 @@ const suggestShort = (name: string) => name.trim().split(/\s+/)[0]?.toUpperCase(
 const suggestPrefix = (name: string) =>
   name.trim().split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
 
+/** The reference prefix for a new business unit whose form does not ask for one:
+ *  initials of the name, with a number added until no other unit uses it. */
+function uniquePrefix(name: string, others: readonly Company[]): string {
+  const base = suggestPrefix(name) || (name.trim() ? 'BU' : '')
+  if (!base) return ''
+  const used = new Set(others.map((c) => c.ref_prefix.trim().toUpperCase()))
+  if (!used.has(base)) return base
+  for (let n = 2; n < 1000; n += 1) {
+    const next = base + n
+    if (!used.has(next)) return next
+  }
+  return base
+}
+
 function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsChanged, readOnly = false }: DrawerProps) {
   const existing = editing.mode === 'edit' ? editing.company : null
   const [files, setFiles] = useState<File[]>([])
-  const [touched, setTouched] = useState({ short: false, ref: false })
+  const [touched] = useState({ short: false, ref: false })
   const target = existing
   const creating = !target
 
@@ -677,7 +691,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
     () =>
       companyErrors(
         {
-          name: form.name, email: form.email, mobile: form.mobile, phone_1: form.phone_1, phone_2: form.phone_2,
+          name: form.name, trade_name: form.trade_name, legal_name: form.legal_name, email: form.email, mobile: form.mobile, phone_1: form.phone_1, phone_2: form.phone_2,
           phone_3: form.phone_3, address: form.address, tax_id: form.tax_id, bank_account_1: form.bank_account_1,
           pan_number: form.pan_number, short_name: form.short_name, ref_prefix: form.ref_prefix, currency: form.currency,
         },
@@ -688,7 +702,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
   )
   // A missing required value is reported after the first Save click; a wrong format shows as it is typed.
   const fieldValue: Record<string, string> = {
-    'c-name': form.name, 'c-email': form.email, 'c-mobile': form.mobile, 'c-phone1': form.phone_1, 'c-phone2': form.phone_2,
+    'c-name': form.name, 'c-trade': form.trade_name, 'c-legal': form.legal_name, 'c-email': form.email, 'c-mobile': form.mobile, 'c-phone1': form.phone_1, 'c-phone2': form.phone_2,
     'c-phone3': form.phone_3, 'c-address': form.address, 'c-tax': form.tax_id, 'c-bank1': form.bank_account_1,
     'c-pan': form.pan_number, 'c-short': form.short_name, 'c-ref': form.ref_prefix, 'c-currency': form.currency,
   }
@@ -703,7 +717,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
       ...prev,
       name,
       ...(creating && !touched.short ? { short_name: suggestShort(name) } : {}),
-      ...(creating && !touched.ref ? { ref_prefix: suggestPrefix(name) } : {}),
+      ...(creating && !touched.ref ? { ref_prefix: uniquePrefix(name, companies) } : {}),
     }))
   }
 
@@ -711,6 +725,9 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
     setSubmitted(true)
     setServerError(null)
     if (Object.keys(errors).length > 0) {
+      // A new unit's form does not show Company settings; say what is wrong with them in words.
+      const hidden = ['c-short', 'c-ref', 'c-currency'].map((id) => errors[id]).filter(Boolean)
+      if (hidden.length > 0 && Object.keys(errors).every((id) => ['c-short', 'c-ref', 'c-currency'].includes(id))) setServerError(hidden[0] ?? null)
       focusFirstError(errors)
       return
     }
@@ -776,10 +793,10 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
             <Field id="c-name" label="Name" required error={show('c-name')}>
               <input id="c-name" value={form.name} placeholder="Enter Name" onChange={(e) => setName(e.target.value)} autoFocus />
             </Field>
-            <Field id="c-trade" label="Trade Name" hint="The name the business trades under, if it differs from the legal name.">
+            <Field id="c-trade" label="Trade Name" error={show('c-trade')} hint="The name the business trades under, if it differs from the legal name.">
               <input id="c-trade" value={form.trade_name} placeholder="Enter Trade Name" onChange={(e) => set('trade_name', e.target.value)} />
             </Field>
-            <Field id="c-legal" label="Legal Name" hint="As registered, and as it appears on the GST certificate.">
+            <Field id="c-legal" label="Legal Name" error={show('c-legal')} hint="As registered, and as it appears on the GST certificate.">
               <input id="c-legal" value={form.legal_name} placeholder="Enter Legal Name" onChange={(e) => set('legal_name', e.target.value)} />
             </Field>
             <Field id="c-email" label="Email" required error={show('c-email')}>
@@ -863,56 +880,7 @@ function CompanyDrawer({ editing, companies, onClose, onDelete, onSaved, onDocsC
             </FormSection>
           )}
 
-          <FormSection title="Company settings" description="Used by the app itself: record date, short name, reference numbers and role.">
-            <Field id="c-date" label="Date" hint="Set to today for a new business unit; change it if the record belongs to another day.">
-              <input id="c-date" type="date" value={form.record_date} onChange={(e) => set('record_date', e.target.value)} />
-            </Field>
-            <Field id="c-short" label="Short name" required error={show('c-short')} hint="Suggested from the name; you can change it.">
-              <input
-                id="c-short"
-                value={form.short_name}
-                onChange={(e) => {
-                  setTouched((t) => ({ ...t, short: true }))
-                  set('short_name', e.target.value)
-                }}
-              />
-            </Field>
-            <Field id="c-ref" label="Reference number prefix" required error={show('c-ref')} hint="Starts every reference number for this company. Suggested from the name; must be unique.">
-              <input
-                id="c-ref"
-                value={form.ref_prefix}
-                onChange={(e) => {
-                  setTouched((t) => ({ ...t, ref: true }))
-                  set('ref_prefix', e.target.value.toUpperCase())
-                }}
-              />
-            </Field>
-            <Field id="c-fax" label="Fax No.">
-              <input id="c-fax" value={form.fax} onChange={(ev) => set('fax', ev.target.value)} />
-            </Field>
-            <Field id="c-currency" label="Currency" error={show('c-currency')} hint="3-letter code, for example INR.">
-              <input id="c-currency" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
-            </Field>
-            <FullWidth>
-              <label className="check">
-                <input type="checkbox" checked={form.is_home} onChange={(e) => set('is_home', e.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">
-                    Home company
-                    <em className="tag warn">drives branding</em>
-                  </span>
-                  <span className="check-hint">Its name, currency and reference prefix show up across the app. Flagging this one un-flags the previous home company.</span>
-                </span>
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-                <span className="check-body">
-                  <span className="check-label">Active</span>
-                  <span className="check-hint">Inactive companies stay on record but are flagged as such.</span>
-                </span>
-              </label>
-            </FullWidth>
-          </FormSection>
+
       </>
 
       <div className="drawer-actions">

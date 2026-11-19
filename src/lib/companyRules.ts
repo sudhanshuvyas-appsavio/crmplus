@@ -5,12 +5,14 @@
 import type { Company } from '../api/types'
 import { isGst, isMobile } from './party'
 import { companyPhoneProblem } from './phone'
-import { findDuplicate, isCurrency, isEmail, isPan, nameKey, panMatchesGst, requireText, type FieldErrors } from './validate'
+import { findDuplicate, isCurrency, isEmail, isPan, nameKey, nameProblem, panMatchesGst, requireText, type FieldErrors } from './validate'
 
 export interface CompanyRuleInput {
   name: string
   email: string
   mobile: string
+  trade_name?: string
+  legal_name?: string
   phone_1: string
   phone_2: string
   phone_3: string
@@ -32,6 +34,9 @@ export function companyErrors(input: CompanyRuleInput, others: readonly Company[
   if (!e['c-name'] && findDuplicate(others, selfId, (c) => c.name, input.name, nameKey)) {
     e['c-name'] = 'A business unit with this name already exists.'
   }
+  if (!e['c-name']) { const m = nameProblem('Name', input.name); if (m) e['c-name'] = m }
+  { const m = nameProblem('Trade Name', input.trade_name); if (m) e['c-trade'] = m }
+  { const m = nameProblem('Legal Name', input.legal_name); if (m) e['c-legal'] = m }
 
   requireText(e, 'c-email', input.email, 'Email is required.')
   if (!e['c-email'] && !isEmail(input.email)) e['c-email'] = 'Enter a valid email, like name@company.com.'

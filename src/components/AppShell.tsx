@@ -31,6 +31,8 @@ interface NavSection {
   items: NavItem[]
   /** Collapsed unless the person opens it (or is on one of its screens). */
   startClosed?: boolean
+  /** A nested group shown under the items (CRM > Tasks). */
+  sub?: { id: string; heading: string; items: NavItem[]; startClosed?: boolean }
 }
 
 const I = {
@@ -57,6 +59,7 @@ const I = {
 }
 
 const ORDER = ['order.read', 'order.manage']
+const TASK = ['task.read', 'task.work', 'task.manage']
 
 const NAV: NavSection[] = [
   {
@@ -79,6 +82,20 @@ const NAV: NavSection[] = [
       { to: '/orders', label: 'Dispatch and Billing', icon: I.dispatch, anyOf: ORDER },
       { to: '/leads', label: 'Leads', icon: I.leads, anyOf: ['lead.manage', 'lead.qualify'] },
     ],
+    // The seven boards of monday's Tasks folder, in the order of the Tasks module (lib/taskBoards.ts).
+    sub: {
+      id: 'crm-tasks',
+      heading: 'Tasks',
+      items: [
+        { to: '/tasks?view=visits', label: 'Monthly Visit', icon: I.clock, anyOf: TASK },
+        { to: '/tasks?view=mill', label: 'Mill Invoice Delivery', icon: I.doc, anyOf: TASK },
+        { to: '/tasks?view=commission', label: 'Commission Invoice Delivery', icon: I.bill, anyOf: TASK },
+        { to: '/tasks?view=freight', label: 'Transport Freight Invoice', icon: I.truck, anyOf: TASK },
+        { to: '/tasks?view=samples', label: 'Sample Delivery', icon: I.factory, anyOf: TASK },
+        { to: '/tasks?view=payments', label: 'Payment Collection', icon: I.cash, anyOf: TASK },
+        { to: '/tasks?view=cheques', label: 'Cheque Collection', icon: I.cheque, anyOf: TASK },
+      ],
+    },
   },
   {
     id: 'dash',
@@ -89,26 +106,6 @@ const NAV: NavSection[] = [
       { to: '/billing-dashboard', label: 'Billing & dispatch', icon: I.bill, anyOf: ORDER },
       { to: '/collection-dashboard', label: 'Collection', icon: I.cash, anyOf: ORDER },
       { to: '/staff-performance', label: 'Staff performance', icon: I.chart, permission: 'report.view' },
-    ],
-  },
-  {
-    id: 'tasks',
-    heading: 'Tasks',
-    startClosed: true,
-    items: [
-      { to: '/pending-confirmations', label: 'Pending confirmations', icon: I.clock, permission: 'deal.read' },
-      { to: '/pending-dispatches', label: 'Pending dispatches', icon: I.dispatch, anyOf: ORDER },
-      { to: '/pending-documents', label: 'Mill invoice delivery', icon: I.doc, anyOf: ORDER },
-      { to: '/pending-commission-bills', label: 'Commission bills', icon: I.bill, anyOf: ORDER },
-      { to: '/pending-transporter-invoices', label: 'Transport invoices', icon: I.truck, anyOf: ORDER },
-      { to: '/transporter-payments', label: 'Transporter payments', icon: I.truck, anyOf: ORDER },
-      { to: '/trip-sheets', label: 'Trip sheets', icon: I.truck, anyOf: ORDER },
-      { to: '/collection-tasks', label: 'Payment collection', icon: I.task, anyOf: ORDER },
-      { to: '/cheque-collections', label: 'Cheque collection', icon: I.cheque, anyOf: ORDER },
-      { to: '/cheque-deposits', label: 'Cheques deposited', icon: I.bank, anyOf: ORDER },
-      { to: '/collection-activity', label: 'Collection activity', icon: I.chart, anyOf: ORDER },
-      { to: '/office-activity', label: 'Office activity', icon: I.chart, anyOf: ORDER },
-      { to: '/staff-expenses', label: 'Staff expenses', icon: I.cash, anyOf: ['order.manage', 'report.view'] },
     ],
   },
   {
@@ -166,7 +163,29 @@ export function AppShell() {
   }
 
   const allowed = (item: NavItem) => (!item.permission || can(item.permission)) && (!item.anyOf || canAny(...item.anyOf))
-  const isHere = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to))
+  const isHere = (to: string) => {
+    if (to === '/') return location.pathname === '/'
+    const [path, query] = to.split('?')
+    if (!query) return location.pathname.startsWith(path ?? to)
+    return location.pathname === path && new URLSearchParams(location.search).get('view') === new URLSearchParams(query).get('view')
+  }
+  const renderItem = (item: NavItem, nested = false) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      end={item.to === '/'}
+      className={({ isActive }) => {
+        const active = item.to.includes('?') ? isHere(item.to) : isActive
+        return (active ? 'nav-item active' : 'nav-item') + (nested ? ' nested' : '')
+      }}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d={item.icon} />
+      </svg>
+      <span>{item.label}</span>
+      {item.soon && <em className="tag">next</em>}
+    </NavLink>
+  )
 
   return (
     <div className={collapsed ? 'shell rail-collapsed' : 'shell'}>
@@ -177,9 +196,11 @@ export function AppShell() {
         <nav className="nav" aria-label="Main">
           {NAV.map((section) => {
             const items = section.items.filter(allowed)
-            if (items.length === 0) return null
-            const containsHere = items.some((i) => isHere(i.to))
+            const subItems = (section.sub?.items ?? []).filter(allowed)
+            if (items.length === 0 && subItems.length === 0) return null
+            const containsHere = items.some((i) => isHere(i.to)) || subItems.some((i) => isHere(i.to))
             const isOpen = open[section.id] ?? (!section.startClosed || containsHere)
+            const subOpen = section.sub ? open[section.sub.id] ?? (!section.sub.startClosed || subItems.some((i) => isHere(i.to))) : false
             return (
               <div className="nav-section" key={section.id}>
                 <button
@@ -191,21 +212,21 @@ export function AppShell() {
                   <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
                   {section.heading}
                 </button>
-                {isOpen &&
-                  items.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      end={item.to === '/'}
-                      className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+                {isOpen && items.map((item) => renderItem(item))}
+                {isOpen && subItems.length > 0 && section.sub && (
+                  <>
+                    <button
+                      type="button"
+                      className="nav-heading nav-subheading"
+                      aria-expanded={subOpen}
+                      onClick={() => setOpen((p) => ({ ...p, [section.sub!.id]: !subOpen }))}
                     >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d={item.icon} />
-                      </svg>
-                      <span>{item.label}</span>
-                      {item.soon && <em className="tag">next</em>}
-                    </NavLink>
-                  ))}
+                      <svg viewBox="0 0 24 24" aria-hidden="true" className={subOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
+                      {section.sub.heading}
+                    </button>
+                    {subOpen && subItems.map((item) => renderItem(item, true))}
+                  </>
+                )}
               </div>
             )
           })}

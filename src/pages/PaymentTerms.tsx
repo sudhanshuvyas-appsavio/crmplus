@@ -15,7 +15,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBanner } from '../components/FormKit'
 import { Field } from '../components/PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
-import { findDuplicate, focusFirstError, nameKey, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, nameKey, nameProblem, type FieldErrors, searchKey } from '../lib/validate'
 
 type Form = { name: string; days: string; is_active: boolean }
 const blank: Form = { name: '', days: '0', is_active: true }
@@ -185,6 +185,7 @@ function TermDrawer({
   const errors = useMemo(() => {
     const e: FieldErrors = {}
     if (!f.name.trim()) e['pt-name'] = 'Name is required.'
+    else if (nameProblem('Name', f.name)) e['pt-name'] = nameProblem('Name', f.name) as string
     else if (findDuplicate(rows, term?.id, (r) => r.name, f.name, nameKey)) e['pt-name'] = 'A payment term with this name already exists.'
     if (!f.days.trim()) e['pt-days'] = 'Days is required.'
     else if (days === null || !Number.isInteger(days) || days < 0 || days > 365) e['pt-days'] = 'Days must be a whole number between 0 and 365.'
@@ -226,12 +227,7 @@ function TermDrawer({
           <input id="pt-days" className="mono" inputMode="numeric" value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })} />
         </Field>
       </div>
-      <label className="check">
-        <input type="checkbox" checked={f.is_active} onChange={(e) => setF({ ...f, is_active: e.target.checked })} />
-        <span className="check-body">
-          <span className="check-label">Active</span>
-        </span>
-      </label>
+
       <div className="drawer-actions">
         <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>
           {busy ? 'Saving…' : term ? 'Save changes' : 'Add the term'}

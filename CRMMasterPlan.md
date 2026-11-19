@@ -28,7 +28,7 @@
 | **B. Sales pipeline** | Deals, Sales Confirmation | Leads, Deals, Pending confirmations, Sales confirmations |
 | **C. Execution and billing** | Dispatch and Billing (with dispatch subitems) | Orders, dispatches, payments, close rules, pending dispatches/documents |
 | **D. Billing documents** | Commission Invoices, Transport Invoice, Transporter Type Details | Commission invoices and bills, transporter invoices and payments, trip sheets |
-| **E. Field and collection tasks** | Mill Invoice Delivery, Commission Invoice Delivery, Payment Collection, Cheque Collection, Kaarthika Transport Freight Invoice, Sample Delivery, Monthly Visit | Collection tasks, cheque collections and deposits, collection and office activity, staff expenses |
+| **E. Field and collection tasks** | Mill Invoice Delivery, Commission Invoice Delivery, Payment Collection, Cheque Collection, Transport Freight Invoice, Sample Delivery, Monthly Visit | Collection tasks, cheque collections and deposits, collection and office activity, staff expenses |
 | **F. Messaging** | Whatsapp Message, Whatsapp Tracking, email buttons | Prefilled WhatsApp/email links and a notification log |
 | **G. Reporting** | Billing & Dispatch Dashboard | Sales, billing and collection dashboards; staff performance and efficiency |
 | **H. Platform** | users, boards' people columns | Supabase Auth, permission catalogue, templates, audit log |
@@ -42,7 +42,7 @@ Lead* -> Deal (New Deal > Manager Approval > Approved) -> Sales Confirmation (Dr
            |-> subitems = dispatch entries (partial dispatch, cancel, return)
            |-> task in Mill Invoice Delivery (proof of delivery of the mill invoice)
       -> Commission Invoice (buyer and/or supplier) -> task in Commission Invoice Delivery
-      -> Transporter Type Details (trip costing) -> Transport Invoice -> task in Kaarthika Transport Freight Invoice
+      -> Transporter Type Details (trip costing) -> Transport Invoice -> task in Transport Freight Invoice
       -> payment pending -> Payment Collection <- Monthly Visit (30/45/60-day escalation)
       -> Cheque Collection
 Every outbound document: email button and/or WhatsApp template -> logged in Whatsapp Message.
@@ -187,13 +187,13 @@ App: `commission_invoices` with number guard, `generate_commission_invoice`, `co
 | D-07 | Delivery task | Create the delivery task on generation (block E) | P1 |
 
 ### 6.2 Transport Invoice and Transporter Type Details (monday, 20 and 11 items)
-Transporter Type Details is a trip costing sheet: type (own, agreed, third party), vehicle, counts, bags, start/end km, actual km, diesel litres and price, cost of diesel, driver bata, loading, unloading, tiffin, other, LNT, PC, **total cost**, difference, KA invoice amount, KT invoice number, links to dispatch, sales confirmation, transport invoice. Transport Invoice: KT invoice no, business unit, From/To parties, bags, bag weight, total weight, type (Kg or Bag), rate, **total amount**, mode of payment, collected, pending, mill bill no, LR no and date, vehicle, transporter, documents, email, WhatsApp, task in the Kaarthika freight board. Known defects: total shows 0 (mirror of mirror), link TI to TTD empty on all rows, five empty rows.
+Transporter Type Details is a trip costing sheet: type (own, agreed, third party), vehicle, counts, bags, start/end km, actual km, diesel litres and price, cost of diesel, driver bata, loading, unloading, tiffin, other, LNT, PC, **total cost**, difference, agency invoice amount, transport invoice number, links to dispatch, sales confirmation, transport invoice. Transport Invoice: transport invoice no, business unit, From/To parties, bags, bag weight, total weight, type (Kg or Bag), rate, **total amount**, mode of payment, collected, pending, mill bill no, LR no and date, vehicle, transporter, documents, email, WhatsApp, task in the Transport Freight Invoice board. Known defects: total shows 0 (mirror of mirror), link TI to TTD empty on all rows, five empty rows.
 
 App: `order_trips` (trip sheets with mileage, fuel, costs, trip cost, only for own transport), dispatch-level transporter invoice fields, pending transporter invoices, transporter payments.
 
 | ID | Feature | Detail | Priority |
 |---|---|---|---|
-| D-08 | Trip costing | Extend trip sheet with driver bata, loading, unloading, tiffin, other, KA invoice amount and computed difference | P1 |
+| D-08 | Trip costing | Extend trip sheet with driver bata, loading, unloading, tiffin, other, agency invoice amount and computed difference | P1 |
 | D-09 | Transport invoice | Per dispatch or per period: type Kg/Bag, rate, total weight, amount computed; payment mode, collected, pending | P1 |
 | D-10 | Transporter bill register | Keep bill numbers as text; link bill to dispatches and trips | P1 |
 | D-11 | Third-party types | Agreed third party vs direct payment by party | P1 |
@@ -211,7 +211,7 @@ App: `order_trips` (trip sheets with mileage, fuel, costs, trip cost, only for o
 | **Commission Invoice Delivery** | 31 | Hand delivery of the commission invoice, acknowledgement (Yes/No), pending-payment flag; if pending, spawns a Payment Collection item | `collection_tasks` type `commission_invoice` | **E-02** Delivery with acknowledgement; **E-03** escalate to payment follow-up |
 | **Payment Collection** | 0 | Amount, collected, mode (Online, Cash, Cheque), proof, GPS, balance, status Outstanding/Completed, start/end date, ageing | `collection_tasks` types `buyer_payment`, `cash_collection`, `payment_deposit`; `order_payments` | **E-04** Collection ledger with partial amounts, proof, GPS, open ageing (monday ageing only works after completion); auto-complete when balance is zero |
 | **Cheque Collection** | 1 | Cheque no, bank, date, amount, photo, deposit status (Pending, Collected, Deposited, Cleared), groups Collected/In progress/To collect | `cheque_collections` with duplicate guard, `ChequeDeposits`, `collection_task_guard` | **E-05** Cheque lifecycle with photo, deposit slip, cleared date; link to the payment; fix the double state model (groups and status) |
-| **Kaarthika Transport Freight Invoice** | 20 | Freight bill check: bill no, amount, load reference, delivery proof, GPS, Check (Outstanding/Cleared) | `PendingTransporterInvoices`, `TransporterPayments` | **E-06** Freight-bill verification and payment status (hard-coded transporter name in monday should become data) |
+| **Transport Freight Invoice** | 20 | Freight bill check: bill no, amount, load reference, delivery proof, GPS, Check (Outstanding/Cleared) | `PendingTransporterInvoices`, `TransporterPayments` | **E-06** Freight-bill verification and payment status (hard-coded transporter name in monday should become data) |
 | **Sample Delivery** | 1 | Samples from mills for a buyer: lot, quality, type, feedback due 7 days after delivery, feedback status (Pending, Approved, Rejected), reminder | none | **E-07** Sample register with feedback reminder; approval creates a lead/deal follow-up (monday targets a board that no longer exists) |
 | **Monthly Visit** | 3 | Visit plan and log: check-in/out times, GPS, summary, visited status, pending payment flag; escalation at 30/45/60 days to Payment Collection (nine near-duplicate rules) | `activity_log` kinds (call, meeting, reminder, task), `CollectionActivity`, `OfficeActivity` | **E-08** Visit planner with check-in/out and GPS; **E-09** one escalation rule with thresholds as data (30/45/60) creating at most one open follow-up per buyer |
 
@@ -412,7 +412,7 @@ Read this first, then the two supporting docs:
 | Item | Status | Notes |
 |---|---|---|
 | Columns of all 22 boards | VERIFIED | monday API, 2026-11-17 and 2026-11-19 |
-| Automations of 16 boards | VERIFIED | Deals, Sales Confirmation, Dispatch and Billing, Commission Invoices, Transport Invoice, Transporter Type Details, Mill Invoice Delivery, Commission Invoice Delivery, Kaarthika Transport Freight Invoice, Cheque Collection, Payment Collection, Sample Delivery, Monthly Visit, Counts, Buyers & Suppliers, Business Units |
+| Automations of 16 boards | VERIFIED | Deals, Sales Confirmation, Dispatch and Billing, Commission Invoices, Transport Invoice, Transporter Type Details, Mill Invoice Delivery, Commission Invoice Delivery, Transport Freight Invoice, Cheque Collection, Payment Collection, Sample Delivery, Monthly Visit, Counts, Buyers & Suppliers, Business Units |
 | Automations of Transport Company, Location MDM, Sizing/Delivery, Payment Terms, Whatsapp Message, Whatsapp Tracking | UNREAD | Read `list_automations` for them before building (likely only date/name helpers) |
 | Creation forms of the 7 Master data boards | VERIFIED | `docs/mdm-column-parity.md` |
 | Creation form of Dispatch and Billing | PARTIAL | See §P2-3.3 |
@@ -593,7 +593,7 @@ CRM+ has a Tasks module (`src/pages/tasks/*`, migration `20261118100000_tasks_mo
 - **Automations**: A1 `date_arrives(Created Date, 18:30 IST)` and Pending Payment Status = Yes: notify Person + Accounts, title `{Name}`, message `Hey, {Person}, / Payment is pending for this record.`; create a **Payment Collection** item `Commission Invoice - {Name}` linked both ways. A2 (legacy) People ← Messenger.
 - Created by Commission Invoices A4.
 
-### 4.5 Kaarthika Transport Freight Invoice (5027269319, 20 rows)
+### 4.5 Transport Freight Invoice (5027269319, 20 rows)
 - **Columns**: Name, Person, Accounts, Transport Invoice (relation), Buyer (mirror), Transport Bill No., Transport Amount, Load Reference, Delivery Proof, GPS Check-In, Status (Yes, No), Check (Outstanding, Cleared).
 - **Creation form**: view id 51888741. **UNREAD**.
 - **Automations**: A1 `status_changed(Check → Outstanding)`: notify Person + Accounts, title `{Name}`, message `Hey, {Accounts}, / The payment for {Name} is {Check}`.
@@ -619,7 +619,7 @@ CRM+ has a Tasks module (`src/pages/tasks/*`, migration `20261118100000_tasks_mo
 - **Groups**: Group Title, Send. **Columns**: `docs/monday-crm-reference.md` §Commission Invoices (about 55). Enums: Party Type (Supplier, Buyer), Status (Generated, Sent, Pending), Commission Type (BAG, KG, Percentage), Mode of Payment (NEFT, UPI, RTGS, Cash, Cards), Whatsapp Message (Send, Not Send). Totals (Total, Net Amount, Round Off) are numbers filled externally from Dispatch and Billing commissions; Payment Pending = Net Amount − Partial Payment/Payment Collected.
 - **Creation form**: monday has a "Commission Invoice From" app view (not a standard Creation Form; `FeatureBoardView`) `(confirm what it does)`.
 - **Automations**:
-  - A1 `button_clicked(Email)`: send email, subject `Commission Invoice From Kaarthika Agency`, attach Documents, body `Dear Sir, / Thanks for purchasing yarn via {Business Unit Name}. / Please find attached the commission bill from Date {Invoice From Date} to {Invoice To Date} along with mill invoices for your reference. / Incase of any discrepancies revert within 15 days of bill date. / kindly contact account department. {Business Unit Phone} / Thanking you …`.
+  - A1 `button_clicked(Email)`: send email, subject `Commission Invoice From {Agency name}`, attach Documents, body `Dear Sir, / Thanks for purchasing yarn via {Business Unit Name}. / Please find attached the commission bill from Date {Invoice From Date} to {Invoice To Date} along with mill invoices for your reference. / Incase of any discrepancies revert within 15 days of bill date. / kindly contact account department. {Business Unit Phone} / Thanking you …`.
   - A2 `status_changed(Whatsapp Message → Send)`: template (document template, name `(confirm)`) to buyer phones; log wamid, Whatsapp Response, template, Message.
   - A3 `column_changed(Whatsapp Response)` not empty: create Whatsapp Message item (Board = Commission Invoice, group Commission Invoice).
   - A4 `item_created`: create a **Commission Invoice Delivery** item named `{Name}` in group Group Title, linked both ways.
@@ -631,9 +631,9 @@ CRM+ has a Tasks module (`src/pages/tasks/*`, migration `20261118100000_tasks_mo
 - **Creation form**: view id 51525761. **UNREAD**.
 - **Automations**:
   - A1 `column_changed(Response)` not empty: create Whatsapp Message item `Message-{…}` (group Transport Invoice) copying To Phone, Message, wamid, Response, Template, Document.
-  - A2 `item_created`: create **Kaarthika Transport Freight Invoice** item `{Name} - Transport Task`, linked both ways.
+  - A2 `item_created`: create **Transport Freight Invoice** item `{Name} - Transport Task`, linked both ways.
   - A3 `button_clicked(Email)`: send email, subject `Transport Commission Invoice`, attach Document, to the To Email and To Contact Person 1/2 Email lookups. Body: `Dear Team , / Please find attached the transport commission bill from {Business Unit Name} on date {Date}. / The physical copy of this invoice has been raised and dispatched to your office. / We kindly request you to process the payment at your earliest convenience. / All other details regarding the shipment and billing are provided in the attached document. / Thank you for your continued business! / {Business Unit Name} / Best regards`.
-  - A4 `column_changed(KT INV. NO.)`: Name = `TI - {KT INV. NO.}`.
+  - A4 `column_changed(Transport Invoice No.)`: Name = `TI - {Transport Invoice No.}`.
   - A5 `item_created`: assign creator to Person.
   - A6 `status_changed(Whatsapp Message → Send)`: template `transport_invoice` ("Transport Invoice (Doc)") with Document to Office Phone, CP1 Phone, CP2 Phone lookups; log response, wamid, template, message.
   - A7 `column_changed(Transporter Type Details)`: refresh lookups (legacy).
@@ -683,13 +683,13 @@ Known deliberate differences (do not "fix"): no Date field on Location, Transpor
 ```
 Business Units ─┬─ Buyers & Suppliers ─┬─ Deals ── Sales Confirmation ── Dispatch and Billing ─┬─ subitems (dispatch entries)
 Payment Terms ──┤  Counts ─────────────┤                                  │                    ├─ Mill Invoice Delivery
-Location MDM ───┤  Location MDM ───────┘                                  │                    └─ Transporter Type Details ── Transport Invoice ── Kaarthika Freight Invoice
+Location MDM ───┤  Location MDM ───────┘                                  │                    └─ Transporter Type Details ── Transport Invoice ── Transport Freight Invoice
 Sizing/Delivery ┘                                                         └─ Commission Invoices ── Commission Invoice Delivery ── Payment Collection ── Monthly Visit
 Transport Company ── Transporter Type Details        Cheque Collection, Sample Delivery (buyer/supplier links)
 Whatsapp Message  ← written by SC, D&B, Commission Invoices, Transport Invoice "response arrived" automations
 ```
 
-Two-way links to keep: Deals ↔ Sales Confirmation, SC ↔ Dispatch and Billing, D&B ↔ Mill Invoice Delivery, Commission Invoices ↔ Commission Invoice Delivery, Commission Invoice Delivery ↔ Payment Collection, Monthly Visit ↔ Payment Collection, Transport Invoice ↔ Kaarthika Freight Invoice, Transporter Type Details ↔ Transport Invoice, SC ↔ Transporter Type Details.
+Two-way links to keep: Deals ↔ Sales Confirmation, SC ↔ Dispatch and Billing, D&B ↔ Mill Invoice Delivery, Commission Invoices ↔ Commission Invoice Delivery, Commission Invoice Delivery ↔ Payment Collection, Monthly Visit ↔ Payment Collection, Transport Invoice ↔ Transport Freight Invoice, Transporter Type Details ↔ Transport Invoice, SC ↔ Transporter Type Details.
 
 ---
 
