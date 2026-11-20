@@ -6,7 +6,7 @@ automations can be tested without a staging database and without touching produc
 ```powershell
 cd supabase/tests/local-harness
 npm install --no-save @electric-sql/pglite
-node run.mjs ../task_rules_monday_timing.test.sql ../task_boards_automations.test.sql ../task_monthly_visit_and_links.test.sql
+node run.mjs ../task_rules_monday_timing.test.sql ../task_boards_automations.test.sql ../task_monthly_visit_and_links.test.sql ../task_cheque_and_payment_collection.test.sql ../task_group_sample_data.test.sql
 ```
 
 What it does: creates stand-in base tables (`bootstrap.sql`: profiles, buyers, orders, dispatches, ...), applies

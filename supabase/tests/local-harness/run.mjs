@@ -40,10 +40,13 @@ await run('grants', `grant all on all tables in schema public to authenticated; 
 
 if (!process.env.FIX) await run('migration 20261120151000 mill invoice edit fix', mig('20261120151000_mill_invoice_edit_no_duplicate.sql'))
 
+await run('migration 20261120160000 cheque and payment collection', mig('20261120160000_cheque_and_payment_collection_automations.sql'))
+
 // idempotency: apply my migrations a second time
 await run('re-run 20261120100000 (idempotency)', mig('20261120100000_task_rules_monday_timing.sql'))
 await run('re-run 20261120150000 (idempotency)', mig('20261120150000_cheque_collected_notify_on_any_update.sql'))
 await run('re-run 20261120151000 (idempotency)', mig('20261120151000_mill_invoice_edit_no_duplicate.sql'))
+await run('re-run 20261120160000 (idempotency)', mig('20261120160000_cheque_and_payment_collection_automations.sql'))
 
 // test files: strip begin/rollback and turn NOTICE passes into rows we can read
 const files = process.argv.slice(2)
@@ -55,3 +58,8 @@ for (const f of files) {
 }
 const log = await db.query('select msg from public.t_log order by id')
 console.log('\nPASSED CHECKS:'); for (const r of log.rows) console.log('  ' + r.msg)
+
+if (process.env.QUERY) {
+  const r = await db.query(process.env.QUERY)
+  console.log('QUERY RESULT:'); for (const row of r.rows) console.log('  ' + JSON.stringify(row))
+}
