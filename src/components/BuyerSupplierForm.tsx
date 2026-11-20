@@ -3,7 +3,7 @@
  *  Same fields, same order, same required marks: Select Action (create or
  *  update), Name, Date, Type, Email, Office Phone, Office Address,
  *  Mill/Factory/Delivery Address, State, GST No., Business Unit, Location MDM,
- *  Default Commission, Category, Messenger, IT Pan, three contact persons
+ *  Default Commission, Category, Messenger, PAN, three contact persons
  *  (name, phone, email), Counts, the buyer and supplier commission type and
  *  value, two remarks and up to ten documents.
  *
@@ -12,16 +12,14 @@
 
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { CATEGORIES } from '../api/types'
 import type { BuyerMaster, SupplierMaster } from '../api/types'
 import { Drawer } from './Drawer'
 import { DEFAULT_COMMISSIONS, Field, FieldErrorsProvider } from './PartyForms'
 import { PhoneField } from './PhoneField'
 import { ErrorBanner, FormSection, FullWidth } from './FormKit'
-import { findDuplicate, focusFirstError, isEmail, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, isPan, nameKey, panMatchesGst, nameProblem, personProblem, placeProblem, requireText, type FieldErrors } from '../lib/validate'
 import { PendingDocuments } from './documents/PendingDocuments'
-import { useProfileNames } from './PartyExtras'
-import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
+import { LinkPicker, useCountOptions } from './LinkPicker'
 import { syncLinks } from '../lib/links'
 import { errMessage, GST_STATES, isGst, numOrNull } from '../lib/party'
 import { phoneProblem, splitPhone } from '../lib/phone'
@@ -58,6 +56,8 @@ type FormState = {
   category: string
   messenger_id: string
   pan: string
+  bank_1: string
+  bank_2: string
   c1_name: string
   c1_phone: string
   c1_email: string
@@ -95,7 +95,7 @@ const nowLocal = (): string => {
 
 const blank = (type: Side): FormState => ({
   name: '', record_at: nowLocal(), type, email: '', office_phone: '', address: '', mill_address: '', state: '', gst: '',
-  company_id: '', default_commission: '', category: '', messenger_id: '', pan: '',
+  company_id: '', default_commission: '', category: '', messenger_id: '', pan: '', bank_1: '', bank_2: '',
   c1_name: '', c1_phone: '', c1_email: '', c2_name: '', c2_phone: '', c2_email: '', c3_name: '', c3_phone: '', c3_email: '',
   commission_type: '', commission_value: '', remark_1: '', remark_2: '',
   fabric_producing: '', no_of_looms: '', reed_pick: '', width: '', quantity: '', type_text: '', current_machines: '', machine_type: '', counts_supplying: '',
@@ -123,6 +123,8 @@ function mobileProblem(value: string): string | null {
 interface RuleCtx {
   buyers: readonly BuyerMaster[]
   suppliers: readonly SupplierMaster[]
+  /** Type = Both: a buyer and a supplier record are created together, so both lists are checked. */
+  both?: boolean
   /** The record being updated, so it does not count as its own duplicate. */
   selfId?: string | null
 }
@@ -134,6 +136,7 @@ export function errorsOf(f: FormState, countIds: string[], ctx: RuleCtx): FieldE
   const er: FieldErrors = {}
   const list: readonly (BuyerMaster | SupplierMaster)[] = f.type === 'buyer' ? ctx.buyers : ctx.suppliers
   const kind = f.type === 'buyer' ? 'buyer' : 'supplier'
+  const otherList: readonly (BuyerMaster | SupplierMaster)[] = f.type === 'buyer' ? ctx.suppliers : ctx.buyers
   const codeOf = (r: BuyerMaster | SupplierMaster) => ('buyer_code' in r ? r.buyer_code : r.supplier_code)
 
   requireText(er, 'bs-name', f.name, 'Name is required.')
@@ -141,6 +144,10 @@ export function errorsOf(f: FormState, countIds: string[], ctx: RuleCtx): FieldE
   if (!er['bs-name']) {
     const dup = findDuplicate(list, ctx.selfId, (r) => r.name, f.name, nameKey)
     if (dup) er['bs-name'] = `A ${kind} called "${dup.name}" already exists (${codeOf(dup)}).`
+    else if (ctx.both) {
+      const other = findDuplicate(otherList, null, (r) => r.name, f.name, nameKey)
+      if (other) er['bs-name'] = `A ${f.type === 'buyer' ? 'supplier' : 'buyer'} called "${other.name}" already exists (${codeOf(other)}).`
+    }
   }
   if (f.email.trim() && !isEmail(f.email)) er['bs-email'] = 'Enter a valid email, like name@company.com.'
   if (!f.office_phone.trim() || splitPhone(f.office_phone).number === '') er['bs-ophone'] = 'Office Phone is required.'
@@ -161,10 +168,18 @@ export function errorsOf(f: FormState, countIds: string[], ctx: RuleCtx): FieldE
   else {
     const dup = findDuplicate(list, ctx.selfId, (r) => r.gst, gst, upText)
     if (dup) er['bs-gst'] = `This GST number is already used by ${kind} "${dup.name}" (${codeOf(dup)}).`
+    else if (ctx.both) {
+      const other = findDuplicate(otherList, null, (r) => r.gst, gst, upText)
+      if (other) er['bs-gst'] = `This GST number is already used by ${f.type === 'buyer' ? 'supplier' : 'buyer'} "${other.name}" (${codeOf(other)}).`
+    }
   }
   if (!f.company_id) er['bs-company'] = 'Business Unit is required.'
   if (!f.default_commission) er['bs-defcomm'] = 'Default Commision Percentage is required.'
-  if (f.pan.trim() && f.pan.trim().length !== 10) er['bs-pan'] = 'IT Pan must be 10 characters.'
+  if (ctx.both && !f.pan.trim()) er['bs-pan'] = 'PAN is required for Both: it ties the buyer and the supplier record together.'
+  if (f.pan.trim()) {
+    if (!isPan(f.pan)) er['bs-pan'] = 'Enter a valid PAN: 5 letters, 4 digits, 1 letter (like AHFPK5121I).'
+    else if (gst && isGst(gst) && !panMatchesGst(gst, f.pan)) er['bs-pan'] = 'PAN must match the GST number (characters 3 to 12 of the GST).'
+  }
   ;([
     [1, f.c1_phone, f.c1_email], [2, f.c2_phone, f.c2_email], [3, f.c3_phone, f.c3_email],
   ] as const).forEach(([n, phone, email]) => {
@@ -219,6 +234,8 @@ function payloadOf(f: FormState) {
     category: f.category || null,
     messenger_id: f.messenger_id || null,
     pan: pan || null,
+    bank_account_1: orNull(f.bank_1),
+    bank_account_2: orNull(f.bank_2),
     contact_person: contact,
     mobile,
     contact_1_email: orNull(f.c1_email),
@@ -281,9 +298,9 @@ export function BuyerSupplierForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
+  /** Type = Both: the buyer and the supplier record are created together, sharing the PAN. */
+  const [both, setBoth] = useState(false)
 
-  const people = useProfileNames()
-  const locationOptions = useLocationOptions()
   const countOptions = useCountOptions()
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((p) => ({ ...p, [key]: value }))
@@ -292,11 +309,12 @@ export function BuyerSupplierForm({
     setError(null)
     setFiles([])
     setForm(blank(form.type))
+    setBoth(false)
     setLocationIds([])
     setCountIds([])
   }
 
-  const errors = errorsOf(form, countIds, { buyers, suppliers })
+  const errors = errorsOf(form, countIds, { buyers, suppliers, both })
   const typed: Record<string, string> = {
     'bs-name': form.name, 'bs-state': form.state, 'bs-c1n': form.c1_name, 'bs-c2n': form.c2_name, 'bs-c3n': form.c3_name, 'bs-email': form.email, 'bs-ophone': form.office_phone, 'bs-address': form.address, 'bs-gst': form.gst,
     'bs-company': form.company_id, 'bs-defcomm': form.default_commission, 'bs-pan': form.pan, 'bs-c1p': form.c1_phone,
@@ -309,7 +327,7 @@ export function BuyerSupplierForm({
     Object.entries(errors).filter(([id]) => submitted || (typed[id] ?? '').trim() !== ''),
   )
   const allowed = (s: Side) => (s === 'buyer' ? canBuyer : canSupplier)
-  const canSave = allowed(form.type)
+  const canSave = both ? canBuyer && canSupplier : allowed(form.type)
 
   async function uploadFiles(owner: Side, ownerId: string): Promise<string[]> {
     const failed: string[] = []
@@ -346,27 +364,35 @@ export function BuyerSupplierForm({
       return
     }
     setBusy(true)
-    const table = form.type === 'buyer' ? 'buyer_master' : 'supplier_master'
-    const payload: Record<string, unknown> = payloadOf(form)
-    const { data, error: e } = await supabase.from(table).insert(payload).select('id').single()
-    if (e) {
-      setBusy(false)
-      setError(errMessage(e, 'Could not save this record'))
-      return
+    const sides: Side[] = both ? ['buyer', 'supplier'] : [form.type]
+    const created: { side: Side; id: string }[] = []
+    for (const side of sides) {
+      const table = side === 'buyer' ? 'buyer_master' : 'supplier_master'
+      const payload: Record<string, unknown> = payloadOf({ ...form, type: side })
+      const { data, error: e } = await supabase.from(table).insert(payload).select('id').single()
+      if (e) {
+        // Both is all or nothing: take back the record already made.
+        for (const done of created) await supabase.from(done.side === 'buyer' ? 'buyer_master' : 'supplier_master').delete().eq('id', done.id)
+        setBusy(false)
+        setError(errMessage(e, `Could not save the ${side} record`))
+        return
+      }
+      created.push({ side, id: (data as { id: string }).id })
     }
-    const ownerId = (data as { id: string }).id
 
     const problemsAfter: string[] = []
-    for (const [kind, ids] of [['location', locationIds], ['count', countIds]] as const) {
-      try {
-        await syncLinks(kind, form.type, ownerId, ids)
-      } catch (caught) {
-        problemsAfter.push(`${kind === 'location' ? 'locations' : 'counts'}: ${errMessage(caught)}`)
+    for (const { side, id: ownerId } of created) {
+      for (const [kind, ids] of [['location', locationIds], ['count', countIds]] as const) {
+        try {
+          await syncLinks(kind, side, ownerId, ids)
+        } catch (caught) {
+          problemsAfter.push(`${kind === 'location' ? 'locations' : 'counts'}: ${errMessage(caught)}`)
+        }
       }
-    }
-    if (files.length > 0) {
-      const failed = await uploadFiles(form.type, ownerId)
-      if (failed.length > 0) problemsAfter.push(`documents not uploaded: ${failed.join(', ')}`)
+      if (files.length > 0) {
+        const failed = await uploadFiles(side, ownerId)
+        if (failed.length > 0) problemsAfter.push(`documents not uploaded: ${failed.join(', ')}`)
+      }
     }
     setBusy(false)
     const saved = `${form.name.trim()} added.`
@@ -383,7 +409,7 @@ export function BuyerSupplierForm({
 
       <FieldErrorsProvider value={visibleErrors}>
       <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <FormSection title="Buyer & Supplier Details" count={14}>
+        <FormSection title="Buyer & Supplier Details" count={11}>
           <Field id="bs-name" label="Name" required>
             <input id="bs-name" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Enter Name" autoFocus />
           </Field>
@@ -391,12 +417,23 @@ export function BuyerSupplierForm({
             <input id="bs-date" type="datetime-local" value={form.record_at} onChange={(e) => set('record_at', e.target.value)} />
           </Field>
           <Field id="bs-type" label="Type" required>
-            <select id="bs-type" value={form.type} onChange={(e) => set('type', e.target.value as Side)}>
+            <select
+              id="bs-type"
+              value={both ? 'both' : form.type}
+              onChange={(e) => {
+                const v = e.target.value
+                setBoth(v === 'both')
+                set('type', v === 'supplier' ? 'supplier' : 'buyer')
+              }}
+            >
               <option value="buyer" disabled={!canBuyer}>
                 Buyer
               </option>
               <option value="supplier" disabled={!canSupplier}>
                 Supplier
+              </option>
+              <option value="both" disabled={!(canBuyer && canSupplier)}>
+                Both
               </option>
             </select>
           </Field>
@@ -443,14 +480,6 @@ export function BuyerSupplierForm({
                 ))}
             </select>
           </Field>
-          <LinkPicker
-            id="bs-locs"
-            label="Location MDM"
-            options={locationOptions}
-            value={locationIds}
-            onChange={setLocationIds}
-            placeholder="-- Select Location MDM --"
-          />
           <Field id="bs-defcomm" label="Default Commision Percentage" required>
             <select id="bs-defcomm" value={form.default_commission} onChange={(e) => set('default_commission', e.target.value)}>
               <option value="">-- Select Default Commision Percentage --</option>
@@ -461,41 +490,25 @@ export function BuyerSupplierForm({
               ))}
             </select>
           </Field>
-          <Field id="bs-cat" label="Category">
-            <select id="bs-cat" value={form.category} onChange={(e) => set('category', e.target.value)}>
-              <option value="">-- Select Category --</option>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field id="bs-msg" label="Messenger">
-            <select id="bs-msg" value={form.messenger_id} onChange={(e) => set('messenger_id', e.target.value)}>
-              <option value="">-- Select Messenger --</option>
-              {form.messenger_id && !people[form.messenger_id] && <option value={form.messenger_id}>Unknown user</option>}
-              {Object.entries(people).map(([pid, name]) => (
-                <option key={pid} value={pid}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </Field>
         </FormSection>
 
-        <FormSection title="Account Details" count={1}>
-          <Field id="bs-pan" label="IT Pan" hint="10 characters, upper case.">
-            <input id="bs-pan" className="mono" maxLength={10} value={form.pan} onChange={(e) => set('pan', e.target.value.toUpperCase())} placeholder="Enter IT Pan" />
+        <FormSection title="Account Details" count={3}>
+          <Field id="bs-bank1" label="Bank Account Details 1">
+            <input id="bs-bank1" value={form.bank_1} onChange={(e) => set('bank_1', e.target.value)} placeholder="Enter Bank Account Details 1" />
+          </Field>
+          <Field id="bs-bank2" label="Bank Account Details 2">
+            <input id="bs-bank2" value={form.bank_2} onChange={(e) => set('bank_2', e.target.value)} placeholder="Enter Bank Account Details 2" />
+          </Field>
+          <Field id="bs-pan" label="PAN" hint="10 characters, upper case.">
+            <input id="bs-pan" className="mono" maxLength={10} value={form.pan} onChange={(e) => set('pan', e.target.value.toUpperCase())} placeholder="Enter PAN" />
           </Field>
         </FormSection>
 
         {([
           [1, 'MD Information'],
           [2, 'Account Information'],
-          [3, 'Dispatch Information'],
         ] as const).map(([n, title]) => {
-          const k = `c${n}` as 'c1' | 'c2' | 'c3'
+          const k = `c${n}` as 'c1' | 'c2'
           return (
             <FormSection key={n} title={title} count={3}>
               <Field id={`bs-${k}n`} label={`Contact Person ${n}`}>

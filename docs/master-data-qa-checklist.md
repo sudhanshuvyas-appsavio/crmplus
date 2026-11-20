@@ -32,7 +32,7 @@ Before testing: run `supabase/manual/20261118_business_unit_test_data_cleanup.sq
 | Counts | Name, Thread Count (6-120), Machine, Type, Yarn 1, Yarn 1 (Percentage); Yarn 2 when Yarn 1 is below 100% |
 | Business Units | Name, Email, Address, Bank Account Details 1, Short name, Reference prefix, Currency (3 letters, default INR); GST, PAN, phones checked when typed; Name, GST, PAN and prefix unique; PAN must match the GST |
 | Buyers & Suppliers | Name, Type, Office Phone, Office Address, GST No., Business Unit, Default Commision Percentage, Counts; Name and GST unique per master; customer code unique |
-| Transport Company | Name, GST No., Office Phone, State, State Code, Office Address, Locations, Business Units, Bank Account Number 1, IT PAN, Contact Person 1 and its phone, Vehicle Type |
+| Transport Company | Name, GST No., Office Phone, State, State Code, Office Address, Locations, Business Units, Bank Account Number 1, PAN, Contact Person 1 and its phone, Vehicle Type |
 | Location MDM | Name (unique), Address |
 | Sizing/Delivery Address | Name, GST No., State, Office Address, both contacts with phone and email, Remarks 1, at least one document |
 
