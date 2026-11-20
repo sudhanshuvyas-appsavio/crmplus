@@ -116,7 +116,7 @@ Re-run these sheet cases after each phase: Phase 1: SZ-03, TR-03, TR-04, TR-07; 
 
 | Case | Fix | State |
 |---|---|---|
-| BU-RT12, BS-09 (Lead 2 twice), LO-01, PT-03, TR-07 "test tp" | test records: clean-up script `supabase/manual/20261120_master_data_qa_cleanup.sql` (dry run by default, keeps anything still referenced) | **script written, to be run by you** |
+| BU-RT12, BS-09 (Lead 2 twice), LO-01, PT-03, TR-07 "test tp" | test records: clean-up script `supabase/manual/20261120_master_data_qa_cleanup_safe.sql` (deletes only unused test rows, marks the used ones inactive, changes nothing else) | **script written, to be run by you** |
 | BU-RT14, LO-04 | "Mark inactive" / "Mark active" in the Actions menu of Business Units, Buyers & Suppliers, Transport Company, Locations, Sizing / Delivery Address (`src/lib/active.ts`); the Status filter stays | done in code |
 | BS-01 | deprecated columns (Contact Person 3 name/phone/email, Location MDM, Category, Short name, Messenger) hidden by default; users can still switch them on | done in code |
 | BS-02 | Location MDM, Category, Messenger and Contact Person 3 removed from the form; Bank Account Details 1 and 2 added; Type has "Both" on create (one buyer and one supplier sharing the PAN, rolled back if the second insert fails); label "PAN" | done in code |
