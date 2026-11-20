@@ -12,6 +12,7 @@ import { COMPANY_DOC_LIMIT, companyDocStore } from '../components/CompanyDocumen
 import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Drawer } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
+import { setActive } from '../lib/active'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Field } from '../components/PartyForms'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
@@ -208,6 +209,16 @@ export default function Companies() {
   const paging = usePaging(shown, [search, stateFilter, statusFilter].join('|'))
 
   const allSelected = shown.length > 0 && shown.every((c) => selected.has(c.id))
+
+  /** Active / Inactive: nothing is deleted; inactive business units stay listed and are no longer offered in pickers. */
+  async function toggleActive(company: Company) {
+    setBanner(null)
+    const next = !(company.is_active)
+    const message = await setActive([{ table: 'companies', id: company.id }], next)
+    if (message) return setBanner({ kind: 'bad', text: message })
+    setBanner({ kind: 'ok', text: `${company.name} marked ${next ? 'active' : 'inactive'}.` })
+    await load()
+  }
 
   function toggleOne(id: string) {
     setSelected((prev) => {
@@ -619,6 +630,7 @@ export default function Companies() {
                     actions={[
                       { label: 'Edit', onSelect: () => (canManage ? setEditing({ mode: 'edit', company }) : setViewing(company)) },
                       { label: 'Documents', onSelect: () => setDocsFor(company) },
+                      { label: company.is_active ? 'Mark inactive' : 'Mark active', onSelect: () => void toggleActive(company), disabledReason: canManage ? null : 'Needs “Change system settings”' },
                       { label: 'Delete', tone: 'danger', onSelect: () => setDeleting(company), disabledReason: canManage ? null : 'Needs “Change system settings”' },
                     ]}
                   />

@@ -12,8 +12,7 @@ import { supabase } from '../lib/supabase'
 import { CATEGORIES, COMMISSION_BASES } from '../api/types'
 import type { BuyerMaster, PartyProfile, SupplierMaster } from '../api/types'
 import { GST_STATES, isGst, isMobile, numOrNull } from '../lib/party'
-import { LinkPicker, useCountOptions, useLocationOptions } from './LinkPicker'
-import { useProfileNames } from './PartyExtras'
+import { LinkPicker, useCountOptions } from './LinkPicker'
 import { FormSection, FullWidth } from './FormKit'
 
 /* ---- shared bits ---------------------------------------------------------- */
@@ -784,9 +783,7 @@ export function PartyProfileSections({
   showSupplier,
   businessUnit,
   typeField,
-  locationIds,
   countIds,
-  onLocationIds,
   onCountIds,
   linksDisabled,
   linksNote,
@@ -807,11 +804,6 @@ export function PartyProfileSections({
   linksDisabled: boolean
   linksNote?: string | null
 }) {
-  const names = useProfileNames()
-  const people = Object.entries(names)
-    .map(([id, name]) => ({ id, name }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const locationOptions = useLocationOptions()
   const countOptions = useCountOptions()
 
   const digits = (key: 'mobile' | 'contact_2_mobile' | 'contact_3_mobile' | 'office_phone' | 'res_phone') => (e: { target: { value: string } }) =>
@@ -824,7 +816,7 @@ export function PartyProfileSections({
 
   return (
     <>
-      <FormSection title="Buyer & Supplier Details" count={14}>
+      <FormSection title="Buyer & Supplier Details" count={11}>
         <Field id={`${p}-name`} label="Name" required>
           <input id={`${p}-name`} value={form.name} placeholder="Enter Name" onChange={(e) => set('name', e.target.value)} />
         </Field>
@@ -853,15 +845,6 @@ export function PartyProfileSections({
           <input id={`${p}-gst`} className="mono" maxLength={15} value={form.gst} placeholder="Enter GST No." onChange={(e) => patch(gstPatch(form, e.target.value))} />
         </Field>
         {businessUnit}
-        <LinkPicker
-          id={`${p}-locs`}
-          label="Location MDM"
-          options={locationOptions}
-          value={locationIds}
-          onChange={onLocationIds}
-          disabled={linksDisabled}
-          placeholder="-- Select Location MDM --"
-        />
         <Field id={`${p}-defcomm`} label="Default Commision Percentage" required>
           <select id={`${p}-defcomm`} value={form.default_commission} onChange={(e) => set('default_commission', e.target.value)}>
             <option value="">-- Select Default Commision Percentage --</option>
@@ -872,32 +855,17 @@ export function PartyProfileSections({
             ))}
           </select>
         </Field>
-        <Field id={`${p}-cat`} label="Category">
-          <select id={`${p}-cat`} value={form.category} onChange={(e) => set('category', e.target.value)}>
-            <option value="">-- Select Category --</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field id={`${p}-msg`} label="Messenger">
-          <select id={`${p}-msg`} value={form.messenger_id} onChange={(e) => set('messenger_id', e.target.value)}>
-            <option value="">-- Select Messenger --</option>
-            {form.messenger_id && !people.some((x) => x.id === form.messenger_id) && <option value={form.messenger_id}>Unknown user</option>}
-            {people.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-        </Field>
       </FormSection>
 
-      <FormSection title="Account Details" count={1}>
-        <Field id={`${p}-pan`} label="IT Pan" hint="10 characters, upper case.">
-          <input id={`${p}-pan`} className="mono" maxLength={10} value={form.pan} placeholder="Enter IT Pan" onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
+      <FormSection title="Account Details" count={3}>
+        <Field id={`${p}-bank1`} label="Bank Account Details 1">
+          <input id={`${p}-bank1`} value={form.bank_account_1} placeholder="Enter Bank Account Details 1" onChange={(e) => set('bank_account_1', e.target.value)} />
+        </Field>
+        <Field id={`${p}-bank2`} label="Bank Account Details 2">
+          <input id={`${p}-bank2`} value={form.bank_account_2} placeholder="Enter Bank Account Details 2" onChange={(e) => set('bank_account_2', e.target.value)} />
+        </Field>
+        <Field id={`${p}-pan`} label="PAN" hint="10 characters, upper case.">
+          <input id={`${p}-pan`} className="mono" maxLength={10} value={form.pan} placeholder="Enter PAN" onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
         </Field>
       </FormSection>
 
@@ -921,17 +889,6 @@ export function PartyProfileSections({
         </Field>
         <Field id={`${p}-c2email`} label="Contact Person 2 Email" hint={emailHint(form.contact_2_email)}>
           <input id={`${p}-c2email`} type="email" value={form.contact_2_email} placeholder="Enter Contact Person 2 Email" onChange={(e) => set('contact_2_email', e.target.value)} />
-        </Field>
-      </FormSection>
-      <FormSection title="Dispatch Information" count={3}>
-        <Field id={`${p}-c3name`} label="Contact Person 3">
-          <input id={`${p}-c3name`} value={form.contact_3_name} placeholder="Enter Contact Person 3" onChange={(e) => set('contact_3_name', e.target.value)} />
-        </Field>
-        <Field id={`${p}-c3mobile`} label="Contact Person 3 Phone" hint={mobileHint(form.contact_3_mobile)}>
-          <input id={`${p}-c3mobile`} inputMode="numeric" maxLength={10} className="mono" value={form.contact_3_mobile} placeholder="Enter Contact Person 3 Phone" onChange={digits('contact_3_mobile')} />
-        </Field>
-        <Field id={`${p}-c3email`} label="Contact Person 3 Email" hint={emailHint(form.contact_3_email)}>
-          <input id={`${p}-c3email`} type="email" value={form.contact_3_email} placeholder="Enter Contact Person 3 Email" onChange={(e) => set('contact_3_email', e.target.value)} />
         </Field>
       </FormSection>
 

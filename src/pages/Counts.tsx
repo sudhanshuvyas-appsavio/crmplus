@@ -21,7 +21,7 @@ import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorBanner, FormSection } from '../components/FormKit'
-import { focusFirstError, nameProblem, type FieldErrors, searchKey } from '../lib/validate'
+import { focusFirstError, type FieldErrors, searchKey } from '../lib/validate'
 import { Field } from '../components/PartyForms'
 import { ImportIssues, ListTools, useSelection } from '../components/ListTools'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pickOne } from '../lib/bulk'
@@ -212,6 +212,7 @@ export default function Counts() {
     setBusy(true)
     setBanner(null)
     setImportResults(null)
+    const seen = new Set((rows ?? []).map((x) => x.recipe_key))
     const outcome = await importCsvFile(
       file,
       (r) => r.get('display_name') || [r.get('count_no'), r.get('machine'), r.get('yarn_1') || r.get('composition')].filter(Boolean).join(' '),
@@ -219,9 +220,12 @@ export default function Counts() {
         const form = recipeFromCsv(r)
         const missing = recipeProblems(form)
         if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
+        const key = recipeKey(form)
+        if (seen.has(key)) throw new Error('A count with this recipe already exists')
         const { data: saved, error } = await supabase.from('count_master').insert(payloadOf(form)).select('is_duplicate,duplicate_error').single()
         if (!error && saved?.is_duplicate) throw new Error(`Saved, but flagged as a duplicate: ${saved.duplicate_error ?? ''}`)
         if (error) throw error
+        seen.add(key)
       },
     )
     if ('error' in outcome) setBanner({ kind: 'bad', text: outcome.error })
@@ -428,7 +432,7 @@ export default function Counts() {
 function payloadOf(form: FormState) {
   const state = recipeState(form)
   return {
-    name: form.name.trim() || null,
+    name: buildName(form) || null, // the Name is generated from the recipe
     count_no: Number(form.count_no),
     machine: form.machine,
     yarn_1: form.yarn_1,
@@ -471,11 +475,9 @@ function CountDrawer({
   }
 
   const state = recipeState(form)
-  const missing = [...recipeProblems(form), ...(!existing && !form.name.trim() ? ['Name'] : [])]
+  const missing = recipeProblems(form)
   const errors = useMemo(() => {
     const er: FieldErrors = {}
-    if (!existing && !form.name.trim()) er['ct-name'] = 'Name is required.'
-    else if (form.name.trim() && nameProblem('Name', form.name)) er['ct-name'] = nameProblem('Name', form.name) as string
     const n = Number(form.count_no)
     if (!form.count_no.trim()) er['ct-no'] = 'Thread Count is required (6 to 120).'
     else if (!Number.isInteger(n) || n < 6 || n > 120) er['ct-no'] = 'Thread Count must be a whole number from 6 to 120.'
@@ -503,6 +505,10 @@ function CountDrawer({
     setFormError(null)
     if (Object.keys(errors).length > 0) {
       focusFirstError(errors)
+      return
+    }
+    if (twin) {
+      setFormError(`A count with this recipe already exists (“${twin.name || twin.display_name}”, item ID ${twin.item_no}). It cannot be saved a second time: edit that count instead.`)
       return
     }
     setBusy(true)
@@ -564,13 +570,13 @@ function CountDrawer({
           </div>
           {twin && (
             <div className="alert warn" role="status">
-              A count with this recipe already exists (“{twin.name || twin.display_name}”, item ID {twin.item_no}). It can still be saved, but it will be flagged as a duplicate.
+              A count with this recipe already exists (“{twin.name || twin.display_name}”, item ID {twin.item_no}). It cannot be saved a second time: edit that count instead.
             </div>
           )}
 
           <FormSection title="Count Information" count={7}>
-            <Field id="ct-name" label="Name" required error={show('ct-name')} hint="Your own label for the count; the Summary is built from the recipe.">
-              <input id="ct-name" value={form.name} placeholder="Enter Name" onChange={(e) => set('name', e.target.value)} autoFocus />
+            <Field id="ct-name" label="Name" hint="Generated from the recipe below; it changes when the recipe does.">
+              <input id="ct-name" value={name} readOnly placeholder="Generated from the recipe" style={readOnlyStyle} />
             </Field>
             <Field id="ct-no" label="Thread Count" required error={show('ct-no')} hint="Enter a value between 6s and 120s.">
               <input id="ct-no" inputMode="numeric" className="mono" value={form.count_no} placeholder="Enter Thread Count" onChange={(e) => set('count_no', e.target.value.replace(/\D/g, ''))} />

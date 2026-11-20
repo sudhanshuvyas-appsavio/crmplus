@@ -28,6 +28,7 @@ import {
 } from '../components/PartyForms'
 import { DocumentsPanel, useProfileNames } from '../components/PartyExtras'
 import { RowActionMenu } from '../components/RowActionMenu'
+import { setActive } from '../lib/active'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 import { ErrorBanner } from '../components/FormKit'
@@ -39,7 +40,7 @@ import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pic
 import type { BulkDeleteResult, CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, isGst, isMobile, numOrNull } from '../lib/party'
-import { findDuplicate, focusFirstError, isEmail, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { findDuplicate, focusFirstError, isEmail, isPan, nameKey, panMatchesGst, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
 import { formatDate } from '../lib/format'
 import '../styles/cheque-board.css'
 
@@ -190,7 +191,10 @@ function contactErrors(f: ContactForm, ctx: RuleCtx): FieldErrors {
     const b = side('buyer') ? findDuplicate(ctx.buyers, ctx.selfBuyerId, (r) => r.gst, gst, upText) : null
     if (s || b) er['c-gst'] = `This GST number is already used by ${s ? `supplier ${s.name}` : `buyer ${b!.name}`}.`
   }
-  if (f.pan.trim() && f.pan.trim().length !== 10) er['c-pan'] = 'PAN must be 10 characters.'
+  if (f.pan.trim()) {
+    if (!isPan(f.pan)) er['c-pan'] = 'Enter a valid PAN: 5 letters, 4 digits, 1 letter (like AHFPK5121I).'
+    else if (gst && isGst(gst) && !panMatchesGst(gst, f.pan)) er['c-pan'] = 'PAN must match the GST number (characters 3 to 12 of the GST).'
+  }
   if (f.state_code.trim() && !/^[0-9]{2}$/.test(f.state_code.trim())) er['c-scode'] = 'State code must be 2 digits.'
   else if (isGst(gst) && f.state_code.trim() && gst.slice(0, 2) !== f.state_code.trim()) er['c-scode'] = 'State code must match the first two digits of the GST number.'
 
@@ -324,9 +328,14 @@ const COMMISSION_LABEL: Record<string, string> = { pct: 'Percentage', per_bag: '
 const commissionType = (v: string | null | undefined): ReactNode => (v ? COMMISSION_LABEL[v] ?? v : dash)
 const COLS_KEY = 'crmplus.buyersSuppliers.hiddenColumns'
 
+/** Columns hidden until someone shows them: the fields the aligned layout no longer asks for (Location MDM,
+ *  Category, Messenger, Short Name, Contact Person 3). They stay available in the Columns picker. */
+const DEFAULT_HIDDEN_COLS = ['cp3', 'cp3p', 'cp3e', 'location', 'category', 'short', 'msg']
+
 function loadHiddenCols(): string[] {
   try {
     const raw = localStorage.getItem(COLS_KEY)
+    if (raw === null) return DEFAULT_HIDDEN_COLS
     const parsed: unknown = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
   } catch {
@@ -465,7 +474,7 @@ export default function Contacts() {
     { id: 'mill', title: 'Mill/Factory/Delivery Address', wrap: true, render: (c) => txt(common(c, 'mill_address')) },
     { id: 'ophone', title: 'Office Phone', mono: true, render: (c) => txt(common(c, 'office_phone')) },
     { id: 'rphone', title: 'Res Phone', mono: true, render: (c) => txt(common(c, 'res_phone')) },
-    { id: 'pan', title: 'IT Pan', mono: true, render: (c) => txt(common(c, 'pan')) },
+    { id: 'pan', title: 'PAN', mono: true, render: (c) => txt(common(c, 'pan')) },
     { id: 'email', title: 'Email', render: (c) => txt(common(c, 'email')) },
     { id: 'bct', title: 'Buyer Commission Type', render: (c) => commissionType(c.buyer?.commission_basis) },
     { id: 'bcv', title: 'Buyer Commission Value', mono: true, render: (c) => txt(c.buyer?.commission_value) },
@@ -505,6 +514,20 @@ export default function Contacts() {
     { id: 'bphone', title: 'Business Phone', mono: true, render: (c) => txt(companyOf(c)?.mobile || companyOf(c)?.phone_1) },
   ]
   const visibleCols = columns.filter((col) => !hiddenCols.includes(col.id))
+  /** Active / Inactive for a contact: both of its records (a contact with the role Both has one on each side). */
+  async function toggleActive(c: Contact) {
+    setBanner(null)
+    const next = !c.active
+    const targets = [
+      ...(c.buyer ? [{ table: 'buyer_master', id: c.buyer.id }] : []),
+      ...(c.supplier ? [{ table: 'supplier_master', id: c.supplier.id }] : []),
+    ]
+    const message = await setActive(targets, next)
+    if (message) return setBanner({ kind: 'bad', text: message })
+    setBanner({ kind: 'ok', text: `${c.name} marked ${next ? 'active' : 'inactive'}.` })
+    await load()
+  }
+
   function toggleCol(id: string) {
     setHiddenCols((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -889,6 +912,7 @@ export default function Contacts() {
                           actions={[
                             { label: 'Edit', onSelect: () => (canEditContact(c) ? setEditing({ mode: 'edit', contact: c }) : setViewing(c)) },
                             { label: 'Documents', onSelect: () => setDocsFor(c) },
+                            { label: c.active ? 'Mark inactive' : 'Mark active', onSelect: () => void toggleActive(c), disabledReason: canEditContact(c) ? null : 'Needs buyer / supplier edit permission' },
                             { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(c) }, disabledReason: canEditContact(c) ? null : 'Needs buyer / supplier edit permission' },
                           ]}
                         />
