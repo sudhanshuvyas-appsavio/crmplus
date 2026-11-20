@@ -114,7 +114,7 @@ begin
   insert into task_payments (task_id, amount, mode) values (t, 4000, 'cash');
   select amount_collected, status into n, st from tasks where id = t;
   if n <> 4000 or st = 'done' then raise exception 'A-14: collected 4000 and still open, got % / %', n, st; end if;
-  select count(*) into n from notifications where task_id = t and kind = 'payment_collected' and message like 'Amount collected is 4000%';
+  select count(*) into n from notifications where task_id = t and kind = 'payment_collected' and message like '%Amount collected is 4000';
   if n <> 2 then raise exception 'A-14: Person and Accounts told, got %', n; end if;
   insert into task_payments (task_id, amount, mode) values (t, 6000, 'cash');
   select status, (completed_at is not null)::text into st, m from tasks where id = t;
