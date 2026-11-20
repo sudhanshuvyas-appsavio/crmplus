@@ -197,6 +197,14 @@ export function ScFormModal({
     if (!f.supplier_id) errors['sc-supplier'] = 'Choose a supplier.'
   }
   const countProblems = enforce && (!updating || recordId) ? lineProblems(lines, true).filter((x) => !x.startsWith('Final rate')) : []
+  if (countProblems.length > 0 || (enforce && (!updating || recordId) && !noCounts)) {
+    // monday requires Bag Weight on every row, KGs and Tons included
+    lines.forEach((l, i) => {
+      const w = numOrNull(l.bag_weight)
+      const at = lines.length > 1 ? ` (row ${i + 1})` : ''
+      if ((w === null || w <= 0) && !countProblems.some((x) => x.startsWith(`Bag weight${at}`) || x.startsWith(`Weight per unit${at}`))) countProblems.push(`Bag weight${at}`)
+    })
+  }
   const visible = submitted || phoneBad ? errors : {}
 
   async function save() {
@@ -399,7 +407,7 @@ export function ScFormModal({
 
               <FormSection title="Product Configurations" collapsible columns={3}>
                 <FullWidth>
-                  <CountLinesEditor lines={lines} onChange={setLines} counts={counts} disabled={locked} buyer={buyerTerms} supplier={supplierTerms} />
+                  <CountLinesEditor weightRequired lines={lines} onChange={setLines} counts={counts} disabled={locked} buyer={buyerTerms} supplier={supplierTerms} />
                 </FullWidth>
               </FormSection>
 
