@@ -62,7 +62,9 @@ export function lineFigures(l: LineForm, buyer: CommTerms, supplier: CommTerms) 
   }
 }
 
-export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, supplier }: {
+export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, supplier, weightRequired = false }: {
+  /** Sales Confirmation: monday requires Bag Weight on every row, whatever the unit. */
+  weightRequired?: boolean
   lines: LineForm[]
   onChange: (lines: LineForm[]) => void
   counts: CountRow[]
@@ -79,7 +81,7 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
       <table className="lines-table">
         <thead>
           <tr>
-            <th>#</th><th>Count</th><th className="right">Quantity</th><th>Unit</th><th className="right">Bag Weight (kg)</th>
+            <th>#</th><th>Count</th><th className="right">Quantity</th><th>Unit</th><th className="right">Bag Weight (kg){weightRequired ? ' *' : ''}</th>
             <th className="right">Final Rate (₹/kg)</th><th className="right">Buyer Commission</th><th className="right">Supplier Commission</th>
             {!disabled && <th />}
           </tr>
@@ -102,7 +104,7 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
               </td>
               <td>
                 <input aria-label={`Bag weight, row ${i + 1}`} className="mono num-in" inputMode="decimal" value={l.bag_weight} disabled={disabled}
-                  placeholder={needsUnitWeight(l.uom) ? (l.uom === 'BAGS' ? 'required' : 'kg per unit') : ''} onChange={(e) => set(i, 'bag_weight', e.target.value)} />
+                  placeholder={weightRequired ? 'required' : needsUnitWeight(l.uom) ? (l.uom === 'BAGS' ? 'required' : 'kg per unit') : ''} onChange={(e) => set(i, 'bag_weight', e.target.value)} />
               </td>
               <td><input aria-label={`Final rate, row ${i + 1}`} className="mono num-in" inputMode="decimal" value={l.rate} disabled={disabled} onChange={(e) => set(i, 'rate', e.target.value)} /></td>
               <td className="right mono small">{inr(figs[i]?.buyer, 0)}</td>

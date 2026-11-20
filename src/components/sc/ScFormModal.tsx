@@ -190,6 +190,21 @@ export function ScFormModal({
   const errors: Record<string, string> = {}
   if (updating && !recordId) errors['sc-record'] = 'Choose the confirmation to update.'
   if (phoneBad) errors['sc-drv'] = 'Digits only (6 to 20 characters).'
+  // monday's required fields: Buyer, Supplier and the count rows. A confirmation made from a deal takes them from the deal.
+  const enforce = !dealPick && !locked
+  if (enforce && (!updating || recordId)) {
+    if (!f.buyer_id) errors['sc-buyer'] = 'Choose a buyer.'
+    if (!f.supplier_id) errors['sc-supplier'] = 'Choose a supplier.'
+  }
+  const countProblems = enforce && (!updating || recordId) ? lineProblems(lines, true).filter((x) => !x.startsWith('Final rate')) : []
+  if (countProblems.length > 0 || (enforce && (!updating || recordId) && !noCounts)) {
+    // monday requires Bag Weight on every row, KGs and Tons included
+    lines.forEach((l, i) => {
+      const w = numOrNull(l.bag_weight)
+      const at = lines.length > 1 ? ` (row ${i + 1})` : ''
+      if ((w === null || w <= 0) && !countProblems.some((x) => x.startsWith(`Bag weight${at}`) || x.startsWith(`Weight per unit${at}`))) countProblems.push(`Bag weight${at}`)
+    })
+  }
   const visible = submitted || phoneBad ? errors : {}
 
   async function save() {
@@ -197,6 +212,10 @@ export function ScFormModal({
     setError(null)
     if (Object.keys(errors).length > 0) {
       setError(`${Object.keys(errors).length === 1 ? 'One field needs' : `${Object.keys(errors).length} fields need`} attention. Check the fields marked in red.`)
+      return
+    }
+    if (countProblems.length > 0) {
+      setError(`Product Configurations is required: ${countProblems.join(', ')}.`)
       return
     }
     if (!dealPick && partialRows.length > 0 && !locked) {
@@ -372,13 +391,13 @@ export function ScFormModal({
           {!dealPick && (
             <>
               <FormSection title="Buyer & Supplier Details" collapsible columns={3}>
-                <Field id="sc-buyer" label="Buyer">
+                <Field id="sc-buyer" label="Buyer" required>
                   <select id="sc-buyer" value={f.buyer_id} disabled={locked} onChange={(e) => pickParty('buyer', e.target.value)}>
                     <option value="">--None--</option>
                     {partyOptions(buyers, f.buyer_id)}
                   </select>
                 </Field>
-                <Field id="sc-supplier" label="Supplier">
+                <Field id="sc-supplier" label="Supplier" required>
                   <select id="sc-supplier" value={f.supplier_id} disabled={locked} onChange={(e) => pickParty('supplier', e.target.value)}>
                     <option value="">--None--</option>
                     {partyOptions(suppliers, f.supplier_id)}
@@ -388,7 +407,7 @@ export function ScFormModal({
 
               <FormSection title="Product Configurations" collapsible columns={3}>
                 <FullWidth>
-                  <CountLinesEditor lines={lines} onChange={setLines} counts={counts} disabled={locked} buyer={buyerTerms} supplier={supplierTerms} />
+                  <CountLinesEditor weightRequired lines={lines} onChange={setLines} counts={counts} disabled={locked} buyer={buyerTerms} supplier={supplierTerms} />
                 </FullWidth>
               </FormSection>
 

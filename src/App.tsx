@@ -5,6 +5,7 @@ import { useAuth } from './auth/AuthProvider'
 import { Loading } from './components/Loading'
 import Account from './pages/Account'
 import AuditLog from './pages/AuditLog'
+import AutomationLog from './pages/AutomationLog'
 import ChangePassword from './pages/ChangePassword'
 import ForgotPassword from './pages/ForgotPassword'
 import Home from './pages/Home'
@@ -79,6 +80,7 @@ export default function App() {
           </Route>
           <Route element={<RequirePermission permission="audit.view" />}>
             <Route path="/audit" element={<AuditLog />} />
+            <Route path="/automation-log" element={<AutomationLog />} />
           </Route>
           <Route path="/master-data" element={<MasterData />} />
           <Route path="/master-data/:register" element={<MasterData />} />
