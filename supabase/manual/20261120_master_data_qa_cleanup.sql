@@ -74,9 +74,11 @@ begin
     begin
       execute format('delete from public.%I where id = $1', r.t) using r.id;
       gone := gone + 1;
-    exception when foreign_key_violation or restrict_violation then
+    exception when foreign_key_violation or restrict_violation or raise_exception then
+      -- raise_exception covers the guards on orders / deals / confirmations that refuse
+      -- clearing a link (for example "The order must be Open for Execution first")
       kept := kept + 1;
-      raise notice 'kept (still referenced): % "%" %', r.t, r.name, r.id;
+      raise notice 'kept (still used): % "%" % -> %', r.t, r.name, r.id, sqlerrm;
     end;
   end loop;
   raise notice 'deleted %, kept %', gone, kept;
