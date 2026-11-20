@@ -128,6 +128,7 @@ const NAV: NavSection[] = [
       { to: '/staff-efficiency', label: 'Staff efficiency', icon: I.chart, permission: 'user.manage' },
       { to: '/users', label: 'Users & permissions', icon: I.users, permission: 'user.manage' },
       { to: '/audit', label: 'Audit log', icon: I.audit, permission: 'audit.view' },
+      { to: '/automation-log', label: 'Automation log', icon: I.audit, permission: 'audit.view' },
     ],
   },
 ]

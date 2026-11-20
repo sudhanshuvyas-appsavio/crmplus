@@ -18,7 +18,7 @@ import { supabase } from '../lib/supabase'
 import { LEAD_ROLES, LEAD_STATUSES, LEAD_UOMS } from '../api/types'
 import { uomLabel } from '../lib/deals'
 import type { Activity, CountRow, Lead, LeadRole, LeadStatus, Station } from '../api/types'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ActivityPanel } from '../components/PartyExtras'
 import { LeadQuotationPage } from '../components/LeadQuotation'
 import { BoardTabs } from '../components/board/BoardTabs'
@@ -78,6 +78,8 @@ export default function Leads() {
   const [stations, setStations] = useState<Station[]>([])
   const [staff, setStaff] = useState<StaffOption[]>([])
   const [editing, setEditing] = useState<Editing>(null)
+  const [params, setParams] = useSearchParams()
+  const openId = params.get('open')
   const [editLead, setEditLead] = useState<Lead | null>(null)
   const [tab, setTab] = useState<'table' | 'quotation'>('table')
   const [quoteLeadId, setQuoteLeadId] = useState<string | null>(null)
@@ -137,6 +139,14 @@ export default function Leads() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // /leads?open=<id> (a reminder notification or the automation log): open that lead's details
+  useEffect(() => {
+    if (!openId || !leads) return
+    const hit = leads.find((l) => l.id === openId)
+    if (hit) setEditing({ mode: 'edit', lead: hit })
+    setParams({}, { replace: true })
+  }, [openId, leads, setParams])
 
   const countById = useMemo(() => new Map(counts.map((c) => [c.id, c])), [counts])
   const subsByLead = useMemo(() => {
