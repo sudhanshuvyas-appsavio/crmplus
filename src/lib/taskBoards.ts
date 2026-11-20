@@ -113,6 +113,8 @@ export interface BoardConfig {
   common: CommonField[]
   /** The board's own words for the task status (monday's "Working on it / Stuck / Done"). */
   statusLabels?: Partial<Record<TaskStatus, string>>
+  /** The headings of the form's sections as monday's creation form names them. */
+  sections?: { general?: string; details?: string }
   /** Groups the rows are filed under, in order. `of` names how a row picks its group. */
   groups?: { key: string; label: string }[]
 }
@@ -130,6 +132,7 @@ export const TASK_BOARDS: BoardConfig[] = [
     title: 'Monthly Visit',
     purpose: 'Plan and log monthly visits to buyers: check in and out with the location, a meeting summary, and whether payment is still pending.',
     taskType: 'monthly_visit',
+    sections: { general: 'Visit', details: 'Summaries' },
     newLabel: 'New task',
     personLabel: 'Person',
     common: ['title', 'assigned_to', 'accounts_staff', 'buyer', 'due_date', 'notes'],
@@ -165,6 +168,7 @@ export const TASK_BOARDS: BoardConfig[] = [
     title: 'Mill Invoice Delivery',
     purpose: 'Carry each mill invoice to the buyer, by hand or courier, and upload proof of delivery with the location.',
     taskType: 'mill_invoice_delivery',
+    sections: { details: 'Delivery Information' },
     newLabel: 'New task',
     personLabel: 'People',
     common: ['title', 'assigned_to', 'accounts_staff', 'buyer', 'supplier', 'order', 'due_date', 'notes'],
@@ -201,6 +205,7 @@ export const TASK_BOARDS: BoardConfig[] = [
     title: 'Commission Invoice Delivery',
     purpose: 'Hand over each commission invoice to the buyer, record the acknowledgement and flag whether payment is still pending.',
     taskType: 'commission_invoice_delivery',
+    sections: { general: 'General Information', details: 'Commission Invoice Details' },
     newLabel: 'New task',
     personLabel: 'People',
     common: ['title', 'assigned_to', 'accounts_staff', 'buyer', 'order', 'due_date', 'notes'],
@@ -235,6 +240,7 @@ export const TASK_BOARDS: BoardConfig[] = [
     title: 'Transport Freight Invoice',
     purpose: 'Check each transporter bill: bill number, amount, load reference and delivery proof, then clear it once paid.',
     taskType: 'freight_bill_check',
+    sections: { details: 'Transport Details' },
     newLabel: 'New task',
     personLabel: 'Person',
     common: ['title', 'assigned_to', 'accounts_staff', 'buyer', 'order', 'due_date', 'notes'],
@@ -266,6 +272,7 @@ export const TASK_BOARDS: BoardConfig[] = [
     title: 'Sample Delivery',
     purpose: 'Samples that come from mills for a buyer: lot, quality and type, and the buyer’s feedback, due seven days after delivery.',
     taskType: 'sample_delivery',
+    sections: { general: 'General Information' },
     newLabel: 'New task',
     personLabel: 'Person',
     common: ['title', 'assigned_to', 'accounts_staff', 'buyer', 'supplier', 'due_date', 'notes'],
@@ -303,6 +310,7 @@ export const TASK_BOARDS: BoardConfig[] = [
     title: 'Payment Collection',
     purpose: 'Payments to collect from buyers: amount, what has been collected so far, the mode and proof, with the balance and how long it has been open.',
     taskType: 'payment_collection',
+    sections: { general: 'General Information', details: 'Payment Details' },
     newLabel: 'New payment',
     personLabel: 'Person',
     common: ['title', 'assigned_to', 'accounts_staff', 'buyer', 'order', 'due_date', 'notes'],
@@ -336,6 +344,7 @@ export const TASK_BOARDS: BoardConfig[] = [
     title: 'Cheque Collection',
     purpose: 'Cheques collected from buyers: number, bank, date, amount and photo, then deposited and cleared.',
     taskType: 'cheque_collection',
+    sections: { general: 'General Information', details: 'Cheque Collection Details' },
     newLabel: 'New cheque',
     personLabel: 'Person',
     common: ['buyer', 'order', 'notes'],
