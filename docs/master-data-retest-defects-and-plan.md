@@ -130,3 +130,7 @@ Re-run these sheet cases after each phase: Phase 1: SZ-03, TR-03, TR-04, TR-07; 
 | SZ-03 | "job process" wording replaced by "sizing / delivery address" | done in code |
 
 Not changed: the field order of the Counts form (the sheet does not say what it expected); monday still calls the column "IT Pan". Not browser-tested: run the retest in section 4 after deploy.
+
+## 8. Database hardening script (2026-11-20)
+
+`supabase/manual/20261120_master_data_db_hardening.sql`: one re-runnable script for what the data cleanup left. It repairs the four buyer/supplier rows whose PAN disagreed with their GST (PAN = characters 3 to 12 of the GSTIN), adds the PAN format and PAN-matches-GST rules on buyers, suppliers and transporters, adds the unique GST index on transporters, hides the business units "Lead 2" and "test lead" (test placeholders for the three required fields) and the QA buyer "QA GST PAN Mismatch". A rule that existing rows still break stays active for new rows and is reported. Tested on a throwaway database: second run changes nothing; bad PAN, PAN/GST mismatch and a duplicate transporter GST are refused; lead-qualification-style inserts (PAN from the GST) pass.
