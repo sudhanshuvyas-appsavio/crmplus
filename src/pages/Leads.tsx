@@ -794,15 +794,30 @@ function QualifyPanel({
   const [countId, setCountId] = useState(lead.count_id ?? '')
   const [quantity, setQuantity] = useState(lead.quantity === null ? '' : String(lead.quantity))
   const [uom, setUom] = useState(lead.uom ?? 'KG')
+  const [units, setUnits] = useState<{ id: string; name: string }[] | null>(null)
+  const [companyId, setCompanyId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // The Business Unit is chosen, never created here. One that matches the lead's name is picked for you.
+  useEffect(() => {
+    let alive = true
+    void supabase.from('companies').select('id,name').eq('is_active', true).order('name').then(({ data }) => {
+      if (!alive) return
+      const list = (data ?? []) as { id: string; name: string }[]
+      setUnits(list)
+      const hit = list.find((c) => c.name.trim().toLowerCase() === lead.party_name.trim().toLowerCase())
+      if (hit) setCompanyId(hit.id)
+    })
+    return () => { alive = false }
+  }, [lead.party_name])
 
   const needsProduct = !lead.count_id || lead.quantity === null || lead.quantity <= 0
   const qtyNumber = numOrNull(quantity)
   const productReady = !needsProduct || (countId !== '' && qtyNumber !== null && qtyNumber > 0 && uom !== '')
 
   async function qualify() {
-    if (role === '') return
+    if (role === '' || companyId === '') return
     setBusy(true)
     setError(null)
     try {
@@ -810,7 +825,7 @@ function QualifyPanel({
         const { error: e } = await supabase.from('leads').update({ count_id: countId, quantity: qtyNumber, uom }).eq('id', lead.id)
         if (e) throw e
       }
-      const { data, error: e } = await supabase.rpc('qualify_lead_auto', { p_lead: lead.id, p_role: role })
+      const { data, error: e } = await supabase.rpc('qualify_lead_auto', { p_lead: lead.id, p_role: role, p_company: companyId })
       if (e) throw e
       const res = data as { created?: string[]; incomplete?: boolean } | null
       const created = res?.created ?? []
@@ -832,7 +847,7 @@ function QualifyPanel({
       <div className="card pad" role="dialog" aria-modal="true" aria-label={`Qualify ${lead.lead_no}`} style={{ maxWidth: 440, width: 'calc(100% - 32px)' }}>
         <h3 className="section-title" style={{ marginTop: 0 }}>Qualify {lead.lead_no}</h3>
         <p className="muted small">
-          {lead.party_name}. The Contact and Company are created automatically from the lead. Choose the Contact's role.
+          {lead.party_name}. The Contact is created from the lead. Choose its role and the Business Unit it belongs to.
         </p>
 
         {error && (
@@ -849,6 +864,13 @@ function QualifyPanel({
                 {r.label}
               </option>
             ))}
+          </select>
+        </Field>
+
+        <Field id="q-unit" label="Business Unit" required hint={units && units.length === 0 ? 'There is no active Business Unit yet. Add one in Master Data > Business Units first.' : undefined}>
+          <select id="q-unit" value={companyId} onChange={(e) => setCompanyId(e.target.value)} disabled={units === null}>
+            <option value="">{units === null ? 'Loading…' : 'Choose…'}</option>
+            {(units ?? []).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
           </select>
         </Field>
 
@@ -885,7 +907,7 @@ function QualifyPanel({
         )}
 
         <div className="drawer-actions">
-          <button className="btn primary" type="button" onClick={() => void qualify()} disabled={busy || role === '' || !productReady}>
+          <button className="btn primary" type="button" onClick={() => void qualify()} disabled={busy || role === '' || companyId === '' || !productReady}>
             {busy ? 'Qualifying…' : 'Qualify this lead'}
           </button>
           <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
