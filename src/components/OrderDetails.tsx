@@ -9,7 +9,7 @@ import { Drawer } from './Drawer'
 import { StatusPill } from './board/Board'
 import { OrderExecution } from './OrderExecution'
 import { OrderDocuments } from './OrderDocuments'
-import { formatDate, formatDateTime } from '../lib/format'
+import { formatDateTime } from '../lib/format'
 import { commTerms, dispatchStatus, inr, rateText, saleTypeLabel, transportTypeLabel, uomLabel } from '../lib/deals'
 
 type Named = { id: string; name: string }
@@ -43,6 +43,7 @@ export function OrderDetails({
   const editBlock = !canManage ? 'You need the “Create and manage orders” permission.' : cancelled ? 'A cancelled item cannot be changed.' : closed ? 'A closed item cannot be changed.' : null
 
   const rows: [string, ReactNode][] = useMemo(() => [
+    ['Sales Confirmation', <Link className="mono" to={`/sales-confirmations?open=${order.sales_confirmation_id}`}>{scNo || 'open it'}</Link>],
     ['Buyer', names.buyer],
     ['Supplier', names.supplier],
     ['Counts', count?.display_name ?? null],
@@ -67,8 +68,9 @@ export function OrderDetails({
     ['Delivery Schedule', order.delivery_schedule],
     ['Remark 1', order.special_instructions],
     ['Created', formatDateTime(order.created_at)],
+    ['Dispatch started', order.execution_opened_at ? formatDateTime(order.execution_opened_at) : null],
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [order, names, count, job, transporter, person])
+  ], [order, names, count, job, transporter, person, scNo])
 
   return (
     <Drawer title={order.order_no} onClose={onClose} footer={
@@ -79,10 +81,6 @@ export function OrderDetails({
       }>
       <p className="small">
         <StatusPill label={st.label} tone={st.tone} />
-        <span className="muted">
-          {' '}· created {formatDate(order.order_date)} · from <Link className="mono" to={`/sales-confirmations?open=${order.sales_confirmation_id}`}>{scNo || 'its Sales Confirmation'}</Link>
-          {order.execution_opened_at ? ` · dispatch started ${formatDateTime(order.execution_opened_at)}` : ''}
-        </span>
       </p>
       {order.is_duplicate && <div className="alert">Duplicate invoice: {order.duplication_error}</div>}
       {cancelled && <div className="notice small">Cancelled{order.cancelled_at ? ` ${formatDateTime(order.cancelled_at)}` : ''}. Its Sales Confirmation can now be cancelled or used again.</div>}

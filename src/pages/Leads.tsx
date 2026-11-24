@@ -721,6 +721,8 @@ function LeadDetails({
     ['Next purchase', lead.entry_next_purchase ? formatDate(lead.entry_next_purchase) : null],
     ['Remarks', lead.remarks],
     ['Created', formatDateTime(lead.created_at)],
+    ['Qualified', qualified && lead.qualified_at ? formatDateTime(lead.qualified_at) : null],
+    ['Converted to', lead.converted_deal_id ? dealNo ?? 'a deal' : null],
   ]
 
   return (
@@ -736,8 +738,6 @@ function LeadDetails({
       }>
       <p className="small">
         <StatusPill label={statusLabel(lead.status)} tone={LEAD_GROUPS.find((g) => g.value === lead.status)?.tone ?? 'grey'} />
-        {qualified && lead.qualified_at && <span className="muted"> · qualified {formatDateTime(lead.qualified_at)}</span>}
-        {lead.converted_deal_id && <span className="muted"> · converted to {dealNo ?? 'a deal'}</span>}
       </p>
       {locked && (
         <div className="notice small">This lead has been converted to a deal and is read-only. Change the deal instead.</div>

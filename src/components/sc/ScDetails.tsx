@@ -131,7 +131,6 @@ export function ScDetails({
       }>
       <p className="small">
         <StatusPill label={stage.label} tone={stage.tone} />
-        <span className="muted"> · created {formatDateTime(sc.confirmed_at)}{dealNo ? <> · from deal <span className="mono">{dealNo}</span></> : null}</span>
       </p>
       {err && <div className="alert">{err}</div>}
       {!canManage && <div className="notice small">You can view this confirmation; changing or sending it needs the “Create, edit and send sales confirmations” permission.</div>}

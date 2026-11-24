@@ -537,14 +537,12 @@ function DealDetails({
       }>
       <p className="small">
         <StatusPill label={status.label} tone={status.tone} />
-        <span className="muted"> · created {formatDateTime(deal.created_at)}{deal.status_changed_at ? ` · status changed ${formatDateTime(deal.status_changed_at)}` : ''}</span>
       </p>
       {err && <div className="alert">{err}</div>}
       {!canEdit && <div className="notice small">You can view this deal; changing it needs the “Edit deals” permission.</div>}
       {approved && (
         <div className="notice small">
-          Approved by {deal.approved_by ? names[deal.approved_by] ?? 'a manager' : 'a manager'}
-          {deal.approved_at ? ` on ${formatDateTime(deal.approved_at)}` : ''}. The deal is converted and can no longer be edited.
+          Approved by {deal.approved_by ? names[deal.approved_by] ?? 'a manager' : 'a manager'}. The deal is converted and can no longer be edited.
         </div>
       )}
 
@@ -604,7 +602,6 @@ function DealDetails({
 
       <DealDocuments dealId={deal.id} canEdit={canEdit && !approved} />
       <DealHistory dealId={deal.id} refreshKey={deal.updated_at} />
-      <p className="muted small">Last updated {formatDateTime(deal.updated_at)}.</p>
     </Drawer>
   )
 }
