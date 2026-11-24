@@ -15,6 +15,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
+import { setActive } from '../lib/active'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
@@ -169,7 +170,7 @@ export default function JobProcesses() {
       supabase.from('companies').select('id,name,is_active').order('name'),
       supabase.from('buyer_master').select('id,name,is_active').order('name'),
     ])
-    if (r.error) setBanner({ kind: 'bad', text: errMessage(r.error, 'Could not load job processes') })
+    if (r.error) setBanner({ kind: 'bad', text: errMessage(r.error, 'Could not load sizing / delivery addresses') })
     setRows((r.data ?? []) as JobProcess[])
     setStations((s.data ?? []) as Station[])
     setCompanies((c.data ?? []) as Company[])
@@ -226,12 +227,22 @@ export default function JobProcesses() {
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
 
+  /** Active / Inactive: nothing is deleted; inactive sizing / delivery addresses stay listed and are no longer offered in pickers. */
+  async function toggleActive(x: JobProcess) {
+    setBanner(null)
+    const next = !x.is_active
+    const message = await setActive([{ table: 'job_processes', id: x.id }], next)
+    if (message) return setBanner({ kind: 'bad', text: message })
+    setBanner({ kind: 'ok', text: `${x.name} marked ${next ? 'active' : 'inactive'}.` })
+    await load()
+  }
+
   async function deleteSelected() {
     setBusy(true)
     setBanner(null)
     const names = new Map((rows ?? []).map((x) => [x.id, x.name]))
     const result = await bulkDelete('job_processes', selection.chosen)
-    setBanner(deleteSummary('job process', 'job processes', result, (id) => names.get(id) ?? id))
+    setBanner(deleteSummary('sizing / delivery address', 'sizing / delivery addresses', result, (id) => names.get(id) ?? id))
     selection.clear()
     await load()
     setBusy(false)
@@ -305,15 +316,15 @@ export default function JobProcesses() {
   }
 
   if (!canRead) return <div className="card pad narrow-card">Your account does not have access to transportation records.</div>
-  if (!rows) return <Loading label="Loading job processes" />
+  if (!rows) return <Loading label="Loading sizing / delivery addresses" />
 
   return (
     <>
       <GridToolbar
         title="Sizing / Delivery Address"
         total={rows.length}
-        singular="job process"
-        plural="job processes"
+        singular="sizing / delivery address"
+        plural="sizing / delivery addresses"
         query={search}
         onQuery={setSearch}
         searchPlaceholder="Search name, address, GST, state, contact, phone, email, remarks or location"
@@ -334,7 +345,7 @@ export default function JobProcesses() {
       >
         {canManage && (
           <button className="btn primary" type="button" onClick={() => setEditing('new')}>
-            New job process
+            New sizing / delivery address
           </button>
         )}
       </GridToolbar>
@@ -349,7 +360,7 @@ export default function JobProcesses() {
       )}
 
       <ListTools
-        plural="job processes"
+        plural="sizing / delivery addresses"
         canImport={canManage}
         canDelete={canManage}
         selectedCount={selection.chosen.length}
@@ -368,7 +379,7 @@ export default function JobProcesses() {
             <tr>
               {canManage && (
                 <th style={{ width: 32 }}>
-                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all job processes" />
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all sizing / delivery addresses" />
                 </th>
               )}
               <th className="left md-sticky">Name</th>
@@ -392,7 +403,7 @@ export default function JobProcesses() {
             {shown.length === 0 ? (
               <tr>
                 <td className="empty" colSpan={canManage ? 17 : 16}>
-                  {rows.length === 0 ? 'No job processes yet.' : 'No job process matches.'}
+                  {rows.length === 0 ? 'No sizing / delivery addresses yet.' : 'No sizing / delivery address matches.'}
                 </td>
               </tr>
             ) : (
@@ -426,6 +437,7 @@ export default function JobProcesses() {
                       actions={[
                         { label: 'Edit', onSelect: () => (canManage ? setEditing(x) : setViewing(x)) },
                         { label: 'Documents', onSelect: () => setDocsFor(x) },
+                        { label: x.is_active ? 'Mark inactive' : 'Mark active', onSelect: () => void toggleActive(x), disabledReason: canManage ? null : 'Needs “Add and edit job processes”' },
                         { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(x) }, disabledReason: canManage ? null : 'Needs “Add and edit job processes”' },
                       ]}
                     />
@@ -486,7 +498,7 @@ export default function JobProcesses() {
         />
       )}
 
-      <GridPager {...paging.pager} singular="job process" plural="job processes" />
+      <GridPager {...paging.pager} singular="sizing / delivery address" plural="sizing / delivery addresses" />
     </>
   )
 }
@@ -565,11 +577,11 @@ function JobProcessDrawer({
       : await supabase.from('job_processes').insert(payload(f)).select('id')
     if (error) {
       setBusy(false)
-      return setErr(errMessage(error, 'Could not save this job process'))
+      return setErr(errMessage(error, 'Could not save this sizing / delivery address'))
     }
     if (!data || data.length === 0) {
       setBusy(false)
-      return setErr('Your account cannot change this job process.')
+      return setErr('Your account cannot change this sizing / delivery address.')
     }
     const savedId = data[0]!.id as string
     const saved = row ? `${f.name.trim()} updated.` : `${f.name.trim()} added.`
@@ -594,7 +606,7 @@ function JobProcessDrawer({
     setBusy(true)
     const { data, error } = await supabase.from('job_processes').delete().eq('id', existing.id).select('id')
     setBusy(false)
-    if (error || !data || data.length === 0) return setErr(error ? errMessage(error) : 'Your account cannot delete this job process.')
+    if (error || !data || data.length === 0) return setErr(error ? errMessage(error) : 'Your account cannot delete this sizing / delivery address.')
     await onDone(`${existing.name} deleted.`)
   }
 

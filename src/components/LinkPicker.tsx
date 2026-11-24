@@ -23,6 +23,7 @@ export function LinkPicker({
   onChange,
   disabled,
   placeholder = 'Add…',
+  emptyText,
   error,
 }: {
   id: string
@@ -33,6 +34,8 @@ export function LinkPicker({
   onChange: (next: string[]) => void
   disabled?: boolean
   placeholder?: string
+  /** Shown in the drop-down when there is nothing at all to choose from (the master is empty). */
+  emptyText?: string
   /** A message for this field (e.g. "Counts is required"); also read from the form's error map by id. */
   error?: string | null
 }) {
@@ -72,7 +75,7 @@ export function LinkPicker({
             if (e.target.value) onChange([...value, e.target.value])
           }}
         >
-          <option value="">{offered.length === 0 ? 'Nothing more to add' : placeholder}</option>
+          <option value="">{offered.length === 0 ? (options.length === 0 && emptyText ? emptyText : 'Nothing more to add') : placeholder}</option>
           {offered.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}

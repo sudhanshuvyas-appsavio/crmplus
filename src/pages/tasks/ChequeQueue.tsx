@@ -23,6 +23,7 @@ import { boardFor } from '../../lib/taskBoards'
 import { signedProofUrl, useProfileNameMap } from '../../lib/taskData'
 import type { TaskCheque } from '../../api/types'
 import { ChequeForm } from './ChequeForm'
+import { ChequeReport } from './ChequeReport'
 import '../../styles/tasks-detail.css'
 import '../../styles/cheque-board.css'
 
@@ -48,6 +49,7 @@ interface LinkedTask {
   lat: number | null
   lng: number | null
   accounts_staff_id: string | null
+  assigned_to: string | null
 }
 
 const mapUrl = (t: LinkedTask | undefined) => (t && t.lat != null && t.lng != null ? `https://www.google.com/maps?q=${t.lat},${t.lng}` : null)
@@ -129,7 +131,7 @@ export function ChequeQueue() {
     let live = true
     void supabase
       .from('tasks')
-      .select('id,lat,lng,accounts_staff_id')
+      .select('id,lat,lng,accounts_staff_id,assigned_to')
       .in('id', visibleKey.split(','))
       .then(({ data }) => {
         if (!live || !data) return
@@ -210,7 +212,7 @@ export function ChequeQueue() {
       const cells: Record<string, string> = {
         name: `${c.cheque_no}${c.buyer?.name ? ` - ${c.buyer.name}` : ''}`,
         accounts: t?.accounts_staff_id ? (names[t.accounts_staff_id] ?? '') : '',
-        person: c.collected_by ? (names[c.collected_by] ?? '') : '',
+        person: (t?.assigned_to ?? c.collected_by) ? (names[(t?.assigned_to ?? c.collected_by) as string] ?? '') : '',
         buyer: c.buyer?.name ?? '',
         invoice_no: c.invoice_no ?? '',
         cheque_no: c.cheque_no,
@@ -269,7 +271,8 @@ export function ChequeQueue() {
       case 'accounts':
         return <td key={key}>{t?.accounts_staff_id ? (names[t.accounts_staff_id] ?? '—') : dash}</td>
       case 'person':
-        return <td key={key}>{c.collected_by ? (names[c.collected_by] ?? '—') : dash}</td>
+        // monday: Person is the buyer's Messenger (the task's person); the collector is the fallback.
+        return <td key={key}>{(t?.assigned_to ?? c.collected_by) ? (names[(t?.assigned_to ?? c.collected_by) as string] ?? '—') : dash}</td>
       case 'buyer':
         return (
           <td key={key} className="left">
@@ -484,6 +487,7 @@ export function ChequeQueue() {
           <GridPager {...paging.pager} singular="cheque" plural="cheques" />
         </>
       )}
+      {rows && <ChequeReport rows={shown} names={names} />}
     </section>
   )
 }

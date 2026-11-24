@@ -23,6 +23,7 @@ import { Loading } from '../components/Loading'
 import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
+import { setActive } from '../lib/active'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
@@ -202,6 +203,16 @@ export default function Locations() {
 
   const paging = usePaging(shown, `${search}|${status}|${zone}|${stateFilter}`)
   const selection = useSelection(useMemo(() => shown.map((r) => r.id), [shown]))
+
+  /** Active / Inactive: nothing is deleted; inactive locations stay listed and are no longer offered in pickers. */
+  async function toggleActive(r: StationMaster) {
+    setBanner(null)
+    const next = !(r.is_active)
+    const message = await setActive([{ table: 'station_master', id: r.id }], next)
+    if (message) return setBanner({ kind: 'bad', text: message })
+    setBanner({ kind: 'ok', text: `${r.name} marked ${next ? 'active' : 'inactive'}.` })
+    await load()
+  }
 
   async function deleteSelected() {
     setBusy(true)
@@ -459,6 +470,7 @@ export default function Locations() {
                     actions={[
                       { label: 'Edit', onSelect: () => (canManage ? setEditing({ mode: 'edit', row: r }) : setViewing(r)) },
                       { label: 'Documents', onSelect: () => setDocsFor(r) },
+                      { label: r.is_active ? 'Mark inactive' : 'Mark active', onSelect: () => void toggleActive(r), disabledReason: canManage ? null : 'Needs “Change system settings”' },
                       { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canManage ? null : 'Needs “Change system settings”' },
                     ]}
                   />

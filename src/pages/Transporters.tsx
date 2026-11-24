@@ -15,6 +15,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
 import { RowActionMenu } from '../components/RowActionMenu'
+import { setActive } from '../lib/active'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
 import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
@@ -43,11 +44,6 @@ const transporterDocStore = (id: string): DocumentStore => ({
   pathPrefix: `transporter/${id}`,
   noun: 'transporter',
 })
-
-const TYPES = [
-  { value: 'third_party', label: 'Third party' },
-  { value: 'internal', label: 'Internal' },
-] as const
 
 const CSV_COLUMNS = [
   'transporter_code', 'name', 'short_name', 'transporter_type', 'station', 'contact_person', 'mobile',
@@ -116,6 +112,10 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
   if (isNew) requireText(er, 't-gst', f.gst, 'GST No. is required.')
   const gst = f.gst.trim().toUpperCase()
   if (gst && !isGst(gst)) er['t-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPS5121G2ZK).'
+  else if (gst) {
+    const same = findDuplicate(rows, selfId, (r) => r.gst, gst, (v) => (v ?? '').trim().toUpperCase())
+    if (same) er['t-gst'] = `A transport company with this GST number already exists (${same.name}).`
+  }
   if (isNew) requireText(er, 't-ophone', f.office_phone, 'Office Phone is required.')
   if (f.office_phone.trim() && !/^[0-9]{6,15}$/.test(f.office_phone.trim())) er['t-ophone'] = 'Office Phone must be 6 to 15 digits.'
   if (f.res_phone.trim() && !/^[0-9]{6,15}$/.test(f.res_phone.trim())) er['t-rphone'] = 'Res Phone must be 6 to 15 digits.'
@@ -127,7 +127,7 @@ function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string
   if (isNew) requireText(er, 't-oaddr', f.office_address, 'Office Address is required.')
   if (isNew && !f.company_id) er['t-company'] = 'Business Units is required.'
   if (isNew) requireText(er, 't-bank', f.bank_account, 'Bank Account Number 1 is required.')
-  if (isNew) requireText(er, 't-pan', f.pan, 'IT PAN is required.')
+  if (isNew) requireText(er, 't-pan', f.pan, 'PAN is required.')
   if (f.pan.trim() && !isPan(f.pan)) er['t-pan'] = 'Enter a valid PAN: 5 letters, 4 digits, 1 letter (like AHFPS5121G).'
   if (isNew) requireText(er, 't-cp', f.contact_person, 'Contact Person 1 is required.')
   { const m = personProblem('Contact Person 1', f.contact_person); if (m) er['t-cp'] = m }
@@ -168,7 +168,6 @@ export default function Transporters() {
   const [docCounts, setDocCounts] = useState<Record<string, number>>({})
   const [locationsOf, setLocationsOf] = useState<Record<string, string[]>>({})
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [vehicleFilter, setVehicleFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
@@ -213,7 +212,6 @@ export default function Transporters() {
   const shown = useMemo(() => {
     const q = searchKey(search)
     return (rows ?? []).filter((x) => {
-      if (typeFilter && x.transporter_type !== typeFilter) return false
       if (statusFilter && (statusFilter === 'active') !== x.is_active) return false
       if (vehicleFilter && x.vehicle_type !== vehicleFilter) return false
       if (stateFilter && x.state !== stateFilter) return false
@@ -227,19 +225,28 @@ export default function Transporters() {
         x.vehicle_no_3, x.remarks, (locationsOf[x.id] ?? []).join(' '), x.company_id ? companyName.get(x.company_id) : '',
       ].some((v) => searchKey(v).includes(q))
     })
-  }, [rows, search, typeFilter, statusFilter, vehicleFilter, stateFilter, companyFilter, locationsOf, companyName])
+  }, [rows, search, statusFilter, vehicleFilter, stateFilter, companyFilter, locationsOf, companyName])
 
-  const paging = usePaging(shown, [search, typeFilter, statusFilter, vehicleFilter, stateFilter, companyFilter].join('|'))
+  const paging = usePaging(shown, [search, statusFilter, vehicleFilter, stateFilter, companyFilter].join('|'))
 
   const filterDefs: FilterDef[] = [
-    { name: 'type', label: 'Type', allLabel: 'All types', options: TYPES },
     { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
     { name: 'vehicle', label: 'Vehicle Type', allLabel: 'All vehicle types', options: VEHICLE_TYPES.map((v) => ({ value: v.value, label: v.label })) },
     { name: 'state', label: 'State', allLabel: 'All states', options: stateOptions.map((s) => ({ value: s, label: s })) },
-    { name: 'company', label: 'Business Units', allLabel: 'All business units', options: companies.map((c) => ({ value: c.id, label: c.name })) },
+    { name: 'company', label: 'Business Units', allLabel: 'All business units', options: companies.filter((c) => c.is_active).map((c) => ({ value: c.id, label: c.name })) },
   ]
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
+
+  /** Active / Inactive: nothing is deleted; inactive transporters stay listed and are no longer offered in pickers. */
+  async function toggleActive(x: Transporter) {
+    setBanner(null)
+    const next = !x.is_active
+    const message = await setActive([{ table: 'transporters', id: x.id }], next)
+    if (message) return setBanner({ kind: 'bad', text: message })
+    setBanner({ kind: 'ok', text: `${x.name} marked ${next ? 'active' : 'inactive'}.` })
+    await load()
+  }
 
   async function deleteSelected() {
     setBusy(true)
@@ -332,16 +339,14 @@ export default function Transporters() {
         onQuery={setSearch}
         searchPlaceholder="Search name, email, address, phone, GST, PAN, state, vehicle, contact, bank or remarks"
         filters={filterDefs}
-        values={{ type: typeFilter, status: statusFilter, vehicle: vehicleFilter, state: stateFilter, company: companyFilter }}
+        values={{ status: statusFilter, vehicle: vehicleFilter, state: stateFilter, company: companyFilter }}
         onFilter={(name, value) => {
-          if (name === 'type') setTypeFilter(value)
-          else if (name === 'status') setStatusFilter(value)
+          if (name === 'status') setStatusFilter(value)
           else if (name === 'vehicle') setVehicleFilter(value)
           else if (name === 'state') setStateFilter(value)
           else setCompanyFilter(value)
         }}
         onClear={() => {
-          setTypeFilter('')
           setStatusFilter('')
           setVehicleFilter('')
           setStateFilter('')
@@ -400,7 +405,7 @@ export default function Transporters() {
               <th>State Code</th>
               <th>Bank Account Number 1</th>
               <th>Bank Account Number 2</th>
-              <th>IT PAN</th>
+              <th>PAN</th>
               <th>Contact Person 1</th>
               <th>Contact Person 1 Phone</th>
               <th>Contact Person 2</th>
@@ -464,6 +469,7 @@ export default function Transporters() {
                       actions={[
                         { label: 'Edit', onSelect: () => (canManage ? setEditing(x) : setViewing(x)) },
                         { label: 'Documents', onSelect: () => setDocsFor(x) },
+                        { label: x.is_active ? 'Mark inactive' : 'Mark active', onSelect: () => void toggleActive(x), disabledReason: canManage ? null : 'Needs “Add and edit transporters”' },
                         { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(x) }, disabledReason: canManage ? null : 'Needs “Add and edit transporters”' },
                       ]}
                     />
@@ -678,6 +684,7 @@ function TransporterDrawer({
               onChange={setLocationIds}
               disabled={!canManage}
               placeholder="-- Select Locations --"
+              emptyText="No locations yet: add one in Master data > Locations first"
             />
             {submitted && locationsMissing && <p className="field-warn" role="alert">Locations is required: choose at least one.</p>}
             <Field id="t-company" label="Business Units" required error={show('t-company')}>
@@ -695,8 +702,8 @@ function TransporterDrawer({
             <Field id="t-bank2" label="Bank Account Number 2">
               <textarea id="t-bank2" rows={2} value={f.bank_account_2} placeholder="Enter Bank Account Number 2" onChange={(ev) => set('bank_account_2', ev.target.value)} />
             </Field>
-            <Field id="t-pan" label="IT PAN" required error={show('t-pan')} hint="10 characters.">
-              <input id="t-pan" className="mono" maxLength={10} value={f.pan} placeholder="Enter IT PAN" onChange={(ev) => set('pan', ev.target.value.toUpperCase().replace(/\s+/g, ''))} />
+            <Field id="t-pan" label="PAN" required error={show('t-pan')} hint="10 characters.">
+              <input id="t-pan" className="mono" maxLength={10} value={f.pan} placeholder="Enter PAN" onChange={(ev) => set('pan', ev.target.value.toUpperCase().replace(/\s+/g, ''))} />
             </Field>
           </FormSection>
 

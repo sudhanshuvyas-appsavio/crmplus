@@ -25,6 +25,8 @@ interface FormState {
   order_id: string
   collection_date: string
   collected_by: string
+  accounts_staff_id: string
+  name: string
   notes: string
 }
 
@@ -61,6 +63,8 @@ export function ChequeForm({
     order_id: cheque?.order_id ?? '',
     collection_date: cheque?.collection_date ?? today,
     collected_by: cheque?.collected_by ?? me?.id ?? '',
+    accounts_staff_id: '',
+    name: '',
     notes: cheque?.notes ?? '',
   }))
   const [busy, setBusy] = useState(false)
@@ -73,6 +77,27 @@ export function ChequeForm({
     if (key === 'buyer_id' || key === 'order_id') touchedParty.current = true
     setForm((prev) => ({ ...prev, [key]: value }))
   }
+
+  // monday's Name and Accounts live on the cheque's task: load them when a cheque is edited.
+  const [loadedBuyer, setLoadedBuyer] = useState<string | null>(null)
+  useEffect(() => {
+    if (!cheque?.task_id) return
+    let live = true
+    void supabase
+      .from('tasks')
+      .select('title,accounts_staff_id,buyer_id')
+      .eq('id', cheque.task_id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!live || !data) return
+        const t = data as { title: string; accounts_staff_id: string | null; buyer_id: string | null }
+        setLoadedBuyer(t.buyer_id)
+        setForm((prev) => ({ ...prev, accounts_staff_id: t.accounts_staff_id ?? '', name: t.title }))
+      })
+    return () => {
+      live = false
+    }
+  }, [cheque?.task_id])
 
   // A cheque added from a task starts with that task's buyer, order and amount.
   useEffect(() => {
@@ -126,6 +151,14 @@ export function ChequeForm({
       setBusy(false)
       if (error) return setErr(chequeError(error, 'Could not save the cheque'))
       if (!data || data.length === 0) return setErr('Your account cannot change this cheque.')
+      if (canManage && cheque.task_id) {
+        // Person follows the buyer's Messenger when the buyer changes (monday's recipe), so the task takes the new buyer too.
+        const taskPatch: Record<string, unknown> = { accounts_staff_id: form.accounts_staff_id || null }
+        if (form.name.trim()) taskPatch.title = form.name.trim()
+        if ((payload.buyer_id ?? null) !== (loadedBuyer ?? null)) taskPatch.buyer_id = payload.buyer_id
+        const up = await supabase.from('tasks').update(taskPatch).eq('id', cheque.task_id)
+        if (up.error) return setErr(errMessage(up.error, 'The cheque was saved but its Name or Accounts could not be'))
+      }
       pushToast('success', 'Cheque updated.')
       onSaved()
       onClose()
@@ -141,9 +174,10 @@ export function ChequeForm({
         .from('tasks')
         .insert({
           task_type: 'cheque_collection',
-          title: `Cheque ${payload.cheque_no}${buyer ? ` - ${buyer}` : ''}`,
+          title: form.name.trim() || `Cheque ${payload.cheque_no}${buyer ? ` - ${buyer}` : ''}`,
           status: 'in_progress',
           assigned_to: collector,
+          ...(canManage && form.accounts_staff_id ? { accounts_staff_id: form.accounts_staff_id } : {}),
           buyer_id: payload.buyer_id,
           order_id: payload.order_id,
           amount: payload.amount,
@@ -244,6 +278,23 @@ export function ChequeForm({
       )}
       <p className="muted small">Fields marked * are required.</p>
       <div className="form-grid">
+        <Field id="chq-name" label="Name" hint="Leave empty to name it after the cheque number and buyer.">
+          <input id="chq-name" value={form.name} onChange={(e) => set('name', e.target.value)} />
+        </Field>
+        <Field
+          id="chq-accounts"
+          label="Accounts"
+          hint={canManage ? 'Told when the cheque is collected.' : 'Set by someone who manages tasks.'}
+        >
+          <select id="chq-accounts" value={form.accounts_staff_id} disabled={!canManage} onChange={(e) => set('accounts_staff_id', e.target.value)}>
+            <option value="">—</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </Field>
         <Field id="chq-no" label="Cheque number" required>
           <input id="chq-no" className="mono" value={form.cheque_no} onChange={(e) => set('cheque_no', e.target.value)} autoFocus />
         </Field>
