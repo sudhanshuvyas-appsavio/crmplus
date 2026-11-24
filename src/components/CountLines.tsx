@@ -143,7 +143,7 @@ export function CountLinesView({ lines, counts, buyer, supplier }: { lines: Line
   const showComm = figs.some((f) => f?.buyer || f?.supplier)
   return (
     <div className="table-wrap lines-wrap">
-      <table className="lines-table">
+      <table className="lines-table lines-view">
         <thead>
           <tr>
             <th>#</th><th>Count</th><th className="right">Quantity</th><th>Unit</th><th className="right">Bag Weight (kg)</th>

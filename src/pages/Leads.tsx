@@ -1,17 +1,12 @@
 /** Leads (T-009 record) and Qualify Lead (T-011).
  *
- *  A lead is an inquiry: who is asking (buyer / supplier / both), what yarn
- *  count and how much. Qualifying a lead is the gate before it can become a
- *  deal, and the rules are enforced by a trigger in the database, so this
- *  screen can only ever *attempt* a qualification:
+ *  A lead is an inquiry from a buyer: what yarn count and how much. Qualifying a
+ *  lead is the gate before it can become a deal, and the rules are enforced by a
+ *  trigger in the database, so this screen can only ever *attempt* a qualification:
  *
  *    - a count is selected and a quantity is entered
- *    - Party Role = Buyer    -> the party is in the Buyer Master
- *    - Party Role = Supplier -> the party is in the Supplier Master
- *    - Party Role = Both     -> both
- *
- *  If the party is not in a master yet, the Qualify panel lets the user
- *  create the master record there and then, with its required fields. */
+ *    - Qualify is one click: the buyer is added to Buyers & Suppliers under the home
+ *      Business Unit (or the existing buyer's own), and a Draft deal is created. */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -32,17 +27,17 @@ import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer } from '../components/Drawer'
 import { ImportIssues, useSelection } from '../components/ListTools'
-import { Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
+import { Board, PersonCell, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, pickOne } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
-import { formatDate, formatDateTime } from '../lib/format'
+import { formatDate, formatDateTime, formatShortDate } from '../lib/format'
 
 const LEAD_CSV_COLUMNS = [
   'lead_no', 'status', 'lead_type', 'lead_source', 'party_role', 'party_name', 'contact_person', 'mobile_cc', 'mobile', 'station', 'office_address',
   'gst', 'count', 'quantity', 'uom', 'expected_rate', 'timeline', 'timeline_from', 'timeline_to', 'remarks', 'sales_staff',
-  'follow_up_date', 'follow_up_at', 'buyer_code', 'supplier_code', 'qualified_at', 'created_at',
+  'follow_up_date', 'follow_up_at', 'buyer_code', 'qualified_at', 'created_at',
 ] as const
 
 type StaffOption = { id: string; name: string }
@@ -241,19 +236,14 @@ export default function Leads() {
 
   async function exportCSV() {
     setBusy(true)
-    const [b, s] = await Promise.all([
-      supabase.from('buyer_master').select('id, buyer_code'),
-      supabase.from('supplier_master').select('id, supplier_code'),
-    ])
+    const b = await supabase.from('buyer_master').select('id, buyer_code')
     const buyerCode = new Map((b.data ?? []).map((r) => [r.id as string, r.buyer_code as string]))
-    const supplierCode = new Map((s.data ?? []).map((r) => [r.id as string, r.supplier_code as string]))
     const list = selection.chosen.length > 0 ? shown.filter((l) => selection.isSelected(l.id)) : shown
     const rows = list.map((l) => ({
       ...l,
       count: l.count_id ? countById.get(l.count_id)?.display_name ?? '' : '',
       sales_staff: l.sales_staff_id ? staffById.get(l.sales_staff_id) ?? '' : '',
       buyer_code: l.buyer_id ? buyerCode.get(l.buyer_id) ?? '' : '',
-      supplier_code: l.supplier_id ? supplierCode.get(l.supplier_id) ?? '' : '',
     }))
     downloadCSV(`leads-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(LEAD_CSV_COLUMNS, rows))
     setBusy(false)
@@ -265,12 +255,8 @@ export default function Leads() {
     setBusy(true)
     setBanner(null)
     setImportResults(null)
-    const [b, s] = await Promise.all([
-      supabase.from('buyer_master').select('id, buyer_code'),
-      supabase.from('supplier_master').select('id, supplier_code'),
-    ])
+    const b = await supabase.from('buyer_master').select('id, buyer_code')
     const buyerByCode = new Map((b.data ?? []).map((r) => [(r.buyer_code as string).toLowerCase(), r.id as string]))
-    const supplierByCode = new Map((s.data ?? []).map((r) => [(r.supplier_code as string).toLowerCase(), r.id as string]))
     const countByName = new Map(counts.map((c) => [c.display_name.toLowerCase(), c.id]))
     const staffByName = new Map(staff.map((x) => [x.name.toLowerCase(), x.id]))
 
@@ -279,7 +265,6 @@ export default function Leads() {
       (r) => r.get('party_name'),
       async (r) => {
         const role: LeadRole = 'buyer' // a lead is always a buyer
-        if (!LEAD_ROLES.some((x) => x.value === role)) throw new Error('Party role must be buyer, supplier or both')
 
         const countName = r.get('count')
         const countId = countName ? countByName.get(countName.toLowerCase()) : undefined
@@ -292,15 +277,12 @@ export default function Leads() {
         const buyerCodeCell = r.get('buyer_code')
         const buyerId = buyerCodeCell ? buyerByCode.get(buyerCodeCell.toLowerCase()) : undefined
         if (buyerCodeCell && !buyerId) throw new Error(`Buyer code "${buyerCodeCell}" is not in the Buyer Master`)
-        const supplierCodeCell = r.get('supplier_code')
-        const supplierId = supplierCodeCell ? supplierByCode.get(supplierCodeCell.toLowerCase()) : undefined
-        if (supplierCodeCell && !supplierId) throw new Error(`Supplier code "${supplierCodeCell}" is not in the Supplier Master`)
 
         const quantity = r.get('quantity')
         const stationName = await ensureStation(r.get('station'))
         const followDate = r.get('follow_up_date')
         const form: LeadForm = {
-          lead_type: buyerId || supplierId ? 'existing' : 'new',
+          lead_type: buyerId ? 'existing' : 'new',
           lead_source: r.get('lead_source'),
           party_role: role,
           party_name: r.get('party_name'),
@@ -311,7 +293,7 @@ export default function Leads() {
           office_address: r.get('office_address'),
           gst: r.get('gst').toUpperCase().replace(/\s+/g, ''),
           buyer_id: buyerId ?? '',
-          supplier_id: supplierId ?? '',
+          supplier_id: '',
           count_id: countId ?? '',
           quantity,
           uom: pickOne('UOM', r.get('uom'), LEAD_UOMS) || (quantity ? 'KG' : ''),
@@ -334,7 +316,7 @@ export default function Leads() {
 
         const { error } = await supabase
           .from('leads')
-          .insert({ ...leadPayload(form), status: 'new', buyer_id: buyerId ?? null, supplier_id: supplierId ?? null })
+          .insert({ ...leadPayload(form), status: 'new', buyer_id: buyerId ?? null, supplier_id: null })
         if (error) throw error
       },
     )
@@ -413,7 +395,7 @@ export default function Leads() {
       ),
     },
     {
-      key: 'party', label: 'Buyer',
+      key: 'party', label: 'Buyer', width: 170,
       render: (l) => (
         <>
           <strong>{l.party_name}</strong>
@@ -421,11 +403,11 @@ export default function Leads() {
         </>
       ),
     },
-    { key: 'count', label: 'Count', render: (l) => <span className="small">{(l.count_id ? countById.get(l.count_id)?.display_name : '') || <span className="muted">—</span>}</span> },
+    { key: 'count', label: 'Count', width: 210, render: (l) => <span className="small">{(l.count_id ? countById.get(l.count_id)?.display_name : '') || <span className="muted">—</span>}</span> },
     { key: 'qty', label: 'Quantity', align: 'right', render: (l) => <span className="mono">{l.quantity !== null ? `${l.quantity} ${l.uom ?? ''}` : '—'}</span> },
     { key: 'follow', label: 'Follow-up', render: (l) => <span className="mono small">{formatDate(l.follow_up_date)}</span> },
-    { key: 'staff', label: 'Sales staff', render: (l) => <span className="small">{l.sales_staff_id ? staffById.get(l.sales_staff_id) ?? '—' : '—'}</span> },
-    { key: 'created', label: 'Created Date', render: (l) => <span className="small">{formatDate(l.created_at.slice(0, 10))}</span> },
+    { key: 'staff', label: 'Sales staff', width: 160, render: (l) => <PersonCell name={l.sales_staff_id ? staffById.get(l.sales_staff_id) : undefined} /> },
+    { key: 'created', label: 'Created Date', render: (l) => <span className="small">{formatShortDate(l.created_at)}</span> },
     {
       key: 'action', label: 'Actions', interactive: true, pinRight: true,
       render: (l) => <RowActionMenu label={`Actions for ${l.lead_no}`} actions={actionsFor(l)} />,
@@ -530,6 +512,7 @@ export default function Leads() {
         groupOf={(l) => l.status}
         columns={columns}
         rowKey={(l) => l.id}
+        viewKey="leads"
         onOpen={(l) => canManage && setEditing({ mode: 'edit', lead: l })}
         rowOpens={false}
         expandable={{

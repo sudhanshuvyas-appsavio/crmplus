@@ -25,13 +25,14 @@ import { OrderFormModal } from '../components/OrderFormModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
 import { BoardTabs } from '../components/board/BoardTabs'
-import { Avatar, Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { Board, PersonCell, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { cell } from '../components/board/mirrors'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
 import {
-  COMM_BASES, DNB_GROUPS, dnbGroup, dispatchStatus, inr, saleTypeLabel, transportTypeLabel, uomLabel,
+  COMM_BASES, DNB_GROUPS, dnbGroup, dispatchStatus, inr, rateText, saleTypeLabel, transportTypeLabel, uomLabel,
 } from '../lib/deals'
+import { formatShortDate } from '../lib/format'
 
 type Named = { id: string; name: string }
 type ScRef = { id: string; sc_no: string }
@@ -206,40 +207,39 @@ export default function DispatchAndBilling() {
     { key: 'no', label: 'Item', width: 130, render: (x) => <span className="mono">{x.order_no}</span> },
     { key: 'status', label: 'Status', width: 170, render: (x) => <StatusPill label={dispatchStatus(x.dispatch_status).label} tone={dispatchStatus(x.dispatch_status).tone} /> },
     { key: 'inv', label: 'Invoice No.', render: (x) => (x.is_duplicate ? <span className="mono small field-warn" title={x.duplication_error ?? ''}>{x.invoice_no} · duplicate</span> : cell(x.invoice_no, { mono: true })) },
-    { key: 'invdate', label: 'Invoice Date', render: (x) => cell(x.invoice_date) },
-    { key: 'created', label: 'Created Date', render: (x) => cell(x.created_at.slice(0, 10)) },
+    { key: 'invdate', hidden: true, label: 'Invoice Date', render: (x) => cell(x.invoice_date) },
+    { key: 'created', label: 'Created Date', render: (x) => cell(formatShortDate(x.created_at)) },
     { key: 'sc', label: 'Sales Confirmation', interactive: true, render: (x) => <Link className="mono small" to={`/sales-confirmations?open=${x.sales_confirmation_id}`}>{scs.get(x.sales_confirmation_id) ?? '—'}</Link> },
     { key: 'buyer', label: 'Buyer', render: (x) => <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> },
-    { key: 'bctype', label: 'Buyer Commission Type', render: (x) => cell(basisLabel(x.buyer_comm_basis)) },
-    { key: 'bcval', label: 'Buyer Commission Value', align: 'right', render: (x) => cell(x.buyer_comm_value, { mono: true }) },
+    { key: 'bctype', hidden: true, label: 'Buyer Commission Type', render: (x) => cell(basisLabel(x.buyer_comm_basis)) },
+    { key: 'bcval', hidden: true, label: 'Buyer Commission Value', align: 'right', render: (x) => cell(x.buyer_comm_value, { mono: true }) },
     { key: 'supplier', label: 'Supplier', render: (x) => supplierName.get(x.supplier_id) ?? '—' },
-    { key: 'sctype', label: 'Supplier Commission Type', render: (x) => cell(basisLabel(x.supplier_comm_basis)) },
-    { key: 'scval', label: 'Supplier Commission Value', align: 'right', render: (x) => cell(x.supplier_comm_value, { mono: true }) },
-    { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.alt_delivery_address, { clip: true }) },
-    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => cell(x.quantity, { mono: true }) },
-    { key: 'transporter', label: 'Transporter Name', render: (x) => cell(x.transporter_id ? transporterName.get(x.transporter_id) : null) },
-    { key: 'vehicle', label: 'Vehicle Number', render: (x) => cell(x.vehicle_no, { mono: true }) },
-    { key: 'driver', label: 'Driver Contact Phone', render: (x) => cell(x.driver_phone, { mono: true }) },
-    { key: 'schedule', label: 'Delivery Schedule', render: (x) => cell(x.delivery_schedule, { clip: true }) },
+    { key: 'sctype', hidden: true, label: 'Supplier Commission Type', render: (x) => cell(basisLabel(x.supplier_comm_basis)) },
+    { key: 'scval', hidden: true, label: 'Supplier Commission Value', align: 'right', render: (x) => cell(x.supplier_comm_value, { mono: true }) },
+    { key: 'delivery', hidden: true, label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.alt_delivery_address, { clip: true }) },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => <span>{inr(x.quantity)} {uomLabel(x.uom)}</span> },
+    { key: 'transporter', hidden: true, label: 'Transporter Name', render: (x) => cell(x.transporter_id ? transporterName.get(x.transporter_id) : null) },
+    { key: 'vehicle', hidden: true, label: 'Vehicle Number', render: (x) => cell(x.vehicle_no, { mono: true }) },
+    { key: 'driver', hidden: true, label: 'Driver Contact Phone', render: (x) => cell(x.driver_phone, { mono: true }) },
+    { key: 'schedule', hidden: true, label: 'Delivery Schedule', render: (x) => cell(x.delivery_schedule, { clip: true }) },
     { key: 'count', label: 'Counts', render: (x) => cell(countName.get(x.count_id)) },
-    { key: 'uom', label: 'UOM', render: (x) => cell(uomLabel(x.uom)) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => cell(x.final_rate, { mono: true }) },
-    { key: 'bag', label: 'Bags Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
-    { key: 'weight', label: 'Total Weight', align: 'right', render: (x) => cell(x.total_weight, { mono: true }) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => (x.final_rate === null ? cell(null) : <span>₹{rateText(x.final_rate)}</span>) },
+    { key: 'bag', hidden: true, label: 'Bags Weight', align: 'right', render: (x) => cell(x.bag_weight, { mono: true }) },
+    { key: 'weight', hidden: true, label: 'Total Weight', align: 'right', render: (x) => cell(x.total_weight, { mono: true }) },
     { key: 'value', label: 'Value', align: 'right', render: (x) => money(x.order_value), total: sum((r) => r.order_value) },
-    { key: 'bcomm', label: 'Buyer Commission', align: 'right', render: (x) => money(x.buyer_commission), total: sum((r) => r.buyer_commission) },
-    { key: 'scomm', label: 'Supplier Commission', align: 'right', render: (x) => money(x.supplier_commission), total: sum((r) => r.supplier_commission) },
-    { key: 'cgst', label: 'CGST', align: 'right', render: (x) => cell(x.cgst_pct, { mono: true }) },
-    { key: 'ins', label: 'Insurance Tax', align: 'right', render: (x) => cell(x.insurance_pct, { mono: true }) },
-    { key: 'add', label: 'Add', align: 'right', render: (x) => cell(x.add_amount, { mono: true }) },
-    { key: 'deduct', label: 'Deduct', align: 'right', render: (x) => cell(x.deduct_amount, { mono: true }) },
-    { key: 'total', label: 'Total Amount', align: 'right', render: (x) => money(x.total_amount), total: sum((r) => r.total_amount) },
-    { key: 'round', label: 'Round off', align: 'right', render: (x) => cell(x.round_off, { mono: true }) },
+    { key: 'bcomm', hidden: true, label: 'Buyer Commission', align: 'right', render: (x) => money(x.buyer_commission), total: sum((r) => r.buyer_commission) },
+    { key: 'scomm', hidden: true, label: 'Supplier Commission', align: 'right', render: (x) => money(x.supplier_commission), total: sum((r) => r.supplier_commission) },
+    { key: 'cgst', hidden: true, label: 'CGST', align: 'right', render: (x) => cell(x.cgst_pct, { mono: true }) },
+    { key: 'ins', hidden: true, label: 'Insurance Tax', align: 'right', render: (x) => cell(x.insurance_pct, { mono: true }) },
+    { key: 'add', hidden: true, label: 'Add', align: 'right', render: (x) => cell(x.add_amount, { mono: true }) },
+    { key: 'deduct', hidden: true, label: 'Deduct', align: 'right', render: (x) => cell(x.deduct_amount, { mono: true }) },
+    { key: 'total', hidden: true, label: 'Total Amount', align: 'right', render: (x) => money(x.total_amount), total: sum((r) => r.total_amount) },
+    { key: 'round', hidden: true, label: 'Round off', align: 'right', render: (x) => cell(x.round_off, { mono: true }) },
     { key: 'dispatched', label: 'Quantity Dispatched', render: (x) => <Progress done={x.dispatched_qty} total={x.quantity} uom={x.uom} /> },
-    { key: 'remark', label: 'Remark 1', render: (x) => cell(x.special_instructions, { clip: true }) },
-    { key: 'dispatch-date', label: 'Dispatch Date', render: (x) => cell(x.tentative_dispatch_date) },
-    { key: 'person', label: 'Person', render: (x) => <Avatar name={x.person_id ? personName.get(x.person_id) : undefined} /> },
-    { key: 'transport', label: 'Transport Type', render: (x) => cell(x.transport_type ? transportTypeLabel(x.transport_type) : null) },
+    { key: 'remark', hidden: true, label: 'Remark 1', render: (x) => cell(x.special_instructions, { clip: true }) },
+    { key: 'dispatch-date', hidden: true, label: 'Dispatch Date', render: (x) => cell(x.tentative_dispatch_date) },
+    { key: 'person', label: 'Person', render: (x) => <PersonCell name={x.person_id ? personName.get(x.person_id) : undefined} /> },
+    { key: 'transport', hidden: true, label: 'Transport Type', render: (x) => cell(x.transport_type ? transportTypeLabel(x.transport_type) : null) },
     { key: 'action', label: 'Actions', interactive: true, pinRight: true, render: (x) => <RowActionMenu label={`Actions for ${x.order_no}`} actions={actionsFor(x)} /> },
   ]
 
@@ -298,6 +298,7 @@ export default function DispatchAndBilling() {
         groupOf={dnbGroup}
         columns={columns}
         rowKey={(x) => x.id}
+        viewKey="orders"
         onOpen={(x) => setDetails(x)}
         rowOpens={false}
         view={view}

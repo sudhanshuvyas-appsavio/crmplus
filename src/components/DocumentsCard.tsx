@@ -94,3 +94,41 @@ export function DocumentsCard<T extends DocItem>({
     </section>
   )
 }
+
+/** The Documents block of a create form: the same card as a saved record's, holding the files
+ *  chosen so far. They are uploaded when the record is created. */
+export function PendingFilesCard({ files, onChange, max = 10, id, note }: { files: File[]; onChange: (files: File[]) => void; max?: number; id?: string; note: string }) {
+  const kb = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+  return (
+    <section className="docs-card">
+      {files.length < max && (
+        <div className="docs-bar">
+          <label className="btn sm" title={note}>
+            Attach files
+            <input id={id} type="file" multiple hidden onChange={(e) => { if (e.target.files?.length) onChange([...files, ...Array.from(e.target.files)].slice(0, max)); e.target.value = '' }} />
+          </label>
+        </div>
+      )}
+      <div className="docs-body">
+        {files.length === 0 ? (
+          <div className="docs-empty">{`No files yet. Attach up to ${max}; ${note.charAt(0).toLowerCase()}${note.slice(1)}`}</div>
+        ) : (
+          <ul className="docs-list">
+            {files.map((file, i) => (
+              <li key={`${file.name}-${i}`}>
+                <svg className="docs-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" />
+                </svg>
+                <div className="docs-main">
+                  <span className="docs-name plain">{file.name}</span>
+                  <span className="docs-meta">{kb(file.size)} · {files.length}/{max} attached</span>
+                </div>
+                <button className="btn ghost sm" type="button" onClick={() => onChange(files.filter((_, j) => j !== i))}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  )
+}

@@ -22,6 +22,8 @@ import { formatDateTime } from '../../lib/format'
 import { Modal } from '../Modal'
 import { Field, FieldErrorsProvider } from '../PartyForms'
 import { PhoneField } from '../PhoneField'
+import { ComboInput } from '../ComboInput'
+import { PendingFilesCard } from '../DocumentsCard'
 import { phoneProblem } from '../../lib/phone'
 import { ErrorBanner, FormSection, FullWidth } from '../FormKit'
 import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from '../CountLines'
@@ -335,10 +337,7 @@ export function ScFormModal({
             <header className="fs-head"><div><h3>Select Item to Update:</h3></div></header>
             <div className="fs-body">
               <Field id="sc-record" label="Search for a record">
-                <input id="sc-record" list="sc-record-list" placeholder="-- Search for a record --" value={recordText} onChange={(e) => chooseRecord(e.target.value)} style={{ maxWidth: 520 }} />
-                <datalist id="sc-record-list">
-                  {editable.map((x) => (<option key={x.id} value={x.sc_no} />))}
-                </datalist>
+                <ComboInput id="sc-record" placeholder="-- Search for a record --" value={recordText} onChange={chooseRecord} options={editable.map((x) => x.sc_no)} style={{ maxWidth: 520 }} />
               </Field>
             </div>
           </section>
@@ -459,25 +458,7 @@ export function ScFormModal({
                     {updating ? (
                       recordId ? <div><ScDocuments scId={recordId} kind="buyer" canEdit hideTitle /></div> : null
                     ) : (
-                      <div>
-                        {pendingFiles.length > 0 && (
-                          <ul className="history">
-                            {pendingFiles.map((file, i) => (
-                              <li key={`${file.name}-${i}`} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                <span>{file.name}</span>
-                                <span className="muted small">{Math.max(1, Math.round(file.size / 1024))} KB</span>
-                                <button className="btn ghost sm push" type="button" onClick={() => setPendingFiles(pendingFiles.filter((_, j) => j !== i))}>Remove</button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {pendingFiles.length < 10 && (
-                          <label className="btn sm" title="The files are attached when the confirmation is created.">
-                            Attach files <span className="muted">({pendingFiles.length}/10)</span>
-                            <input id="sc-docs" type="file" multiple hidden onChange={(e) => { if (e.target.files?.length) setPendingFiles([...pendingFiles, ...Array.from(e.target.files)].slice(0, 10)); e.target.value = '' }} />
-                          </label>
-                        )}
-                      </div>
+                      <PendingFilesCard files={pendingFiles} onChange={setPendingFiles} id="sc-docs" note="The files are attached when the confirmation is created." />
                     )}
                   </Field>
                 </FullWidth>

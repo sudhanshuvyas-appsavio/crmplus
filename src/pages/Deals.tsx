@@ -22,7 +22,7 @@ import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
 import { DealFormModal, mapsUrl } from '../components/DealFormModal'
 import { useSelection } from '../components/ListTools'
 import { useProfileNames } from '../components/PartyExtras'
-import { Avatar, Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
+import { Avatar, Board, PersonCell, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
 import { BoardTabs } from '../components/board/BoardTabs'
 import { DealDocuments } from '../components/DealDocuments'
@@ -31,7 +31,7 @@ import { CountLinesView, toLineForm, type LineForm } from '../components/CountLi
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, formatShortDate } from '../lib/format'
 import {
   DEAL_GROUPS, commTerms, dealStatus, inr, rateText, uomLabel,
 } from '../lib/deals'
@@ -272,25 +272,25 @@ export default function Deals() {
     { key: 'buyer', label: 'Buyer', render: (x) => x.buyer_id ? <strong>{buyerName.get(x.buyer_id) ?? '—'}</strong> : <span className="muted">not picked</span> },
     { key: 'supplier', label: 'Supplier', render: (x) => (x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : <span className="muted">not set</span>) },
     { key: 'count', label: 'Count', render: (x) => perLine(x, (r) => cell(countName.get(r.count_id ?? ''))) },
-    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{inr(r.quantity)}</span>) },
-    { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
-    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{rateText(r.final_rate)}</span>) },
-    { key: 'bcomm', label: 'Buyer Commission', render: (x) => cell(commTerms(x.buyer_comm_basis, x.buyer_comm_value)) },
-    { key: 'scomm', label: 'Supplier Commission', render: (x) => cell(commTerms(x.supplier_comm_basis, x.supplier_comm_value)) },
-    { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
-    { key: 'mode', label: 'Mode', render: (x) => cell(x.price_basis === 'net' ? 'Net' : 'Ex-Mill') },
-    { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
-    { key: 'location', label: 'Location', render: (x) => (x.location_text || x.location_lat !== null
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => (r.quantity === null ? cell(null) : <span>{inr(r.quantity)} {uomLabel(r.uom)}</span>)) },
+    { key: 'bag', hidden: true, label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => (r.final_rate === null ? cell(null) : <span>₹{rateText(r.final_rate)}</span>)) },
+    { key: 'value', label: 'Value', align: 'right', render: (x) => (x.deal_value === null ? cell(null) : <span>₹{inr(x.deal_value, 0)}</span>), total: (list) => { const n = list.reduce((sum, r) => sum + (r.deal_value ?? 0), 0); return n ? `₹${inr(n, 0)}` : '—' } },
+    { key: 'bcomm', hidden: true, label: 'Buyer Commission', render: (x) => cell(commTerms(x.buyer_comm_basis, x.buyer_comm_value)) },
+    { key: 'scomm', hidden: true, label: 'Supplier Commission', render: (x) => cell(commTerms(x.supplier_comm_basis, x.supplier_comm_value)) },
+    { key: 'terms', hidden: true, label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
+    { key: 'mode', hidden: true, label: 'Mode', render: (x) => cell(x.price_basis === 'net' ? 'Net' : 'Ex-Mill') },
+    { key: 'freight', hidden: true, label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
+    { key: 'location', hidden: true, label: 'Location', render: (x) => (x.location_text || x.location_lat !== null
       ? <span>{x.location_text ?? ''}{x.location_lat !== null && x.location_lng !== null ? <> <a className="small" href={mapsUrl(x.location_lat, x.location_lng)} target="_blank" rel="noopener noreferrer">map</a></> : null}</span>
       : cell(null)), interactive: true },
-    { key: 'owner', label: 'Owner', render: (x) => <Avatar name={x.owner_id ? personName.get(x.owner_id) : undefined} /> },
-    { key: 'manager', label: 'Manager', render: (x) => <Avatar name={x.manager_id ? personName.get(x.manager_id) : undefined} /> },
-    { key: 'created', label: 'Created Date', render: (x) => cell(formatDateTime(x.created_at)) },
-    { key: 'approved', label: 'Approval Date', render: (x) => cell(x.approved_at ? x.approved_at.slice(0, 10) : null) },
-    { key: 'lead', label: 'Lead', interactive: true, render: (x) => (x.lead_id ? <Link className="mono small" to="/leads">{leadNos.get(x.lead_id) ?? 'open'}</Link> : cell(null)) },
+    { key: 'owner', label: 'Owner', render: (x) => <PersonCell name={x.owner_id ? personName.get(x.owner_id) : undefined} /> },
+    { key: 'manager', hidden: true, label: 'Manager', render: (x) => <PersonCell name={x.manager_id ? personName.get(x.manager_id) : undefined} /> },
+    { key: 'created', hidden: true, label: 'Created Date', render: (x) => cell(formatShortDate(x.created_at)) },
+    { key: 'approved', hidden: true, label: 'Approval Date', render: (x) => cell(x.approved_at ? x.approved_at.slice(0, 10) : null) },
+    { key: 'lead', hidden: true, label: 'Lead', interactive: true, render: (x) => (x.lead_id ? <Link className="mono small" to="/leads">{leadNos.get(x.lead_id) ?? 'open'}</Link> : cell(null)) },
     {
-      key: 'sc', label: 'Sales Confirmation', interactive: true,
+      key: 'sc', hidden: true, label: 'Sales Confirmation', interactive: true,
       render: (x) => (x.sales_confirmation_id
         ? <Link className="mono small" to={`/sales-confirmations?open=${x.sales_confirmation_id}`}>{scNos.get(x.sales_confirmation_id) ?? 'open'}</Link>
         : cell(null)),
@@ -351,6 +351,7 @@ export default function Deals() {
         groupOf={(x) => x.status}
         columns={columns}
         rowKey={(x) => x.id}
+        viewKey="deals"
         onOpen={(x) => setDetails(x)}
         rowOpens={false}
         view={view}

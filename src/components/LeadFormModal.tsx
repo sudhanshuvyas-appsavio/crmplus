@@ -25,6 +25,7 @@ import { Modal } from './Modal'
 import { Field, FieldErrorsProvider } from './PartyForms'
 import { ErrorBanner, FormSection, FullWidth } from './FormKit'
 import { PhoneField } from './PhoneField'
+import { ComboInput } from './ComboInput'
 import { StationPicker } from './StationPicker'
 
 type MasterParty = { id: string; name: string; contact_person: string | null; mobile: string | null; gst: string | null; address: string | null; is_active: boolean }
@@ -199,10 +200,7 @@ export function LeadFormModal({
             <header className="fs-head"><div><h3>Select Item to Update:</h3></div></header>
             <div className="fs-body">
               <Field id="l-record" label="Search for a record">
-                <input id="l-record" list="l-record-list" placeholder="-- Search for a record --" value={recordText} onChange={(e) => chooseRecord(e.target.value)} style={{ maxWidth: 520 }} />
-                <datalist id="l-record-list">
-                  {editable.map((l) => (<option key={l.id} value={`${l.lead_no} · ${l.party_name}`} />))}
-                </datalist>
+                <ComboInput id="l-record" placeholder="-- Search for a record --" value={recordText} onChange={chooseRecord} options={editable.map((l) => `${l.lead_no} · ${l.party_name}`)} style={{ maxWidth: 520 }} />
               </Field>
             </div>
           </section>
@@ -230,8 +228,7 @@ export function LeadFormModal({
             <input id="l-follow" type="datetime-local" value={form.follow_up_at} onChange={(e) => set('follow_up_at', e.target.value)} />
           </Field>
           <Field id="l-source" label="Lead Source">
-            <input id="l-source" list="l-source-list" placeholder="Enter Lead Source" value={form.lead_source} onChange={(e) => set('lead_source', e.target.value)} />
-            <datalist id="l-source-list">{LEAD_SOURCES.map((s) => (<option key={s} value={s} />))}</datalist>
+            <ComboInput id="l-source" placeholder="Enter Lead Source" value={form.lead_source} onChange={(t) => set('lead_source', t)} options={[...LEAD_SOURCES]} />
           </Field>
           <Field id="l-tfrom" label="Timeline">
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

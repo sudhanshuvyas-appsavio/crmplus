@@ -24,7 +24,7 @@ import { MIRROR_PARTY_COLS, cell } from '../components/board/mirrors'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, formatShortDate } from '../lib/format'
 import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, rateText, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
 import { ScDetails } from '../components/sc/ScDetails'
 import { ScFormModal } from '../components/sc/ScFormModal'
@@ -286,7 +286,7 @@ export default function SalesConfirmations() {
   const columns: BoardColumn<ScRow>[] = [
     { key: 'no', label: 'Confirmation No', width: 150, render: (x) => <span className="mono">{x.sc_no}</span> },
     { key: 'stage', label: 'Status', width: 190, render: (x) => { const st = scStage(scGroup(x)); return <StatusPill label={st.label} tone={st.tone} /> } },
-    { key: 'date', label: 'Created Date', render: (x) => cell(formatDateTime(x.confirmed_at)) },
+    { key: 'date', label: 'Created Date', render: (x) => cell(formatShortDate(x.confirmed_at)) },
     {
       key: 'deal', label: 'Link to Deal', interactive: true,
       render: (x) => (x.deal_id ? <Link className="mono small" to={`/deals?open=${x.deal_id}`}>{dealNos.get(x.deal_id) ?? 'open'}</Link> : cell(null)),
@@ -294,18 +294,17 @@ export default function SalesConfirmations() {
     { key: 'supplier', label: 'Supplier', render: (x) => <strong>{x.supplier_id ? supplierName.get(x.supplier_id) ?? '—' : '—'}</strong> },
     { key: 'buyer', label: 'Buyer', render: (x) => (x.buyer_id ? buyerName.get(x.buyer_id) ?? '—' : '—') },
     { key: 'count', label: 'Count', render: (x) => perLine(x, (r) => cell(countName.get(r.count_id))) },
-    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => cell(r.quantity, { mono: true })) },
-    { key: 'uom', label: 'Unit', render: (x) => perLine(x, (r) => cell(uomLabel(r.uom))) },
-    { key: 'bag', label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
-    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => <span className="mono">{rateText(r.rate)}</span>) },
-    { key: 'terms', label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
-    { key: 'freight', label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
-    { key: 'delivery', label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.delivery_address, { clip: true }) },
-    { key: 'transporter', label: 'Transporter Name', render: (x) => cell(x.transporter_id ? transporterName.get(x.transporter_id) : null) },
-    { key: 'vehicle', label: 'Vehicle Number', render: (x) => cell(x.vehicle_no, { mono: true }) },
-    { key: 'driver', label: 'Driver Contact Phone', render: (x) => cell(x.driver_phone, { mono: true }) },
-    { key: 'to-supplier', label: 'Sent to Supplier', render: (x) => sentCell(x.supplier_notified_at) },
-    { key: 'to-buyer', label: 'Sent to Buyer', render: (x) => sentCell(x.buyer_notified_at) },
+    { key: 'qty', label: 'Quantity', align: 'right', render: (x) => perLine(x, (r) => (r.quantity === null ? cell(null) : <span>{inr(r.quantity)} {uomLabel(r.uom)}</span>)) },
+    { key: 'bag', hidden: true, label: 'Bag Weight', align: 'right', render: (x) => perLine(x, (r) => cell(r.bag_weight, { mono: true })) },
+    { key: 'rate', label: 'Final Rate', align: 'right', render: (x) => perLine(x, (r) => (r.rate === null ? cell(null) : <span>₹{rateText(r.rate)}</span>)) },
+    { key: 'terms', hidden: true, label: 'Payment Terms', render: (x) => cell(x.payment_term_id ? termName.get(x.payment_term_id) : null) },
+    { key: 'freight', hidden: true, label: 'Freight', render: (x) => cell(x.freight === 'included' ? 'Included' : 'Excluded') },
+    { key: 'delivery', hidden: true, label: 'Sizing/Delivery Address', render: (x) => cell(x.job_process_id ? jobName.get(x.job_process_id) : x.delivery_address, { clip: true }) },
+    { key: 'transporter', hidden: true, label: 'Transporter Name', render: (x) => cell(x.transporter_id ? transporterName.get(x.transporter_id) : null) },
+    { key: 'vehicle', hidden: true, label: 'Vehicle Number', render: (x) => cell(x.vehicle_no, { mono: true }) },
+    { key: 'driver', hidden: true, label: 'Driver Contact Phone', render: (x) => cell(x.driver_phone, { mono: true }) },
+    { key: 'to-supplier', hidden: true, label: 'Sent to Supplier', render: (x) => sentCell(x.supplier_notified_at) },
+    { key: 'to-buyer', hidden: true, label: 'Sent to Buyer', render: (x) => sentCell(x.buyer_notified_at) },
     {
       key: 'dnb', label: 'Dispatch and Billing', interactive: true,
       render: (x) => {
@@ -377,6 +376,7 @@ export default function SalesConfirmations() {
         groupOf={scGroup}
         columns={columns}
         rowKey={(x) => x.id}
+        viewKey="sc"
         onOpen={(x) => setDetails(x)}
         rowOpens={false}
         view={view}

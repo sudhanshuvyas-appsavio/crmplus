@@ -18,6 +18,7 @@ import { ErrorBanner, FormSection, FullWidth } from './FormKit'
 import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from './CountLines'
 import type { MirrorParty } from './board/mirrors'
 import { PartyLookup } from './PartyLookup'
+import { ComboInput } from './ComboInput'
 import { getPosition } from './GeoCapture'
 
 export type DealCompany = { id: string; name: string; is_home: boolean; is_active: boolean }
@@ -258,10 +259,7 @@ export function DealFormModal({
             <header className="fs-head"><div><h3>Select Item to Update:</h3></div></header>
             <div className="fs-body">
               <Field id="d-record" label="Search for a record">
-                <input id="d-record" list="d-record-list" placeholder="-- Search for a record --" value={recordText} onChange={(e) => chooseRecord(e.target.value)} style={{ maxWidth: 520 }} />
-                <datalist id="d-record-list">
-                  {editable.map((d) => (<option key={d.id} value={textOf(d)} />))}
-                </datalist>
+                <ComboInput id="d-record" placeholder="-- Search for a record --" value={recordText} onChange={chooseRecord} options={editable.map((d) => textOf(d))} style={{ maxWidth: 520 }} />
               </Field>
             </div>
           </section>
