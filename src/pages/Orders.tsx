@@ -250,11 +250,6 @@ export default function DispatchAndBilling() {
           <h1>Dispatch and Billing</h1>
           <p className="page-sub">One item per Sales Confirmation. Add the billing and transport, then record each dispatch.</p>
         </div>
-        {canManage && (
-          <button className="btn primary" type="button" onClick={() => setFormFor('new')}>
-            + New item
-          </button>
-        )}
       </header>
 
       <BoardTabs
@@ -290,6 +285,13 @@ export default function DispatchAndBilling() {
           <DownloadIcon />Export {shown.length === rows.length ? 'all' : `${shown.length} shown`}
         </button>
         <span className="push" />
+        <div className="board-cols-slot">
+          {canManage && (
+            <button className="btn primary" type="button" onClick={() => setFormFor('new')}>
+              + New item
+            </button>
+          )}
+        </div>
       </div>
 
       <Board

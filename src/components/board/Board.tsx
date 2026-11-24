@@ -4,6 +4,7 @@
  *  Confirmations, Dispatch and Billing) so they look and behave the same. */
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface BoardGroup {
   value: string
@@ -88,6 +89,12 @@ export function Board<T>({
 }) {
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => readCollapsed())
+  // the Columns button sits at the end of the page's toolbar row (an empty .board-cols-slot the page renders there)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [colsSlot, setColsSlot] = useState<Element | null>(null)
+  useEffect(() => {
+    setColsSlot(rootRef.current?.parentElement?.querySelector('.board-cols-slot') ?? null)
+  })
   useEffect(() => {
     try {
       localStorage.setItem('board.collapsed', JSON.stringify(collapsed))
@@ -163,8 +170,8 @@ export function Board<T>({
   }
 
   return (
-    <div className="board-groups">
-      {viewKey && (
+    <div className="board-groups" ref={rootRef}>
+      {viewKey && colsSlot && createPortal(
         <ColumnPicker
           columns={allColumns.map((c, i) => ({ key: c.key, label: c.label, on: isShown(c, i), locked: c.pinRight || i === 0 ? true : false }))}
           onToggle={(key) => {
@@ -172,7 +179,8 @@ export function Board<T>({
             chooseColumns(current.includes(key) ? current.filter((k) => k !== key) : [...current, key])
           }}
           onReset={() => chooseColumns(null)}
-        />
+        />,
+        colsSlot,
       )}
       {empty}
       {groups.map((g) => {

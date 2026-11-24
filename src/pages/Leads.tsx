@@ -423,11 +423,6 @@ export default function Leads() {
             Every inquiry, until it is qualified and becomes a deal. Qualifying needs its count and quantity.
           </p>
         </div>
-        {canManage && (
-          <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
-            + New lead
-          </button>
-        )}
       </header>
 
       {banner && (
@@ -504,6 +499,13 @@ export default function Leads() {
             <button className="btn danger sm" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Delete {selection.chosen.length} selected</button>
           )
         )}
+        <div className="board-cols-slot">
+          {canManage && (
+            <button className="btn primary" type="button" onClick={() => setEditing({ mode: 'create' })}>
+              + New lead
+            </button>
+          )}
+        </div>
       </div>
 
       <Board

@@ -114,9 +114,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) { background: var(--surface-3); }
-.btn.primary { background: var(--action); border-color: var(--action); color: var(--action-ink); }
-/* keep the brand colour on hover (the generic .btn:hover rule above would grey it out and make the text unreadable) */
-.btn.primary:hover:not(:disabled) { background: var(--action); border-color: var(--action); filter: brightness(1.1); }
+.btn.primary { background: var(--primary-bg); border-color: var(--primary-bg); color: var(--primary-ink); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: var(--primary-bg); border-color: var(--primary-bg); filter: brightness(0.93); }
 .btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
 .btn.ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--ink); }
 .btn.danger { border-color: var(--crit); color: var(--crit); }
@@ -1626,8 +1625,8 @@ input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); 
 .content:has(.board-groups) .page-head { align-items: center; margin-bottom: 10px; }
 .content:has(.board-groups) .page-head h1 { font-size: 18px; }
 .content:has(.board-groups) .page-sub { display: none; }
-.content:has(.board-groups) .board-tabs { margin-bottom: 10px; }
-.content:has(.board-groups) .board-tabs button { padding: 8px 12px; font-size: 13px; }
+.content .board-tabs { margin-bottom: 10px; }
+.content .board-tabs button { padding: 8px 12px; font-size: 13px; }
 .content:has(.board-groups) .board-toolbar { gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .content:has(.board-groups) .board-toolbar .btn,
 .content:has(.board-groups) .board-toolbar select,
@@ -1652,7 +1651,9 @@ input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); 
 .bgroup-table .who { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
 .bgroup-table .who .avatar-sm { width: 22px; height: 22px; font-size: 10px; }
 
-.board-cols { position: relative; display: flex; justify-content: flex-end; margin: -4px 0 -6px; }
+.board-cols-slot { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.board-cols-slot > .board-cols { order: -1; }
+.board-cols { position: relative; display: flex; }
 .board-cols > .btn { border-radius: 8px; }
 .board-cols-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: 250px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lift); padding: 8px; display: grid; gap: 6px; }
 .board-cols-list { display: grid; max-height: 320px; overflow: auto; }
@@ -1694,3 +1695,26 @@ input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); 
 .combo-menu li.on, .combo-menu li:hover { background: var(--surface-3); }
 .docs-name.plain { color: var(--ink); cursor: default; }
 .docs-name.plain:hover { text-decoration: none; }
+
+/* board pages: Columns and the New button close the toolbar row, side by side */
+.content:has(.board-groups) .board-toolbar .btn.primary { font-weight: 600; }
+.content:has(.board-groups) .board-cols > .btn { height: 34px; border-radius: 8px; font-size: 13px; padding: 0 12px; }
+/* the toolbar row never runs off the page: the search box gives way first, then the row wraps,
+   with Columns and the New button staying together on the right */
+.content:has(.board-groups) .board-toolbar { flex-wrap: nowrap; row-gap: 8px; }
+.content:has(.board-groups) .board-toolbar > * { flex-shrink: 0; }
+.content:has(.board-groups) .board-toolbar > .toolbar-search { flex: 0 1 280px; min-width: 120px; width: auto; }
+.content:has(.board-groups) .board-toolbar > select { flex: 0 1 150px; min-width: 118px; padding-left: 10px; padding-right: 6px; }
+@media (max-width: 1199px) { .content:has(.board-groups) .board-toolbar { flex-wrap: wrap; } }
+.content:has(.board-groups) .board-toolbar { gap: 6px; }
+.content:has(.board-groups) .board-toolbar .btn { padding-left: 12px; padding-right: 12px; }
+/* the Leads header stays the same on its Lead-Quotation tab */
+.content:has(.board-tabs) .page-sub { display: none; }
+.content:has(.board-tabs) .page-head h1 { font-size: 18px; }
+
+/* primary buttons (New lead, New deal, ...) as in Master Data: dark slate on light pages, near-white on dark ones */
+:root { --primary-bg: #0f172a; --primary-ink: #ffffff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) { --primary-bg: #f1f5f9; --primary-ink: #0f172a; } }
+:root[data-theme='dark'] { --primary-bg: #f1f5f9; --primary-ink: #0f172a; }
+.content:has(.board-groups) .board-toolbar .btn.primary { background: var(--primary-bg); border-color: var(--primary-bg); color: var(--primary-ink); }
+.content:has(.board-groups) .board-toolbar > .push { display: none; }

@@ -307,11 +307,6 @@ export default function Deals() {
           <h1>Deals</h1>
           <p className="page-sub">Every trade from enquiry to approval. Approved deals become Sales Confirmations.</p>
         </div>
-        {canCreate && (
-          <button className="btn primary" type="button" onClick={() => { setTab('table'); setFormFor('new') }}>
-            + New deal
-          </button>
-        )}
       </header>
 
       {banner && (
@@ -343,6 +338,13 @@ export default function Deals() {
         {canCreate && chosen > 0 && (
           <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
         )}
+        <div className="board-cols-slot">
+          {canCreate && (
+            <button className="btn primary" type="button" onClick={() => { setTab('table'); setFormFor('new') }}>
+              + New deal
+            </button>
+          )}
+        </div>
       </div>
 
       <Board

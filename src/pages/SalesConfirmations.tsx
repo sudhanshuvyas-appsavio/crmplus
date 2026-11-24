@@ -329,11 +329,6 @@ export default function SalesConfirmations() {
           <h1>Sales Confirmation</h1>
           <p className="page-sub">Confirmations sent to the supplier on the buyer’s behalf, then again with delivery details.</p>
         </div>
-        {canManage && (
-          <button className="btn primary" type="button" onClick={() => setFormFor('new')}>
-            + New confirmation
-          </button>
-        )}
       </header>
 
       {banner && (
@@ -368,6 +363,13 @@ export default function SalesConfirmations() {
         {canManage && chosen > 0 && (
           <button className="btn sm" type="button" onClick={() => setConfirmDelete(true)}>Delete {chosen} selected</button>
         )}
+        <div className="board-cols-slot">
+          {canManage && (
+            <button className="btn primary" type="button" onClick={() => setFormFor('new')}>
+              + New confirmation
+            </button>
+          )}
+        </div>
       </div>
 
       <Board
