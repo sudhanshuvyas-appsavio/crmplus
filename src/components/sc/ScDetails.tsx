@@ -76,6 +76,7 @@ export function ScDetails({
   const transporter = transporters.find((t) => t.id === sc.transporter_id)
   const job = jobs.find((j) => j.id === sc.job_process_id)
   const buyerUnit = companies.find((c) => c.id === (sc.buyer_company_id || buyer?.company_id))
+  const supplierUnit = companies.find((c) => c.id === (sc.supplier_company_id || supplier?.company_id))
   const termName = terms.find((t) => t.id === sc.payment_term_id)?.name ?? null
   const cancelled = sc.status === 'cancelled'
   const complete = sc.status === 'confirmed' && problems.length === 0
@@ -122,7 +123,12 @@ export function ScDetails({
   ]
 
   return (
-    <Drawer title={sc.sc_no} onClose={onClose}>
+    <Drawer title={sc.sc_no} onClose={onClose} footer={
+        <div className="drawer-actions">
+          <button className="btn" type="button" disabled={!!editBlock} title={editBlock ?? undefined} onClick={() => onEdit(sc)}>Edit</button>
+          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
+        </div>
+      }>
       <p className="small">
         <StatusPill label={stage.label} tone={stage.tone} />
         <span className="muted"> · created {formatDateTime(sc.confirmed_at)}{dealNo ? <> · from deal <span className="mono">{dealNo}</span></> : null}</span>
@@ -143,24 +149,15 @@ export function ScDetails({
       <h3 className="section-title">Counts</h3>
       <CountLinesView lines={lines} counts={counts} buyer={buyerTerms} supplier={supplierTerms} />
 
-      {buyer && (
-        <div className="lookup" style={{ marginBottom: 14 }}>
-          <h4>Buyer: {buyer.name}</h4>
-          <dl className="kv">
-            <dt>Office address</dt><dd>{buyer.address || '—'}</dd>
-            <dt>Office phone</dt><dd>{buyer.office_phone ? `+91 ${buyer.office_phone}` : '—'}</dd>
-            <dt>GST</dt><dd className="mono">{buyer.gst || '—'}</dd>
-            <dt>Business unit phone</dt><dd>{buyerUnit?.phone_1 || buyerUnit?.mobile ? `+91 ${buyerUnit?.phone_1 || buyerUnit?.mobile}` : '—'}</dd>
-          </dl>
+      {(buyer || supplier) && (
+        <div className="lookup-grid">
+          {buyer && <ScParty title="Buyer" p={buyer} unit={buyerUnit} />}
+          {supplier && <ScParty title="Supplier" p={supplier} unit={supplierUnit} />}
         </div>
       )}
 
       {problems.length > 0 && !cancelled && <p className="field-hint">Still needed to send: {problems.join(', ')}.</p>}
 
-      <div className="drawer-actions">
-        <button className="btn" type="button" disabled={!!editBlock} title={editBlock ?? undefined} onClick={() => onEdit(sc)}>Edit</button>
-        <button className="btn ghost" type="button" onClick={onClose}>Close</button>
-      </div>
 
       {!cancelled && (
         <div className="notice">
@@ -198,5 +195,21 @@ export function ScDetails({
       <ScDocuments scId={sc.id} kind="buyer" canEdit={canManage && !cancelled && items.length === 0} />
       <NotificationLog sc={sc} canManage={canManage} />
     </Drawer>
+  )
+}
+
+/** A party's contact details, as monday's Sales Confirmation board mirrors them from Buyers & Suppliers. */
+function ScParty({ title, p, unit }: { title: string; p: Party; unit: { phone_1?: string | null; mobile?: string | null } | undefined }) {
+  const unitPhone = unit?.phone_1 || unit?.mobile
+  return (
+    <div className="lookup">
+      <h4>{title}: {p.name}</h4>
+      <dl className="kv">
+        <dt>Office address</dt><dd>{p.address || '—'}</dd>
+        <dt>Office phone</dt><dd>{p.office_phone ? `+91 ${p.office_phone}` : '—'}</dd>
+        <dt>GST</dt><dd className="mono">{p.gst || '—'}</dd>
+        <dt>Business unit phone</dt><dd>{unitPhone ? (unitPhone.startsWith('+') ? unitPhone : `+91 ${unitPhone}`) : '—'}</dd>
+      </dl>
+    </div>
   )
 }

@@ -61,10 +61,10 @@ export function SendPanel({
       <p className="muted small">The supplier and the buyer are messaged separately.</p>
       <div className="drawer-actions">
         <button className={`btn${target === 'supplier' ? ' primary' : ''}`} type="button" onClick={() => setTarget('supplier')}>
-          SMS Supplier{sc.supplier_notified_at ? ' (sent)' : ''}
+          Send to supplier{sc.supplier_notified_at ? ' (sent)' : ''}
         </button>
         <button className={`btn${target === 'buyer' ? ' primary' : ''}`} type="button" onClick={() => setTarget('buyer')}>
-          SMS Buyer{sc.buyer_notified_at ? ' (sent)' : ''}
+          Send to buyer{sc.buyer_notified_at ? ' (sent)' : ''}
         </button>
       </div>
 
@@ -83,7 +83,7 @@ export function SendPanel({
           <pre className="small" style={{ whiteSpace: 'pre-wrap', margin: '10px 0' }}>{msg.body}</pre>
           {err && <div className="alert">{err}</div>}
           <button className="btn primary" type="button" onClick={() => void send()} disabled={busy || (!email && !whatsapp)}>
-            {busy ? 'Recording…' : `Send to ${target}`}
+            {busy ? 'Recording…' : 'Open the message'}
           </button>
         </div>
       )}

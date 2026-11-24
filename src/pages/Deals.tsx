@@ -13,7 +13,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { CountRow, Deal, DealChange, PaymentTerm } from '../api/types'
+import { COMMISSION_TYPES, type CountRow, type Deal, type DealChange, type PaymentTerm } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer } from '../components/Drawer'
@@ -529,7 +529,12 @@ function DealDetails({
   ]
 
   return (
-    <Drawer title={deal.deal_no} onClose={onClose}>
+    <Drawer title={deal.deal_no} onClose={onClose} footer={
+        <div className="drawer-actions">
+          <button className="btn" type="button" disabled={!canEdit || approved} title={!canEdit ? 'You need the “Edit deals” permission.' : approved ? 'An Approved deal is locked.' : undefined} onClick={() => onEdit(deal)}>Edit</button>
+          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
+        </div>
+      }>
       <p className="small">
         <StatusPill label={status.label} tone={status.tone} />
         <span className="muted"> · created {formatDateTime(deal.created_at)}{deal.status_changed_at ? ` · status changed ${formatDateTime(deal.status_changed_at)}` : ''}</span>
@@ -560,10 +565,6 @@ function DealDetails({
         </div>
       )}
 
-      <div className="drawer-actions">
-        <button className="btn" type="button" disabled={!canEdit || approved} title={!canEdit ? 'You need the “Edit deals” permission.' : approved ? 'An Approved deal is locked.' : undefined} onClick={() => onEdit(deal)}>Edit</button>
-        <button className="btn ghost" type="button" onClick={onClose}>Close</button>
-      </div>
 
       {approved && !deal.sales_confirmation_id && (
         <div className="notice">
@@ -617,7 +618,7 @@ function PartyLookup({ title, p, unit }: { title: string; p: Party; unit?: strin
       <dl className="kv">
         <dt>GST</dt><dd className="mono">{p.gst || '—'}</dd>
         <dt>PAN</dt><dd className="mono">{p.pan || '—'}</dd>
-        <dt>Contact person 1</dt><dd>{p.contact_person || '—'}{p.mobile ? ` · +91 ${p.mobile}` : ''}</dd>
+        <dt>Contact person 1</dt><dd>{[p.contact_person, p.mobile ? `+91 ${p.mobile}` : ''].filter(Boolean).join(' · ') || '—'}</dd>
         <dt>Office address</dt><dd>{p.address || '—'}</dd>
         <dt>Mill / delivery address</dt><dd>{p.mill_address || '—'}</dd>
         <dt>Business unit</dt><dd>{unit || '—'}</dd>
@@ -655,12 +656,16 @@ function changeValue(field: string, v: string | null): string {
     const [num, basis] = v.split(' ')
     return commTerms(basis ?? null, num ? Number(num) : null)
   }
+  if (field === 'commission_type') return COMMISSION_TYPES.find((c) => c.value === v)?.label ?? v.replace(/_/g, ' ')
   return v
 }
+
+const HISTORY_SHOWN = 8
 
 function DealHistory({ dealId, refreshKey }: { dealId: string; refreshKey: string }) {
   const names = useProfileNames()
   const [rows, setRows] = useState<DealChange[] | null>(null)
+  const [all, setAll] = useState(false)
   useEffect(() => {
     let alive = true
     void supabase.from('deal_changes').select('*').eq('deal_id', dealId).order('changed_at', { ascending: false })
@@ -676,7 +681,7 @@ function DealHistory({ dealId, refreshKey }: { dealId: string; refreshKey: strin
         <p className="muted small">No changes recorded yet.</p>
       ) : (
         <ul className="history">
-          {rows.map((r) => (
+          {(all ? rows : rows.slice(0, HISTORY_SHOWN)).map((r) => (
             <li key={r.id}>
               <strong>{CHANGE_LABEL[r.field] ?? r.field}</strong>: {changeValue(r.field, r.old_value)} → {changeValue(r.field, r.new_value)}
               <div className="muted small">
@@ -686,6 +691,11 @@ function DealHistory({ dealId, refreshKey }: { dealId: string; refreshKey: strin
             </li>
           ))}
         </ul>
+      )}
+      {rows && rows.length > HISTORY_SHOWN && (
+        <button className="btn ghost sm" type="button" onClick={() => setAll(!all)}>
+          {all ? 'Show the latest only' : `Show all ${rows.length} changes`}
+        </button>
       )}
     </>
   )

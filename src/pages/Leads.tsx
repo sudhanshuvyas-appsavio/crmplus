@@ -724,7 +724,16 @@ function LeadDetails({
   ]
 
   return (
-    <Drawer title={`${lead.lead_no} · ${lead.party_name}`} onClose={onClose}>
+    <Drawer title={`${lead.lead_no} · ${lead.party_name}`} onClose={onClose} footer={
+        <div className="drawer-actions">
+          <button className="btn" type="button" disabled={locked} title={locked ? 'This lead has been converted to a deal, so it is read-only.' : undefined} onClick={() => onEdit(lead)}>Edit</button>
+          {canQualify && open && <button className="btn" type="button" onClick={() => onQualify(lead)}>Qualify…</button>}
+          <button className="btn" type="button" onClick={() => onQuote(lead)}>Quotation</button>
+          {canConvert && <button className="btn" type="button" onClick={() => { setConvertError(null); setConvertOpen(true) }}>Convert to deal…</button>}
+          {lead.converted_deal_id && can('deal.read') && <button className="btn" type="button" onClick={() => navigate(`/deals?open=${lead.converted_deal_id}`)}>Go to deal</button>}
+          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
+        </div>
+      }>
       <p className="small">
         <StatusPill label={statusLabel(lead.status)} tone={LEAD_GROUPS.find((g) => g.value === lead.status)?.tone ?? 'grey'} />
         {qualified && lead.qualified_at && <span className="muted"> · qualified {formatDateTime(lead.qualified_at)}</span>}
@@ -738,14 +747,6 @@ function LeadDetails({
           <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>
         ))}
       </dl>
-      <div className="drawer-actions">
-        <button className="btn" type="button" disabled={locked} title={locked ? 'This lead has been converted to a deal, so it is read-only.' : undefined} onClick={() => onEdit(lead)}>Edit</button>
-        {canQualify && open && <button className="btn" type="button" onClick={() => onQualify(lead)}>Qualify…</button>}
-        <button className="btn" type="button" onClick={() => onQuote(lead)}>Quotation</button>
-        {canConvert && <button className="btn" type="button" onClick={() => { setConvertError(null); setConvertOpen(true) }}>Convert to deal…</button>}
-        {lead.converted_deal_id && can('deal.read') && <button className="btn" type="button" onClick={() => navigate(`/deals?open=${lead.converted_deal_id}`)}>Go to deal</button>}
-        <button className="btn ghost" type="button" onClick={onClose}>Close</button>
-      </div>
       <LeadDocuments leadId={lead.id} canEdit={!locked} />
       {!locked && <DiscussionPanel lead={lead} onLogged={reloadLead} />}
       <ActivityPanel entityType="lead" entityId={lead.id} canWrite={!locked} title="Discussion history, notes and tasks" refreshKey={historyKey} />

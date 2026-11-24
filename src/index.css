@@ -714,6 +714,10 @@ tr.clickable { cursor: pointer; }
 .drawer-head .btn { margin-left: auto; }
 .drawer-body { flex: 1; overflow: auto; padding: 18px 22px calc(28px + env(safe-area-inset-bottom, 0px)); }
 .drawer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
+/* record actions pinned under the details, so they never sit in the middle of the panel */
+.drawer-foot { padding: 12px 22px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); background: var(--surface); }
+.drawer-foot .drawer-actions { margin: 0; padding: 0; border: 0; }
+.drawer-foot .drawer-actions .btn.ghost:last-child { margin-left: auto; }
 .password-reveal {
   font-size: 16px;
   letter-spacing: 0.04em;
@@ -751,6 +755,10 @@ tr.clickable { cursor: pointer; }
 .timeline li:last-child { border-bottom: 0; }
 .timeline time { color: var(--ink-3); }
 .timeline .chip { margin-left: 8px; }
+/* the Updates box on a record: same controls as a form field, entries as a plain list */
+.activity-entry input, .activity-entry textarea { border: 1px solid var(--border-strong); background: var(--surface-2); border-radius: 6px; padding: 9px 11px; width: 100%; outline: none; }
+.activity-entry input:focus, .activity-entry textarea:focus { border-color: var(--brand); background: var(--surface); }
+.activity-list .chip + .chip { margin-left: 6px; }
 @media (max-width: 620px) {
   .timeline li { grid-template-columns: 1fr; gap: 4px; }
 }

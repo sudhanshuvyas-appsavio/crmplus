@@ -9,10 +9,13 @@ import { Drawer } from './Drawer'
 import { StatusPill } from './board/Board'
 import { OrderExecution } from './OrderExecution'
 import { OrderDocuments } from './OrderDocuments'
-import { formatDateTime } from '../lib/format'
+import { formatDate, formatDateTime } from '../lib/format'
 import { commTerms, dispatchStatus, inr, rateText, saleTypeLabel, transportTypeLabel, uomLabel } from '../lib/deals'
 
 type Named = { id: string; name: string }
+
+/** ₹ amount, or a plain dash when there is none. */
+const money = (n: number | null | undefined, digits: number) => (n === null || n === undefined ? '—' : `₹${inr(n, digits)}`)
 
 export function OrderDetails({
   order, canManage, scNo, names, count, jobs, transporters, people, onClose, onEdit, onRefresh,
@@ -45,7 +48,7 @@ export function OrderDetails({
     ['Counts', count?.display_name ?? null],
     ['Quantity', `${inr(order.quantity)} ${uomLabel(order.uom)}${order.bag_weight ? ` · ${inr(order.bag_weight)} kg each` : ''}`],
     ['Final Rate', `₹${rateText(order.final_rate)} per kg`],
-    ['Commission', `Buyer ${commTerms(order.buyer_comm_basis, order.buyer_comm_value)} · Supplier ${commTerms(order.supplier_comm_basis, order.supplier_comm_value)}`],
+    ['Commission', [order.buyer_comm_basis ? `Buyer ${commTerms(order.buyer_comm_basis, order.buyer_comm_value)}` : '', order.supplier_comm_basis ? `Supplier ${commTerms(order.supplier_comm_basis, order.supplier_comm_value)}` : ''].filter(Boolean).join(' · ') || null],
     ['Sale Type', saleTypeLabel(order.sale_type)],
     ['Invoice No.', order.invoice_no],
     ['Invoice Date', order.invoice_date],
@@ -68,11 +71,16 @@ export function OrderDetails({
   ], [order, names, count, job, transporter, person])
 
   return (
-    <Drawer title={order.order_no} onClose={onClose}>
+    <Drawer title={order.order_no} onClose={onClose} footer={
+        <div className="drawer-actions">
+          <button className="btn" type="button" disabled={!!editBlock} title={editBlock ?? undefined} onClick={() => onEdit(order)}>Edit</button>
+          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
+        </div>
+      }>
       <p className="small">
         <StatusPill label={st.label} tone={st.tone} />
         <span className="muted">
-          {' '}· created {order.order_date} · from <Link className="mono" to={`/sales-confirmations?open=${order.sales_confirmation_id}`}>{scNo || 'its Sales Confirmation'}</Link>
+          {' '}· created {formatDate(order.order_date)} · from <Link className="mono" to={`/sales-confirmations?open=${order.sales_confirmation_id}`}>{scNo || 'its Sales Confirmation'}</Link>
           {order.execution_opened_at ? ` · dispatch started ${formatDateTime(order.execution_opened_at)}` : ''}
         </span>
       </p>
@@ -87,16 +95,12 @@ export function OrderDetails({
       </dl>
       <div className="figures">
         <div><span>Total weight</span><strong className="mono">{order.total_weight === null ? '—' : `${inr(order.total_weight)} kg`}</strong></div>
-        <div><span>Value</span><strong className="mono">₹{inr(order.order_value, 0)}</strong></div>
-        <div><span>Buyer commission</span><strong className="mono">₹{inr(order.buyer_commission, 0)}</strong></div>
-        <div><span>Supplier commission</span><strong className="mono">₹{inr(order.supplier_commission, 0)}</strong></div>
-        <div><span>Total amount</span><strong className="mono">₹{inr(order.total_amount, 2)}</strong></div>
+        <div><span>Value</span><strong className="mono">{money(order.order_value, 0)}</strong></div>
+        <div><span>Buyer commission</span><strong className="mono">{money(order.buyer_commission, 0)}</strong></div>
+        <div><span>Supplier commission</span><strong className="mono">{money(order.supplier_commission, 0)}</strong></div>
+        <div><span>Total amount</span><strong className="mono">{money(order.total_amount, 2)}</strong></div>
       </div>
 
-      <div className="drawer-actions">
-        <button className="btn" type="button" disabled={!!editBlock} title={editBlock ?? undefined} onClick={() => onEdit(order)}>Edit</button>
-        <button className="btn ghost" type="button" onClick={onClose}>Close</button>
-      </div>
       {!started && !cancelled && <p className="muted small">Start dispatch (row Actions) to record dispatch entries, transport, job processes and payments.</p>}
 
       <OrderDocuments orderId={order.id} canEdit={canChange} />

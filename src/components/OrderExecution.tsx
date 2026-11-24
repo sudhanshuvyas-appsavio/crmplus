@@ -385,7 +385,7 @@ function PaymentForm({ onAdd }: { onAdd: (r: Record<string, unknown>) => Promise
       <Field id="x-pd" label="Date" required><input id="x-pd" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       <Field id="x-pm" label="Mode"><input id="x-pm" placeholder="NEFT, cheque, cash…" value={mode} onChange={(e) => setMode(e.target.value)} /></Field>
       <Field id="x-pr" label="Reference"><input id="x-pr" value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
-      <button className="btn" type="button" disabled={!date || a === null || a <= 0} onClick={() => void onAdd({ kind, amount: a, paid_on: date, mode: mode.trim() || null, reference: ref.trim() || null }).then((d) => { if (d) { setAmt(''); setMode(''); setRef('') } })}>Add payment entry</button>
+      <button className="btn" type="button" style={{ alignSelf: 'end', justifySelf: 'start' }} disabled={!date || a === null || a <= 0} onClick={() => void onAdd({ kind, amount: a, paid_on: date, mode: mode.trim() || null, reference: ref.trim() || null }).then((d) => { if (d) { setAmt(''); setMode(''); setRef('') } })}>Add payment entry</button>
     </div>
   )
 }

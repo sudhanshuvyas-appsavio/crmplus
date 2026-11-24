@@ -487,7 +487,7 @@ export function ActivityPanel({
   return (
     <Section title={title}>
       {canWrite && (
-        <div style={{ marginBottom: 12 }}>
+        <div className="activity-entry" style={{ marginBottom: 12 }}>
           <div className="form-grid">
             <select aria-label="Entry type" value={kind} onChange={(e) => setKind(e.target.value as ActivityKind)}>
               {kinds.map((k) => (
@@ -513,7 +513,7 @@ export function ActivityPanel({
       {msg && <p className="field-warn">{msg}</p>}
       {rows && rows.length === 0 && <p className="muted small">Nothing recorded yet.</p>}
       {rows && rows.length > 0 && (
-        <ul className="timeline" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        <ul className="activity-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {rows.map((a) => {
             const open = (a.kind === 'task' || a.kind === 'reminder') && !a.is_done
             const overdue = open && a.due_date !== null && a.due_date < today
