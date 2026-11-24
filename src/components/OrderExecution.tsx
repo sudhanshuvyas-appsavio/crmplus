@@ -264,7 +264,7 @@ function TransportForm({ transporters, onAdd }: { transporters: Transporter[]; o
       <Field id="x-tv" label="Vehicle no."><input id="x-tv" value={veh} onChange={(e) => setVeh(e.target.value)} /></Field>
       <Field id="x-td" label="Driver"><input id="x-td" value={drv} onChange={(e) => setDrv(e.target.value)} /></Field>
       <Field id="x-tf" label="Freight amount"><input id="x-tf" className="mono" inputMode="decimal" value={fr} onChange={(e) => setFr(e.target.value)} /></Field>
-      <button className="btn" type="button" disabled={!ok} onClick={() => void onAdd({ kind, transporter_id: tid || null, vehicle_no: veh.trim() || null, driver_name: drv.trim() || null, freight_amount: numOrNull(fr) }).then((d) => { if (d) { setVeh(''); setDrv(''); setFr(''); setTid('') } })}>Add transportation</button>
+      <button className="btn" type="button" style={{ alignSelf: 'end', justifySelf: 'start' }} disabled={!ok} onClick={() => void onAdd({ kind, transporter_id: tid || null, vehicle_no: veh.trim() || null, driver_name: drv.trim() || null, freight_amount: numOrNull(fr) }).then((d) => { if (d) { setVeh(''); setDrv(''); setFr(''); setTid('') } })}>Add transportation</button>
     </div>
   )
 }
@@ -284,7 +284,7 @@ function JobForm({ jobs, onAdd }: { jobs: JobProcess[]; onAdd: (r: Record<string
       </Field>
       <Field id="x-jq" label="Quantity"><input id="x-jq" className="mono" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
       <Field id="x-ji" label="Instructions"><input id="x-ji" value={ins} onChange={(e) => setIns(e.target.value)} /></Field>
-      <button className="btn" type="button" disabled={!jid} onClick={() => void onAdd({ job_process_id: jid, quantity: numOrNull(qty), instructions: ins.trim() || null }).then((d) => { if (d) { setJid(''); setQty(''); setIns('') } })}>Add job process</button>
+      <button className="btn" type="button" style={{ alignSelf: 'end', justifySelf: 'start' }} disabled={!jid} onClick={() => void onAdd({ job_process_id: jid, quantity: numOrNull(qty), instructions: ins.trim() || null }).then((d) => { if (d) { setJid(''); setQty(''); setIns('') } })}>Add job process</button>
     </div>
   )
 }

@@ -521,7 +521,7 @@ export function ActivityPanel({
             const open = (a.kind === 'task' || a.kind === 'reminder') && !a.is_done
             const overdue = open && a.due_date !== null && a.due_date < today
             return (
-              <li key={a.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line, #e5e5e5)' }}>
+              <li key={a.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
                 <span className="chip">{KIND_LABEL[a.kind]}</span>
                 {a.due_date && (
                   <span className={`chip ${a.is_done ? 'good' : overdue ? 'bad' : 'warn'}`}>

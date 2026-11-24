@@ -49,7 +49,7 @@ export function OrderDetails({
     ['Counts', count?.display_name ?? null],
     ['Quantity', `${inr(order.quantity)} ${uomLabel(order.uom)}${order.bag_weight ? ` · ${inr(order.bag_weight)} kg each` : ''}`],
     ['Final Rate', `₹${rateText(order.final_rate)} per kg`],
-    ['Commission', [order.buyer_comm_basis ? `Buyer ${commTerms(order.buyer_comm_basis, order.buyer_comm_value)}` : '', order.supplier_comm_basis ? `Supplier ${commTerms(order.supplier_comm_basis, order.supplier_comm_value)}` : ''].filter(Boolean).join(' · ') || null],
+    ['Commission', [order.buyer_comm_basis && order.buyer_comm_value !== null ? `Buyer ${commTerms(order.buyer_comm_basis, order.buyer_comm_value)}` : '', order.supplier_comm_basis && order.supplier_comm_value !== null ? `Supplier ${commTerms(order.supplier_comm_basis, order.supplier_comm_value)}` : ''].filter(Boolean).join(' · ') || null],
     ['Sale Type', saleTypeLabel(order.sale_type)],
     ['Invoice No.', order.invoice_no],
     ['Invoice Date', order.invoice_date],

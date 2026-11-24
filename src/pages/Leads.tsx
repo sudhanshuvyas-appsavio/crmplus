@@ -744,7 +744,7 @@ function LeadDetails({
     <Drawer title={`${lead.lead_no} · ${lead.party_name}`} onClose={onClose} footer={
         <div className="drawer-actions">
           <button className="btn" type="button" disabled={locked} title={locked ? 'This lead has been converted to a deal, so it is read-only.' : undefined} onClick={() => onEdit(lead)}>Edit</button>
-          {canQualify && open && <button className="btn" type="button" onClick={() => onQualify(lead)}>Qualify…</button>}
+          {canQualify && open && <button className="btn" type="button" onClick={() => onQualify(lead)}>Qualify</button>}
           <button className="btn" type="button" onClick={() => onQuote(lead)}>Quotation</button>
           {canConvert && <button className="btn" type="button" onClick={() => { setConvertError(null); setConvertOpen(true) }}>Convert to deal…</button>}
           {lead.converted_deal_id && can('deal.read') && <button className="btn" type="button" onClick={() => navigate(`/deals?open=${lead.converted_deal_id}`)}>Go to deal</button>}
@@ -821,25 +821,45 @@ function DiscussionPanel({ lead, onLogged }: { lead: Lead; onLogged: () => Promi
   }
 
   return (
-    <section className="card pad" style={{ marginTop: 16 }}>
-      <h3 className="card-title" style={{ marginTop: 0 }}>Log a discussion</h3>
-      <p className="muted small">
-        Saving moves a New lead to Contacted. Fill in quantity, rate or timeline only if they changed.
-      </p>
-      <textarea aria-label="What was discussed" rows={3} placeholder="What was discussed" value={note} onChange={(e) => setNote(e.target.value)} />
-      <div className="form-grid" style={{ marginTop: 8 }}>
-        <input aria-label="New quantity" inputMode="decimal" className="mono" placeholder={`Quantity (now ${lead.quantity ?? '—'})`} value={qty} onChange={(e) => setQty(e.target.value)} />
-        <input aria-label="New rate" inputMode="decimal" className="mono" placeholder={`Rate (now ${lead.expected_rate ?? '—'})`} value={rate} onChange={(e) => setRate(e.target.value)} />
-        <input aria-label="New timeline" placeholder={`Timeline (now ${lead.timeline || '—'})`} value={timeline} onChange={(e) => setTimeline(e.target.value)} />
+    <section className="fs-card" style={{ marginTop: 16 }}>
+      <header className="fs-head"><div><h3>Log a discussion</h3></div></header>
+      <div className="fs-body">
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Saving moves a New lead to Contacted. Fill in quantity, rate or timeline only if they changed.
+        </p>
+        <div className="field">
+          <label htmlFor="ld-note">What was discussed</label>
+          <textarea id="ld-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+          <div className="field">
+            <label htmlFor="ld-qty">New quantity</label>
+            <input id="ld-qty" inputMode="decimal" className="mono" placeholder={`now ${lead.quantity ?? '—'}`} value={qty} onChange={(e) => setQty(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="ld-rate">New rate</label>
+            <input id="ld-rate" inputMode="decimal" className="mono" placeholder={`now ${lead.expected_rate ?? '—'}`} value={rate} onChange={(e) => setRate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="ld-timeline">New timeline</label>
+            <input id="ld-timeline" placeholder={`now ${lead.timeline || '—'}`} value={timeline} onChange={(e) => setTimeline(e.target.value)} />
+          </div>
+        </div>
+        <div className="form-grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
+          <div className="field">
+            <label htmlFor="ld-task">Follow-up task (optional)</label>
+            <input id="ld-task" value={task} onChange={(e) => setTask(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="ld-due">Due date</label>
+            <input id="ld-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+          </div>
+        </div>
+        <button className="btn primary" type="button" disabled={busy} onClick={() => void log()}>
+          {busy ? 'Saving…' : 'Save discussion'}
+        </button>
+        {msg && <p className="field-warn">{msg}</p>}
       </div>
-      <div className="form-grid" style={{ marginTop: 8 }}>
-        <input aria-label="Follow-up task" placeholder="Follow-up task (optional)" value={task} onChange={(e) => setTask(e.target.value)} />
-        <input aria-label="Task due date" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
-      </div>
-      <button className="btn sm" type="button" style={{ marginTop: 8 }} disabled={busy} onClick={() => void log()}>
-        {busy ? 'Saving…' : 'Save discussion'}
-      </button>
-      {msg && <p className="field-warn">{msg}</p>}
     </section>
   )
 }
