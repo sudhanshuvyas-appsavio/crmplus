@@ -94,9 +94,9 @@ export function OrderDetails({
       <div className="figures">
         <div><span>Total weight</span><strong className="mono">{order.total_weight === null ? '—' : `${inr(order.total_weight)} kg`}</strong></div>
         <div><span>Value</span><strong className="mono">{money(order.order_value, 0)}</strong></div>
-        <div><span>Buyer commission</span><strong className="mono">{money(order.buyer_commission, 0)}</strong></div>
-        <div><span>Supplier commission</span><strong className="mono">{money(order.supplier_commission, 0)}</strong></div>
-        <div><span>Total amount</span><strong className="mono">{money(order.total_amount, 2)}</strong></div>
+        {order.buyer_commission !== null && <div><span>Buyer commission</span><strong className="mono">{money(order.buyer_commission, 0)}</strong></div>}
+        {order.supplier_commission !== null && <div><span>Supplier commission</span><strong className="mono">{money(order.supplier_commission, 0)}</strong></div>}
+        {order.total_amount !== null && <div><span>Total amount</span><strong className="mono">{money(order.total_amount, 2)}</strong></div>}
       </div>
 
       {!started && !cancelled && <p className="muted small">Start dispatch (row Actions) to record dispatch entries, transport, job processes and payments.</p>}

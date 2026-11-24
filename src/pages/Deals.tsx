@@ -2,7 +2,7 @@
  *  (view, edit, status moves, delete), a read-only details drawer, and a pop-up form to create or
  *  update a deal.
  *
- *  Pipeline: New Deal -> Manager Approval -> Approved | Reconsider | Closed Lost.
+ *  Pipeline: Draft -> Manager Approval -> Approved | Reconsider | Closed Lost.
  *  A deal is one trade between a buyer and a supplier for a count. It has a
  *  single final rate per kg; each side pays its own commission (Percentage,
  *  per KG or per BAG), copied from the party master and editable here. Weight,
@@ -26,6 +26,7 @@ import { Avatar, Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, ty
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
 import { BoardTabs } from '../components/board/BoardTabs'
 import { DealDocuments } from '../components/DealDocuments'
+import { PartyLookup } from '../components/PartyLookup'
 import { CountLinesView, toLineForm, type LineForm } from '../components/CountLines'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
@@ -63,7 +64,7 @@ const STATUS_MESSAGE: Record<string, string> = {
   approved: 'approved; its Sales Confirmation was created',
   reconsider: 'sent back to Reconsider',
   closed_lost: 'closed as lost',
-  new_deal: 'moved back to New Deal',
+  new_deal: 'moved back to Draft',
 }
 
 export default function Deals() {
@@ -187,7 +188,7 @@ export default function Deals() {
     const { data, error } = await supabase.from('crm_deals').delete().eq('id', deleting.id).select('id')
     setDeleteBusy(false)
     if (error || !data || data.length === 0) {
-      setDeleteError(error ? errMessage(error, 'Could not delete this deal') : 'Only a New Deal without a Sales Confirmation can be deleted.')
+      setDeleteError(error ? errMessage(error, 'Could not delete this deal') : 'Only a Draft deal without a Sales Confirmation can be deleted.')
       return
     }
     const paths = ((docs.data ?? []) as { storage_path: string }[]).map((r) => r.storage_path)
@@ -251,7 +252,7 @@ export default function Deals() {
       if (next.includes('manager_approval') && x.status !== 'approved') items.push(statusAction(x, 'manager_approval', 'Send for approval'))
       if (next.includes('approved')) items.push(statusAction(x, 'approved', 'Approve'))
       if (next.includes('reconsider')) items.push(statusAction(x, 'reconsider', 'Send back to Reconsider'))
-      if (x.status === 'closed_lost') items.push(statusAction(x, 'new_deal', 'Reopen as New Deal'))
+      if (x.status === 'closed_lost') items.push(statusAction(x, 'new_deal', 'Reopen as Draft'))
       if (x.status === 'approved' && next.includes('manager_approval')) items.push(statusAction(x, 'manager_approval', 'Move back to Manager Approval'))
       if (next.includes('closed_lost')) items.push(statusAction(x, 'closed_lost', 'Close as lost'))
     }
@@ -260,7 +261,7 @@ export default function Deals() {
       label: 'Delete',
       tone: 'danger',
       onSelect: () => { setDeleteError(null); setDeleting(x) },
-      disabledReason: !canCreate ? 'You need the "Create deals" permission.' : x.sales_confirmation_id ? 'This deal has a Sales Confirmation, so it cannot be deleted.' : x.status !== 'new_deal' ? 'Only a New Deal can be deleted.' : null,
+      disabledReason: !canCreate ? 'You need the "Create deals" permission.' : x.sales_confirmation_id ? 'This deal has a Sales Confirmation, so it cannot be deleted.' : x.status !== 'new_deal' ? 'Only a Draft deal can be deleted.' : null,
     })
     return items
   }
@@ -422,7 +423,7 @@ export default function Deals() {
 
       {confirmDelete && (
         <ConfirmDialog title={`Delete ${chosen} selected deal${chosen === 1 ? '' : 's'}?`} busy={busy} onConfirm={() => void deleteSelected()} onClose={() => setConfirmDelete(false)}>
-          Only New Deals without a Sales Confirmation can be deleted; the others are skipped and reported.
+          Only Draft deals without a Sales Confirmation can be deleted; the others are skipped and reported.
         </ConfirmDialog>
       )}
     </>
@@ -605,25 +606,6 @@ function DealDetails({
     </Drawer>
   )
 }
-
-/** Read-only details from the party master (monday's mirror columns on the Deals board). */
-function PartyLookup({ title, p, unit }: { title: string; p: Party; unit?: string }) {
-  return (
-    <div className="lookup">
-      <h4>{title}: {p.name}</h4>
-      <dl className="kv">
-        <dt>GST</dt><dd className="mono">{p.gst || '—'}</dd>
-        <dt>PAN</dt><dd className="mono">{p.pan || '—'}</dd>
-        <dt>Contact person 1</dt><dd>{[p.contact_person, p.mobile ? `+91 ${p.mobile}` : ''].filter(Boolean).join(' · ') || '—'}</dd>
-        <dt>Office address</dt><dd>{p.address || '—'}</dd>
-        <dt>Mill / delivery address</dt><dd>{p.mill_address || '—'}</dd>
-        <dt>Business unit</dt><dd>{unit || '—'}</dd>
-        <dt>Commission</dt><dd>{commTerms(p.commission_basis ?? null, p.commission_value ?? null)}</dd>
-      </dl>
-    </div>
-  )
-}
-
 
 const CHANGE_LABEL: Record<string, string> = {
   final_rate: 'Final rate',

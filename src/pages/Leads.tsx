@@ -628,7 +628,7 @@ export default function Leads() {
         <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center', zIndex: 1000 }}>
           <div className="card pad" role="dialog" aria-modal="true" aria-label="Create a deal" style={{ maxWidth: 420, width: 'calc(100% - 32px)' }}>
             <h3 className="section-title" style={{ marginTop: 0 }}>Deal created</h3>
-            <p>{dealPrompt.lead_no} is now Qualified, and its deal was created as a New Deal. Add the supplier and the final rate there.</p>
+            <p>{dealPrompt.lead_no} is now Qualified, and its deal was created as a Draft. Add the supplier and the final rate there.</p>
             <div className="drawer-actions">
               <button className="btn primary" type="button" onClick={() => void createDeal()} disabled={dealBusy}>
                 {dealBusy ? 'Opening…' : 'Open the deal'}

@@ -4,7 +4,7 @@
  *  database refuses all of it until the order is open, and refuses a dispatch
  *  that would take the total above the order quantity. */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import type { CloseStatus, CommissionInvoice, JobProcess, Order, OrderDispatch, OrderJobProcess, OrderPayment, OrderTransport, Transporter } from '../api/types'
 import { Field } from './PartyForms'
@@ -118,124 +118,132 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
   const del = (table: string, id: string) =>
     manage ? <button className="btn ghost sm" type="button" onClick={() => void remove(table, id)}>Remove</button> : null
 
+  const left = order.quantity - dispatched
+  const pct = order.quantity > 0 ? Math.min(100, Math.round((dispatched / order.quantity) * 100)) : 0
+  const entryFacts = (x: OrderDispatch, tr: OrderTransport | undefined): [string, string | null][] => [
+    ['Owner', x.person_id ? people[x.person_id] ?? null : null],
+    ['Invoice', x.invoice_no ? `${x.invoice_no}${x.invoice_date ? ` · ${x.invoice_date}` : ''}` : null],
+    ['Del Date', x.delivery_date ?? null],
+    ['DC No.', x.dc_no ?? null],
+    ['Vehicle', x.vehicle_no ?? null],
+    ['Transport company', tr ? (tr.kind === 'our' ? 'Our vehicle' : tr.transporter_id ? trName(tr.transporter_id) : 'Third party') : null],
+    ['Transport type', x.transport_type ? transportTypeLabel(x.transport_type) : null],
+    ['LR No.', x.lr_no ?? null],
+    ['Bags weight', order.bag_weight ? money(order.bag_weight) : null],
+    ['Total weight', money(x.total_weight)],
+    ['Value', money(x.entry_value)],
+    ['Buyer commission', x.buyer_commission ? money(x.buyer_commission) : null],
+    ['Supplier commission', x.supplier_commission ? money(x.supplier_commission) : null],
+    ['CGST %', x.cgst_pct ? money(x.cgst_pct) : null],
+    ['Insurance %', x.insurance_pct ? money(x.insurance_pct) : null],
+    ['Add', x.add_amount ? money(x.add_amount) : null],
+    ['Deduct', x.deduct_amount ? money(x.deduct_amount) : null],
+    ['Round off', x.round_off ? money(x.round_off) : null],
+    ['Total amount', money(x.total_amount)],
+  ]
+
   return (
-    <div className="notice">
-      <h3 className="section-title">Execution</h3>
-      <p className="small">Opened {order.execution_opened_at ? formatDateTime(order.execution_opened_at) : ''}.{isClosed && order.closed_at ? ` Closed automatically ${formatDateTime(order.closed_at)}.` : ''}</p>
+    <div className="exec">
       {err && <div className="alert">{err}</div>}
 
-      <h4>Closing checklist</h4>
-      {cs && (
-        <ul className="small" style={{ margin: 0, listStyle: 'none', padding: 0 }}>
-          <li>{cs.quantity_done ? '✓' : '○'} 100% quantity dispatched ({money(cs.dispatched)} of {money(cs.quantity)} {order.uom})</li>
-          <li>{cs.buyer_done ? '✓' : '○'} Buyer payment completed ({money(cs.buyer_received)} of {money(cs.buyer_value)})</li>
-          <li>{cs.supplier_done ? '✓' : '○'} Supplier payment completed ({money(cs.supplier_paid)} of {money(cs.supplier_value)})</li>
-          <li>{cs.invoice_done ? '✓' : '○'} Commission invoice generated{inv ? ` (${inv.invoice_no}, ${money(inv.amount)})` : ''}</li>
-        </ul>
-      )}
-      {!isClosed && <p className="muted small">The order closes by itself as soon as all four are done.</p>}
-      {inv && <p><button className="btn" type="button" onClick={() => void printInvoice()}>Print commission bill</button></p>}
-      {manage && !inv && (
-        <p><button className="btn" type="button" onClick={() => void generateInvoice()}>Generate commission invoice</button></p>
-      )}
+      <ExecCard title="Closing checklist" hint={`Opened ${order.execution_opened_at ? formatDateTime(order.execution_opened_at) : ''}.${isClosed && order.closed_at ? ` Closed automatically ${formatDateTime(order.closed_at)}.` : ' It closes by itself once all four are done.'}`}>
+        {cs && (
+          <ul className="exec-check">
+            <li className={cs.quantity_done ? 'done' : ''}><i aria-hidden="true">{cs.quantity_done ? '✓' : ''}</i>100% quantity dispatched <span>{money(cs.dispatched)} of {money(cs.quantity)} {order.uom}</span></li>
+            <li className={cs.buyer_done ? 'done' : ''}><i aria-hidden="true">{cs.buyer_done ? '✓' : ''}</i>Buyer payment completed <span>{money(cs.buyer_received)} of {money(cs.buyer_value)}</span></li>
+            <li className={cs.supplier_done ? 'done' : ''}><i aria-hidden="true">{cs.supplier_done ? '✓' : ''}</i>Supplier payment completed <span>{money(cs.supplier_paid)} of {money(cs.supplier_value)}</span></li>
+            <li className={cs.invoice_done ? 'done' : ''}><i aria-hidden="true">{cs.invoice_done ? '✓' : ''}</i>Commission invoice generated <span>{inv ? `${inv.invoice_no}, ${money(inv.amount)}` : ''}</span></li>
+          </ul>
+        )}
+        {inv && <div><button className="btn" type="button" onClick={() => void printInvoice()}>Print commission bill</button></div>}
+        {manage && !inv && <div><button className="btn" type="button" onClick={() => void generateInvoice()}>Generate commission invoice</button></div>}
+      </ExecCard>
 
-      <h4>Transportation</h4>
-      {trs.length === 0 ? <p className="muted small">None yet.</p> : (
-        <ul className="small" style={{ margin: 0 }}>
-          {trs.map((t) => (
-            <li key={t.id}>
-              {t.kind === 'our' ? 'Our vehicle' : 'Third party'}{t.transporter_id ? ` · ${trName(t.transporter_id)}` : ''}{t.vehicle_no ? ` · ${t.vehicle_no}` : ''}
-              {t.driver_name ? ` · ${t.driver_name}` : ''}{t.freight_amount !== null ? ` · freight ${money(t.freight_amount)}` : ''} {del('order_transports', t.id)}
-            </li>
-          ))}
-        </ul>
-      )}
-      {manage && <TransportForm transporters={transporters} onAdd={(r) => add('order_transports', r)} />}
+      <ExecCard title="Transportation" count={trs.length}>
+        {trs.length === 0 ? <p className="muted small">None yet.</p> : (
+          <ul className="exec-list">
+            {trs.map((t) => (
+              <li key={t.id}>
+                <span>
+                  {[t.kind === 'our' ? 'Our vehicle' : 'Third party', t.transporter_id ? trName(t.transporter_id) : null, t.vehicle_no, t.driver_name, t.freight_amount !== null ? `freight ${money(t.freight_amount)}` : null].filter(Boolean).join(' · ')}
+                </span>
+                {del('order_transports', t.id)}
+              </li>
+            ))}
+          </ul>
+        )}
+        {manage && <div className="exec-add"><h4>Add transportation</h4><TransportForm transporters={transporters} onAdd={(r) => add('order_transports', r)} /></div>}
+      </ExecCard>
 
-      <h4>Job process</h4>
-      {ojs.length === 0 ? <p className="muted small">None yet.</p> : (
-        <ul className="small" style={{ margin: 0 }}>
-          {ojs.map((j) => (
-            <li key={j.id}>{jobs.find((x) => x.id === j.job_process_id)?.name ?? '—'}{j.quantity !== null ? ` · ${money(j.quantity)} ${order.uom}` : ''}{j.instructions ? ` · ${j.instructions}` : ''} {del('order_job_processes', j.id)}</li>
-          ))}
-        </ul>
-      )}
-      {manage && <JobForm jobs={jobs.filter((j) => j.is_active)} onAdd={(r) => add('order_job_processes', r)} />}
+      <ExecCard title="Job process" count={ojs.length}>
+        {ojs.length === 0 ? <p className="muted small">None yet.</p> : (
+          <ul className="exec-list">
+            {ojs.map((j) => (
+              <li key={j.id}>
+                <span>{[jobs.find((x) => x.id === j.job_process_id)?.name ?? '—', j.quantity !== null ? `${money(j.quantity)} ${order.uom}` : null, j.instructions].filter(Boolean).join(' · ')}</span>
+                {del('order_job_processes', j.id)}
+              </li>
+            ))}
+          </ul>
+        )}
+        {manage && <div className="exec-add"><h4>Add job process</h4><JobForm jobs={jobs.filter((j) => j.is_active)} onAdd={(r) => add('order_job_processes', r)} /></div>}
+      </ExecCard>
 
-      <h4>Dispatch entries</h4>
-      <p className="small">Dispatched {money(dispatched)} of {money(order.quantity)} {uomLabel(order.uom)}; {money(order.quantity - dispatched)} left.</p>
-      {dsp.length > 0 && (
-        <div className="table-wrap" style={{ marginBottom: 12 }}>
-          <table>
-            <thead>
-              {/* columns in the order of the monday Dispatch and Billing subitems */}
-              <tr>
-                <th>Dispatch Entry No</th><th>Owner</th><th>Invoice No.</th><th>Invoice Date</th><th>Del Date</th><th>DC No.</th><th>Vehicle Number</th>
-                <th>Transport Company</th><th className="right">Bags Weight</th><th className="right">Total Weight</th><th className="right">Value</th>
-                <th className="right">Buyer Commission</th><th className="right">Supplier Commission</th><th className="right">CGST</th><th className="right">Insurance Tax</th>
-                <th className="right">Add</th><th className="right">Deduct</th><th className="right">Total Amount</th><th className="right">Round off</th>
-                <th>Dispatch Date</th><th className="right">Quantity Dispatched</th><th>Transport Type</th><th>LR No.</th><th />
-              </tr>
-            </thead>
-            <tbody>
-              {dsp.map((x) => {
-                const tr = x.transport_id ? trs.find((t) => t.id === x.transport_id) : undefined
-                return (
-                  <tr key={x.id}>
-                    <td className="mono small">{x.dispatch_no}</td>
-                    <td className="small">{x.person_id ? people[x.person_id] ?? '—' : '—'}</td>
-                    <td className="mono small">{x.invoice_no ?? '—'}</td>
-                    <td className="small">{x.invoice_date ?? '—'}</td>
-                    <td className="small">{x.delivery_date ?? '—'}</td>
-                    <td className="small">{x.dc_no ?? '—'}</td>
-                    <td className="mono small">{x.vehicle_no ?? '—'}</td>
-                    <td className="small">{tr ? (tr.kind === 'our' ? 'Our vehicle' : tr.transporter_id ? trName(tr.transporter_id) : 'Third party') : '—'}</td>
-                    <td className="right mono small">{money(order.bag_weight)}</td>
-                    <td className="right mono small">{money(x.total_weight)}</td>
-                    <td className="right mono small">{money(x.entry_value)}</td>
-                    <td className="right mono small">{money(x.buyer_commission)}</td>
-                    <td className="right mono small">{money(x.supplier_commission)}</td>
-                    <td className="right mono small">{money(x.cgst_pct)}</td>
-                    <td className="right mono small">{money(x.insurance_pct)}</td>
-                    <td className="right mono small">{money(x.add_amount)}</td>
-                    <td className="right mono small">{money(x.deduct_amount)}</td>
-                    <td className="right mono small">{money(x.total_amount)}</td>
-                    <td className="right mono small">{money(x.round_off)}</td>
-                    <td className="mono small">{x.dispatch_date}</td>
-                    <td className="right mono">{money(x.quantity)}</td>
-                    <td className="small">{x.transport_type ? transportTypeLabel(x.transport_type) : '—'}</td>
-                    <td className="small">{x.lr_no ?? '—'}</td>
-                    <td>{del('order_dispatches', x.id)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {manage && order.quantity - dispatched > 0 && (
-        <DispatchForm people={people} trs={trs} trName={trName} left={order.quantity - dispatched} defaults={order} onAdd={(r) => add('order_dispatches', r)} />
-      )}
+      <ExecCard title="Dispatch entries" count={dsp.length} hint={`Dispatched ${money(dispatched)} of ${money(order.quantity)} ${uomLabel(order.uom)}; ${money(left)} left.`}>
+        <div className="exec-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /></div>
+        {dsp.map((x) => {
+          const tr = x.transport_id ? trs.find((t) => t.id === x.transport_id) : undefined
+          return (
+            <div className="exec-entry" key={x.id}>
+              <div className="exec-entry-head">
+                <span><strong className="mono">{x.dispatch_no}</strong> <span className="muted small">· {x.dispatch_date}</span></span>
+                <span className="exec-entry-qty mono">{money(x.quantity)} {uomLabel(order.uom)}</span>
+                {del('order_dispatches', x.id)}
+              </div>
+              <div className="exec-facts">
+                {entryFacts(x, tr).filter(([, v]) => v !== null && v !== '—').map(([k, v]) => (<div key={k}><span>{k}</span><strong>{v}</strong></div>))}
+              </div>
+            </div>
+          )
+        })}
+        {manage && left > 0 && <div className="exec-add"><h4>Add dispatch entry</h4><DispatchForm people={people} trs={trs} trName={trName} left={left} defaults={order} onAdd={(r) => add('order_dispatches', r)} /></div>}
+      </ExecCard>
 
-      <h4>Payment tracking</h4>
-      {!order.payment_tracking_enabled ? <p className="muted small">Not enabled.</p> : (
-        <>
-          <dl className="kv">
-            <dt>Buyer receipts</dt><dd className="mono">{money(received)} of {money(buyerValue)} (balance {money(buyerValue - received)})</dd>
-            <dt>Supplier payments</dt><dd className="mono">{money(paidOut)} of {money(supplierValue)} (balance {money(supplierValue - paidOut)})</dd>
-          </dl>
-          <p className="muted small">Values are rate × quantity from the order.</p>
-          {pays.length > 0 && (
-            <ul className="small" style={{ margin: 0 }}>
-              {pays.map((p) => (
-                <li key={p.id}>{p.paid_on} · {p.kind === 'buyer_receipt' ? 'Received from buyer' : 'Paid to supplier'} · {money(p.amount)}{p.mode ? ` · ${p.mode}` : ''}{p.reference ? ` · ${p.reference}` : ''} {del('order_payments', p.id)}</li>
-              ))}
-            </ul>
-          )}
-          {manage && <PaymentForm onAdd={(r) => add('order_payments', r)} />}
-        </>
-      )}
+      <ExecCard title="Payment tracking">
+        {!order.payment_tracking_enabled ? <p className="muted small">Not enabled.</p> : (
+          <>
+            <div className="exec-facts">
+              <div><span>Buyer receipts</span><strong className="mono">{money(received)} of {money(buyerValue)}</strong><em>balance {money(buyerValue - received)}</em></div>
+              <div><span>Supplier payments</span><strong className="mono">{money(paidOut)} of {money(supplierValue)}</strong><em>balance {money(supplierValue - paidOut)}</em></div>
+            </div>
+            <p className="muted small">Values are rate × quantity from the order.</p>
+            {pays.length > 0 && (
+              <ul className="exec-list">
+                {pays.map((p) => (
+                  <li key={p.id}>
+                    <span>{[p.paid_on, p.kind === 'buyer_receipt' ? 'Received from buyer' : 'Paid to supplier', money(p.amount), p.mode, p.reference].filter(Boolean).join(' · ')}</span>
+                    {del('order_payments', p.id)}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {manage && <div className="exec-add"><h4>Add payment entry</h4><PaymentForm onAdd={(r) => add('order_payments', r)} /></div>}
+          </>
+        )}
+      </ExecCard>
     </div>
+  )
+}
+
+function ExecCard({ title, hint, count, children }: { title: string; hint?: string; count?: number; children: ReactNode }) {
+  return (
+    <section className="fs-card exec-card">
+      <div className="fs-head">
+        <div><h3>{title}</h3>{hint && <p>{hint}</p>}</div>
+        {count !== undefined && <span className="fs-count">{count}</span>}
+      </div>
+      <div className="exec-body">{children}</div>
+    </section>
   )
 }
 

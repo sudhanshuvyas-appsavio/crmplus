@@ -21,6 +21,8 @@ import { errMessage, numOrNull } from '../../lib/party'
 import { formatDateTime } from '../../lib/format'
 import { Modal } from '../Modal'
 import { Field, FieldErrorsProvider } from '../PartyForms'
+import { PhoneField } from '../PhoneField'
+import { phoneProblem } from '../../lib/phone'
 import { ErrorBanner, FormSection, FullWidth } from '../FormKit'
 import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from '../CountLines'
 import { ScDocuments, uploadScFiles } from './ScDocuments'
@@ -186,10 +188,11 @@ export function ScFormModal({
   const noCounts = lines.every((l) => !l.count_id && !l.quantity.trim() && !l.rate.trim() && !l.bag_weight.trim())
   needed.push(...(noCounts ? ['Count and quantity'] : lineProblems(lines, true)))
   const partialRows = noCounts ? [] : lineProblems(lines).filter((x) => !x.startsWith('Final rate'))
-  const phoneBad = f.driver_phone.trim() !== '' && !/^[0-9+ -]{6,20}$/.test(f.driver_phone.trim())
+  const driverPhoneProblem = phoneProblem(f.driver_phone)
+  const phoneBad = driverPhoneProblem !== null
   const errors: Record<string, string> = {}
   if (updating && !recordId) errors['sc-record'] = 'Choose the confirmation to update.'
-  if (phoneBad) errors['sc-drv'] = 'Digits only (6 to 20 characters).'
+  if (driverPhoneProblem) errors['sc-drv'] = driverPhoneProblem
   // monday's required fields: Buyer, Supplier and the count rows. A confirmation made from a deal takes them from the deal.
   const enforce = !dealPick && !locked
   if (enforce && (!updating || recordId)) {
@@ -421,7 +424,7 @@ export function ScFormModal({
               </FormSection>
 
               <FormSection title="Sizing/Delivery Address Information" collapsible columns={3}>
-                <Field id="sc-job" label="Sizing/Delivery Address">
+                <Field id="sc-job" label="Sizing/Delivery Address" hideLabel>
                   <select id="sc-job" value={f.job_process_id} title="--None-- means the buyer's own address." onChange={(e) => pickJob(e.target.value)}>
                     <option value="">--None--</option>
                     {jobs.filter((j) => j.is_active || j.id === f.job_process_id).map((j) => (<option key={j.id} value={j.id}>{j.name}</option>))}
@@ -436,9 +439,7 @@ export function ScFormModal({
                     {transporters.filter((t) => t.is_active || t.id === f.transporter_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
                   </select>
                 </Field>
-                <Field id="sc-drv" label="Driver Contact Phone">
-                  <input id="sc-drv" inputMode="tel" placeholder="Driver Contact Phone number" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} />
-                </Field>
+                <PhoneField id="sc-drv" label="Driver Contact Phone" value={f.driver_phone} onChange={(v) => set('driver_phone', v)} />
                 <Field id="sc-veh" label="Vehicle Number">
                   <input id="sc-veh" className="mono" placeholder="Enter Vehicle Number" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} />
                 </Field>
@@ -446,7 +447,7 @@ export function ScFormModal({
 
               <FormSection title="Remarks" collapsible columns={3}>
                 <FullWidth>
-                  <Field id="sc-remarks" label="Remarks">
+                  <Field id="sc-remarks" label="Remarks" hideLabel>
                     <textarea id="sc-remarks" rows={2} placeholder="Enter Remarks" value={f.remarks} onChange={(e) => set('remarks', e.target.value)} />
                   </Field>
                 </FullWidth>
@@ -456,7 +457,7 @@ export function ScFormModal({
                 <FullWidth>
                   <Field id="sc-docs" label="Buyer Document">
                     {updating ? (
-                      recordId ? <ScDocuments scId={recordId} kind="buyer" canEdit /> : null
+                      recordId ? <div><ScDocuments scId={recordId} kind="buyer" canEdit hideTitle /></div> : null
                     ) : (
                       <div>
                         {pendingFiles.length > 0 && (

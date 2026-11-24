@@ -392,7 +392,7 @@ export function OrderFormModal({
           )}
 
           <FormSection title="Transporter Type Details" collapsible columns={3}>
-            <Field id="o-tt" label="Transporter Type Details">
+            <Field id="o-tt" label="Transporter Type Details" hideLabel>
               <select id="o-tt" value={f.transport_type} onChange={(e) => set('transport_type', e.target.value)}>
                 <option value="">--None--</option>
                 {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
@@ -432,9 +432,9 @@ export function OrderFormModal({
 
           <FormSection title="Documents" collapsible columns={3}>
             <FullWidth>
-              <Field id="o-docs" label="Documents">
+              <Field id="o-docs" label="Documents" hideLabel>
                 {updating ? (
-                  recordId ? <OrderDocuments orderId={recordId} canEdit /> : null
+                  recordId ? <div><OrderDocuments orderId={recordId} canEdit hideTitle /></div> : null
                 ) : (
                   <div>
                     {pendingFiles.length > 0 && (

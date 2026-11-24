@@ -1507,3 +1507,40 @@ tr.subrow > td { padding: 0; background: var(--surface-2, var(--surface)); borde
 input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); }
 
 
+
+/* Count rows: the number boxes sit outside a .field, so they got the browser's grey boxes. Match the dropdowns. */
+.lines-table input {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 9px 11px;
+  outline: none;
+}
+.lines-table input:focus { border-color: var(--brand); background: var(--surface); }
+.lines-table input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Dispatch and Billing execution panel: one card per block, entries as cards, not a 24-column table */
+.exec { display: grid; gap: 14px; margin-top: 8px; }
+.exec .fs-card { margin: 0; }
+.exec-body { padding: 14px 20px 16px; display: grid; gap: 12px; }
+.exec-check, .exec-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.exec-check li, .exec-list li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.exec-check li:first-child, .exec-list li:first-child { border-top: 0; padding-top: 0; }
+.exec-check li > span { margin-left: auto; color: var(--ink-3); font-size: 12px; }
+.exec-check li > i { flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--border-strong); display: grid; place-items: center; font-size: 11px; font-style: normal; }
+.exec-check li.done > i { background: var(--brand); border-color: var(--brand); color: #fff; }
+.exec-list li > span { flex: 1; min-width: 0; }
+.exec-list li .btn { flex: 0 0 auto; }
+.exec-add { border-top: 1px solid var(--border); padding-top: 14px; }
+.exec-add h4 { margin: 0 0 12px; font: 600 10.5px/1 var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.exec-add .form-grid .field, .exec-add .dispatch-form .field { margin-bottom: 12px; }
+.exec-bar { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.exec-bar > i { display: block; height: 100%; background: var(--brand); border-radius: 99px; }
+.exec-entry { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--surface-2); display: grid; gap: 10px; }
+.exec-entry-head { display: flex; align-items: center; gap: 10px; }
+.exec-entry-qty { margin-left: auto; font-weight: 600; }
+.exec-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 16px; }
+.exec-facts > div { display: grid; gap: 2px; }
+.exec-facts span { font-size: 11.5px; color: var(--ink-3); }
+.exec-facts strong { font-size: 13px; font-weight: 500; }
+.exec-facts em { font-style: normal; font-size: 11.5px; color: var(--ink-3); }

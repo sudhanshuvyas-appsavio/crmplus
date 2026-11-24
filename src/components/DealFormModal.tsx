@@ -17,6 +17,7 @@ import { Field, FieldErrorsProvider } from './PartyForms'
 import { ErrorBanner, FormSection, FullWidth } from './FormKit'
 import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from './CountLines'
 import type { MirrorParty } from './board/mirrors'
+import { PartyLookup } from './PartyLookup'
 import { getPosition } from './GeoCapture'
 
 export type DealCompany = { id: string; name: string; is_home: boolean; is_active: boolean }
@@ -305,6 +306,14 @@ export function DealFormModal({
             <Field id="d-scomm" label="Supplier Commission">
               <input id="d-scomm" readOnly value={commText(f.supplier_comm_basis, f.supplier_comm_value)} placeholder="From the master" />
             </Field>
+            {(f.buyer_id || f.supplier_id) && (
+              <FullWidth>
+                <div className="lookup-grid" style={{ marginBottom: 0 }}>
+                  {buyers.find((x) => x.id === f.buyer_id) && <PartyLookup title="Buyer" p={buyers.find((x) => x.id === f.buyer_id)!} unit={companies.find((c) => c.id === buyers.find((x) => x.id === f.buyer_id)!.company_id)?.name} />}
+                  {suppliers.find((x) => x.id === f.supplier_id) && <PartyLookup title="Supplier" p={suppliers.find((x) => x.id === f.supplier_id)!} unit={companies.find((c) => c.id === suppliers.find((x) => x.id === f.supplier_id)!.company_id)?.name} />}
+                </div>
+              </FullWidth>
+            )}
           </FormSection>
 
             </>
@@ -350,11 +359,11 @@ export function DealFormModal({
 
           <FormSection title="Location" collapsible columns={3}>
             <div className="fs-span-2">
-              <Field id="d-loc" label="Location">
+              <Field id="d-loc" label="Location" hideLabel>
                 <input id="d-loc" placeholder="Address or place for this deal" value={f.location_text} onChange={(e) => set('location_text', e.target.value)} />
               </Field>
             </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingTop: 22 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <button className="btn sm" type="button" disabled={locBusy} onClick={() => void captureLocation()}>{locBusy ? 'Locating…' : 'Capture my location'}</button>
               {f.location_lat !== null && f.location_lng !== null && (
                 <>

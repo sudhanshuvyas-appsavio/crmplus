@@ -34,7 +34,7 @@ export async function uploadOrderFiles(orderId: string, files: File[]): Promise<
   return problems
 }
 
-export function OrderDocuments({ orderId, canEdit }: { orderId: string; canEdit: boolean }) {
+export function OrderDocuments({ orderId, canEdit, hideTitle = false }: { orderId: string; canEdit: boolean; /** the form already shows the heading as the field label */ hideTitle?: boolean }) {
   const names = useProfileNames()
   const [docs, setDocs] = useState<OrderDoc[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -101,7 +101,7 @@ export function OrderDocuments({ orderId, canEdit }: { orderId: string; canEdit:
   const full = (docs?.length ?? 0) >= MAX
   return (
     <>
-      <h3 className="section-title">Documents {docs ? <span className="muted small">({docs.length})</span> : null}</h3>
+      {hideTitle ? null : <h3 className="section-title">Documents {docs ? <span className="muted small">({docs.length})</span> : null}</h3>}
       {msg && <p className="field-warn">{msg}</p>}
       {docs && docs.length === 0 && <p className="muted small">No documents yet.</p>}
       {docs && docs.length > 0 && (

@@ -10,6 +10,7 @@ import { Drawer } from '../Drawer'
 import { StatusPill } from '../board/Board'
 import { errMessage, numOrNull } from '../../lib/party'
 import { formatDateTime } from '../../lib/format'
+import { formatPhone } from '../../lib/phone'
 import { dispatchStatus, inr, saleTypeLabel, scGroup, scStage } from '../../lib/deals'
 import { NotificationLog } from './NotificationLog'
 import { SendPanel } from './SendPanel'
@@ -45,10 +46,35 @@ export function ScDetails({
     : []
   const [lines, setLines] = useState<LineForm[]>(first)
 
+  const [dealDiff, setDealDiff] = useState<string[]>([])
   useEffect(() => {
     if (!sc.deal_id) return
-    void supabase.from('crm_deals').select('deal_no').eq('id', sc.deal_id).maybeSingle().then(({ data }) => setDealNo((data as { deal_no: string } | null)?.deal_no ?? null))
-  }, [sc.deal_id])
+    let alive = true
+    void Promise.all([
+      supabase.from('crm_deals').select('deal_no,buyer_id,supplier_id,payment_term_id,freight').eq('id', sc.deal_id).maybeSingle(),
+      supabase.from('crm_deal_lines').select('count_id,quantity,uom,bag_weight,final_rate').eq('deal_id', sc.deal_id).order('line_no'),
+      supabase.from('sc_lines').select('count_id,quantity,uom,bag_weight,rate').eq('sc_id', sc.id).order('line_no'),
+    ]).then(([d, dl, sl]) => {
+      if (!alive) return
+      const deal = d.data as { deal_no: string; buyer_id: string | null; supplier_id: string | null; payment_term_id: string | null; freight: string | null } | null
+      setDealNo(deal?.deal_no ?? null)
+      if (!deal) return setDealDiff([])
+      // The confirmation is a copy taken when the deal was approved. Say which terms no longer match the deal.
+      const diff: string[] = []
+      if ((deal.buyer_id ?? null) !== (sc.buyer_id ?? null)) diff.push('Buyer')
+      if ((deal.supplier_id ?? null) !== (sc.supplier_id ?? null)) diff.push('Supplier')
+      if ((deal.payment_term_id ?? null) !== (sc.payment_term_id ?? null)) diff.push('Payment Terms')
+      if ((deal.freight ?? null) !== (sc.freight ?? null)) diff.push('Freight')
+      const key = (r: { count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }) =>
+        `${r.count_id}|${Number(r.quantity)}|${r.uom}|${r.bag_weight === null ? '' : Number(r.bag_weight)}|${r.rate === null ? '' : Number(r.rate)}`
+      const dealLines = ((dl.data ?? []) as { count_id: string; quantity: number; uom: string; bag_weight: number | null; final_rate: number | null }[])
+        .map((r) => key({ ...r, rate: r.final_rate }))
+      const scLines = ((sl.data ?? []) as { count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }[]).map(key)
+      if (dealLines.length > 0 && scLines.length > 0 && dealLines.join(';') !== scLines.join(';')) diff.push('Counts, quantity or rate')
+      setDealDiff(diff)
+    })
+    return () => { alive = false }
+  }, [sc.deal_id, sc.id, sc.updated_at, sc.buyer_id, sc.supplier_id, sc.payment_term_id, sc.freight])
   useEffect(() => {
     let alive = true
     void supabase.from('sc_lines').select('count_id,quantity,uom,bag_weight,rate').eq('sc_id', sc.id).order('line_no')
@@ -116,7 +142,7 @@ export function ScDetails({
     ['Sizing/Delivery Address', job?.name ?? sc.delivery_address],
     ['Transporter Name', transporter?.name ?? null],
     ['Vehicle Number', sc.vehicle_no],
-    ['Driver Contact Phone', sc.driver_phone],
+    ['Driver Contact Phone', formatPhone(sc.driver_phone) || null],
     ['Total weight', weight === null ? null : `${inr(weight)} kg`],
     ['Remarks', sc.remarks],
     ['Created', formatDateTime(sc.confirmed_at)],
@@ -134,6 +160,9 @@ export function ScDetails({
       </p>
       {err && <div className="alert">{err}</div>}
       {!canManage && <div className="notice small">You can view this confirmation; changing or sending it needs the “Create, edit and send sales confirmations” permission.</div>}
+      {dealDiff.length > 0 && !cancelled && (
+        <div className="alert">This confirmation no longer matches Deal {dealNo ?? 'its deal'}: {dealDiff.join(', ')}. It keeps its own values; check them before sending.</div>
+      )}
       {sc.status === 'draft' && !cancelled && <div className="notice small">Incomplete: fill in the required fields before it can be sent.</div>}
       {items.length > 0 && (
         <div className="notice small">Converted to Dispatch and Billing ({items.map((i) => i.order_no).join(', ')}); this confirmation can no longer be edited.</div>

@@ -36,7 +36,7 @@ export async function uploadScFiles(scId: string, kind: 'buyer' | 'supplier', fi
   return problems
 }
 
-export function ScDocuments({ scId, kind, canEdit }: { scId: string; kind: 'buyer' | 'supplier'; canEdit: boolean }) {
+export function ScDocuments({ scId, kind, canEdit, hideTitle = false }: { scId: string; kind: 'buyer' | 'supplier'; canEdit: boolean; /** the form already shows the heading as the field label */ hideTitle?: boolean }) {
   const names = useProfileNames()
   const [docs, setDocs] = useState<ScDoc[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -103,7 +103,7 @@ export function ScDocuments({ scId, kind, canEdit }: { scId: string; kind: 'buye
   const full = (docs?.length ?? 0) >= MAX
   return (
     <>
-      <h3 className="section-title">{kind === 'buyer' ? 'Buyer Document' : 'Supplier Document'} {docs ? <span className="muted small">({docs.length})</span> : null}</h3>
+      {hideTitle ? null : <h3 className="section-title">{kind === 'buyer' ? 'Buyer Document' : 'Supplier Document'} {docs ? <span className="muted small">({docs.length})</span> : null}</h3>}
       {msg && <p className="field-warn">{msg}</p>}
       {docs && docs.length === 0 && <p className="muted small">No documents yet.</p>}
       {docs && docs.length > 0 && (

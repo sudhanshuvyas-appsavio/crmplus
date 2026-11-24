@@ -7,7 +7,7 @@ export type DealStatus = 'new_deal' | 'manager_approval' | 'approved' | 'reconsi
 
 /** `tone` picks the status colour token (see .status-pill in index.css). */
 export const DEAL_STATUSES: { value: DealStatus; label: string; tone: string }[] = [
-  { value: 'new_deal', label: 'New Deal', tone: 'blue' },
+  { value: 'new_deal', label: 'Draft', tone: 'blue' },
   { value: 'manager_approval', label: 'Manager Approval', tone: 'orange' },
   { value: 'approved', label: 'Approved', tone: 'green' },
   { value: 'reconsider', label: 'Reconsider', tone: 'purple' },
@@ -87,7 +87,7 @@ export const DISPATCH_STATUSES: { value: string; label: string; tone: string }[]
   { value: 'cancelled', label: 'Cancel', tone: 'red' },
 ]
 /* Board groups, named as on the monday boards. A row's status decides its group. */
-export const DEAL_GROUPS = DEAL_STATUSES.map((g) => (g.value === 'new_deal' ? { ...g, label: 'New' } : g))
+export const DEAL_GROUPS = DEAL_STATUSES.map((g) => (g.value === 'new_deal' ? { ...g, label: 'Draft' } : g))
 export const SC_GROUPS = [
   { value: 'draft', label: 'New', tone: 'grey' },
   { value: 'send', label: 'Send', tone: 'blue' },
