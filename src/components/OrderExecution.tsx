@@ -263,7 +263,7 @@ function TransportForm({ transporters, onAdd }: { transporters: Transporter[]; o
           <option value="third_party">Third party</option>
         </select>
       </Field>
-      <Field id="x-tt" label={kind === 'our' ? 'Transporter record (optional)' : 'Transporter'} required={kind === 'third_party'}>
+      <Field id="x-tt" label={kind === 'our' ? 'Transporter (optional)' : 'Transporter'} required={kind === 'third_party'}>
         <select id="x-tt" value={tid} onChange={(e) => setTid(e.target.value)}>
           <option value="">—</option>
           {list.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
