@@ -30,6 +30,14 @@ export interface BoardColumn<T> {
 
 export type BoardView = 'table' | 'kanban'
 
+/** Every group is its own table, so give the columns fixed widths: the same column sits in the same place in every group. */
+const colWidth = (c: { label: string; width?: number; pinRight?: boolean }) =>
+  c.pinRight ? Math.max(c.width ?? 0, 110)
+    : Math.max(c.width ?? 0,
+      /^confirmation no$/i.test(c.label) ? 230 : /^(deal no|item|lead)$/i.test(c.label) ? 170
+      : /status/i.test(c.label) ? 170
+      : /count|party|buyer|supplier|address|delivery|remark|transporter|sales confirmation|link to/i.test(c.label) ? 210 : 150)
+
 const cellClass = (c: { align?: 'right' | 'center'; pinRight?: boolean }) => [c.align, c.pinRight ? 'pin-right' : ''].filter(Boolean).join(' ') || undefined
 
 export function Board<T>({
@@ -141,7 +149,12 @@ export function Board<T>({
             </button>
             {!closed && (
               <div className="bgroup-table">
-                <table>
+                <table className="fixed" style={{ minWidth: columns.reduce((n, c) => n + colWidth(c), 0) + (selection ? 34 : 0) + (expandable ? 56 : 0) }}>
+                  <colgroup>
+                    {selection && <col style={{ width: 34 }} />}
+                    {expandable && <col style={{ width: 56 }} />}
+                    {columns.map((c) => (<col key={c.key} style={{ width: colWidth(c) }} />))}
+                  </colgroup>
                   <thead>
                     <tr>
                       {selection && <th className="bcell-check" aria-label="Select" />}

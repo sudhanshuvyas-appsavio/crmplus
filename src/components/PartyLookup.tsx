@@ -1,20 +1,39 @@
+import type { ReactNode } from 'react'
 import type { MirrorParty } from './board/mirrors'
 import { commTerms } from '../lib/deals'
 
+/** A party's details as a small card: the name as its title, then only the details that are on file. */
+export function PartyCard({ title, name, rows }: { title: string; name: string; rows: [string, ReactNode][] }) {
+  const shown = rows.filter(([, v]) => v !== null && v !== undefined && v !== '' && v !== '—')
+  return (
+    <section className="pcard">
+      <header>
+        <span>{title}</span>
+        <strong>{name}</strong>
+      </header>
+      {shown.length === 0 ? (
+        <p className="muted small">Nothing on file yet. Add it in Buyers &amp; Suppliers.</p>
+      ) : (
+        <dl>
+          {shown.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>))}
+        </dl>
+      )}
+    </section>
+  )
+}
+
 /** Read-only details from the party master (monday's mirror columns on the Deals board). */
 export function PartyLookup({ title, p, unit }: { title: string; p: MirrorParty; unit?: string }) {
+  const comm = commTerms(p.commission_basis ?? null, p.commission_value ?? null)
   return (
-    <div className="lookup">
-      <h4>{title}: {p.name}</h4>
-      <dl className="kv">
-        <dt>GST</dt><dd className="mono">{p.gst || '—'}</dd>
-        <dt>PAN</dt><dd className="mono">{p.pan || '—'}</dd>
-        <dt>Contact person 1</dt><dd>{[p.contact_person, p.mobile ? `+91 ${p.mobile}` : ''].filter(Boolean).join(' · ') || '—'}</dd>
-        <dt>Office address</dt><dd>{p.address || '—'}</dd>
-        <dt>Mill / delivery address</dt><dd>{p.mill_address || '—'}</dd>
-        <dt>Business unit</dt><dd>{unit || '—'}</dd>
-        <dt>Commission</dt><dd>{commTerms(p.commission_basis ?? null, p.commission_value ?? null)}</dd>
-      </dl>
-    </div>
+    <PartyCard title={title} name={p.name} rows={[
+      ['GST', p.gst ? <span className="mono">{p.gst}</span> : null],
+      ['PAN', p.pan ? <span className="mono">{p.pan}</span> : null],
+      ['Contact person 1', [p.contact_person, p.mobile ? `+91 ${p.mobile}` : ''].filter(Boolean).join(' · ') || null],
+      ['Office address', p.address],
+      ['Mill / delivery address', p.mill_address],
+      ['Business unit', unit ?? null],
+      ['Commission', comm],
+    ]} />
   )
 }

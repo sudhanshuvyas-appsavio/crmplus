@@ -405,28 +405,27 @@ export default function Leads() {
   const columns: BoardColumn<Lead>[] = [
     { key: 'no', label: 'Lead', width: 130, render: (l) => <span className="mono">{l.lead_no}</span> },
     {
-      key: 'party', label: 'Party',
+      key: 'status', label: 'Status', width: 150,
+      render: (l) => (
+        <span title={l.converted_deal_id ? 'Converted to a deal' : undefined}>
+          <StatusPill label={statusLabel(l.status)} tone={LEAD_GROUPS.find((g) => g.value === l.status)?.tone ?? 'grey'} />
+        </span>
+      ),
+    },
+    {
+      key: 'party', label: 'Buyer',
       render: (l) => (
         <>
           <strong>{l.party_name}</strong>
-          <span className="chip" style={{ marginLeft: 8 }}>{roleLabel(l.party_role)}</span>
-          {l.station && <div className="small muted">{l.station}</div>}
+          {l.station && <span className="small muted"> · {l.station}</span>}
         </>
       ),
     },
     { key: 'count', label: 'Count', render: (l) => <span className="small">{(l.count_id ? countById.get(l.count_id)?.display_name : '') || <span className="muted">—</span>}</span> },
     { key: 'qty', label: 'Quantity', align: 'right', render: (l) => <span className="mono">{l.quantity !== null ? `${l.quantity} ${l.uom ?? ''}` : '—'}</span> },
-    {
-      key: 'status', label: 'Status', width: 150,
-      render: (l) => (
-        <>
-          <StatusPill label={statusLabel(l.status)} tone={LEAD_GROUPS.find((g) => g.value === l.status)?.tone ?? 'grey'} />
-          {l.converted_deal_id && <div className="small muted" style={{ marginTop: 2 }}>Converted to deal</div>}
-        </>
-      ),
-    },
     { key: 'follow', label: 'Follow-up', render: (l) => <span className="mono small">{formatDate(l.follow_up_date)}</span> },
     { key: 'staff', label: 'Sales staff', render: (l) => <span className="small">{l.sales_staff_id ? staffById.get(l.sales_staff_id) ?? '—' : '—'}</span> },
+    { key: 'created', label: 'Created Date', render: (l) => <span className="small">{formatDate(l.created_at.slice(0, 10))}</span> },
     {
       key: 'action', label: 'Actions', interactive: true, pinRight: true,
       render: (l) => <RowActionMenu label={`Actions for ${l.lead_no}`} actions={actionsFor(l)} />,
@@ -439,8 +438,7 @@ export default function Leads() {
         <div>
           <h1>Leads</h1>
           <p className="page-sub">
-            Every inquiry, until it is qualified and ready to become a deal. A lead can be qualified
-            only once its count, quantity and Buyer / Supplier Master records are in place.
+            Every inquiry, until it is qualified and becomes a deal. Qualifying needs its count and quantity.
           </p>
         </div>
         {canManage && (

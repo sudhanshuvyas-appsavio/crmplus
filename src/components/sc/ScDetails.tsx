@@ -15,6 +15,7 @@ import { dispatchStatus, inr, saleTypeLabel, scGroup, scStage } from '../../lib/
 import { NotificationLog } from './NotificationLog'
 import { SendPanel } from './SendPanel'
 import { ScDocuments } from './ScDocuments'
+import { PartyCard } from '../PartyLookup'
 import type { Company, Names, Party, ScRow } from './scShared'
 import { CountLinesView, lineFigures, linesText, lineProblems, toLineForm, type LineForm } from '../CountLines'
 
@@ -230,14 +231,11 @@ export function ScDetails({
 function ScParty({ title, p, unit }: { title: string; p: Party; unit: { phone_1?: string | null; mobile?: string | null } | undefined }) {
   const unitPhone = unit?.phone_1 || unit?.mobile
   return (
-    <div className="lookup">
-      <h4>{title}: {p.name}</h4>
-      <dl className="kv">
-        <dt>Office address</dt><dd>{p.address || '—'}</dd>
-        <dt>Office phone</dt><dd>{p.office_phone ? `+91 ${p.office_phone}` : '—'}</dd>
-        <dt>GST</dt><dd className="mono">{p.gst || '—'}</dd>
-        <dt>Business unit phone</dt><dd>{unitPhone ? (unitPhone.startsWith('+') ? unitPhone : `+91 ${unitPhone}`) : '—'}</dd>
-      </dl>
-    </div>
+    <PartyCard title={title} name={p.name} rows={[
+      ['Office address', p.address],
+      ['Office phone', p.office_phone ? `+91 ${p.office_phone}` : null],
+      ['GST', p.gst ? <span className="mono">{p.gst}</span> : null],
+      ['Business unit phone', unitPhone ? (unitPhone.startsWith('+') ? unitPhone : `+91 ${unitPhone}`) : null],
+    ]} />
   )
 }
