@@ -21,7 +21,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
 import { DealFormModal, mapsUrl } from '../components/DealFormModal'
 import { useSelection } from '../components/ListTools'
-import { ActivityPanel, useProfileNames } from '../components/PartyExtras'
+import { useProfileNames } from '../components/PartyExtras'
 import { Avatar, Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
 import { BoardTabs } from '../components/board/BoardTabs'
@@ -604,7 +604,6 @@ function DealDetails({
 
       <DealDocuments dealId={deal.id} canEdit={canEdit && !approved} />
       <DealHistory dealId={deal.id} refreshKey={deal.updated_at} />
-      <ActivityPanel entityType="deal" entityId={deal.id} canWrite={canEdit} kinds={['call', 'email', 'whatsapp', 'meeting', 'note']} title="Updates" />
       <p className="muted small">Last updated {formatDateTime(deal.updated_at)}.</p>
     </Drawer>
   )
