@@ -764,7 +764,7 @@ function LeadDetails({
       </dl>
       <LeadDocuments leadId={lead.id} canEdit={!locked} />
       {!locked && <DiscussionPanel lead={lead} onLogged={reloadLead} />}
-      {!locked && <ActivityPanel entityType="lead" entityId={lead.id} canWrite title="Discussion history, notes and tasks" refreshKey={historyKey} />}
+      {!locked && <ActivityPanel entityType="lead" entityId={lead.id} canWrite showEntryForm={false} title="Discussion history and follow-ups" refreshKey={historyKey} />}
       {convertOpen && (
         <ConfirmDialog
           title={`Convert ${lead.lead_no} to a deal?`}

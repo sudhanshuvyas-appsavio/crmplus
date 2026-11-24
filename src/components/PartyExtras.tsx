@@ -421,6 +421,7 @@ export function ActivityPanel({
   kinds = ['note', 'call', 'quotation', 'reminder', 'task'],
   title = 'History and reminders',
   refreshKey = 0,
+  showEntryForm = true,
 }: {
   entityType: 'lead' | 'supplier' | 'buyer' | 'deal'
   entityId: string
@@ -428,6 +429,8 @@ export function ActivityPanel({
   kinds?: ActivityKind[]
   title?: string
   refreshKey?: number
+  /** false: only the list (and ticking tasks done); entries are made somewhere else. */
+  showEntryForm?: boolean
 }) {
   const { me } = useAuth()
   const names = useProfileNames()
@@ -486,7 +489,7 @@ export function ActivityPanel({
   const today = new Date().toISOString().slice(0, 10)
   return (
     <Section title={title}>
-      {canWrite && (
+      {canWrite && showEntryForm && (
         <div className="activity-entry" style={{ marginBottom: 12 }}>
           <div className="form-grid">
             <select aria-label="Entry type" value={kind} onChange={(e) => setKind(e.target.value as ActivityKind)}>
