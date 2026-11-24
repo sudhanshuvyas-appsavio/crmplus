@@ -31,7 +31,6 @@ import { leadPayload, leadProblems, type LeadForm } from '../lib/leadForm'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer } from '../components/Drawer'
-import { Field } from '../components/PartyForms'
 import { ImportIssues, useSelection } from '../components/ListTools'
 import { Board, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, pickOne } from '../lib/bulk'
@@ -86,10 +85,41 @@ export default function Leads() {
   const [deleting, setDeleting] = useState<Lead | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [qualifying, setQualifying] = useState<Lead | null>(null)
+  const [qualifyBusy, setQualifyBusy] = useState(false)
   const [dealPrompt, setDealPrompt] = useState<{ id: string; lead_no: string } | null>(null)
   const [dealBusy, setDealBusy] = useState(false)
   const navigate = useNavigate()
+
+  /** Qualify in one click, like monday's status change: the lead becomes a buyer in Buyers & Suppliers
+   *  and its deal is created. The buyer keeps its own Business Unit if it already has one; a new buyer
+   *  gets the home company, which can be changed later on the buyer. */
+  async function qualify(l: Lead) {
+    if (qualifyBusy) return
+    if (!l.count_id || l.quantity === null || l.quantity <= 0) {
+      setBanner({ kind: 'bad', text: `${l.lead_no} needs a count and a quantity before it can be qualified. Use Edit to add them.` })
+      return
+    }
+    setQualifyBusy(true)
+    setBanner(null)
+    try {
+      let unit: string | null = null
+      if (l.buyer_id) unit = ((await supabase.from('buyer_master').select('company_id').eq('id', l.buyer_id).maybeSingle()).data as { company_id: string | null } | null)?.company_id ?? null
+      if (!unit) unit = ((await supabase.from('companies').select('id').eq('is_home', true).eq('is_active', true).limit(1).maybeSingle()).data as { id: string } | null)?.id ?? null
+      if (!unit) {
+        setBanner({ kind: 'bad', text: 'No home company is set. Mark the agency’s own Business Unit as the home company first.' })
+        return
+      }
+      const { data, error } = await supabase.rpc('qualify_lead_auto', { p_lead: l.id, p_role: 'buyer', p_company: unit })
+      if (error) { setBanner({ kind: 'bad', text: errMessage(error, 'Could not qualify this lead') }); return }
+      const res = data as { created?: string[]; incomplete?: boolean } | null
+      const created = res?.created ?? []
+      setBanner({ kind: 'ok', text: `${l.lead_no} is now Qualified.${created.length ? ` Created ${created.join(', ')}.` : ''}${res?.incomplete ? ' The buyer has missing details and is marked "Incomplete" in Buyers & Suppliers.' : ''}` })
+      await load()
+      if (can('deal.read')) setDealPrompt({ id: l.id, lead_no: l.lead_no })
+    } finally {
+      setQualifyBusy(false)
+    }
+  }
 
   async function createDeal() {
     if (!dealPrompt) return
@@ -363,7 +393,7 @@ export default function Leads() {
     ]
     items.push({ label: 'Quotation', onSelect: () => openQuotation(l) })
     if (converted && can('deal.read')) items.push({ label: 'Go to deal', onSelect: () => navigate(`/deals?open=${l.converted_deal_id}`) })
-    if (canQualify && open) items.push({ label: 'Qualify…', onSelect: () => setQualifying(l) })
+    if (canQualify && open) items.push({ label: 'Qualify', onSelect: () => void qualify(l) })
     items.push({
       label: 'Delete', tone: 'danger',
       onSelect: () => { setDeleteError(null); setDeleting(l) },
@@ -583,7 +613,7 @@ export default function Leads() {
           onClose={() => setEditing(null)}
           onQualify={(lead) => {
             setEditing(null)
-            setQualifying(lead)
+            void qualify(lead)
           }}
           onEdit={(lead) => {
             setEditing(null)
@@ -611,21 +641,6 @@ export default function Leads() {
         </div>
       )}
 
-      {qualifying && canQualify && (
-        <QualifyPanel
-          key={qualifying.id}
-          lead={qualifying}
-          counts={counts}
-          onClose={() => setQualifying(null)}
-          onDone={async (text, leadId) => {
-            const done = qualifying
-            setBanner({ kind: 'ok', text })
-            setQualifying(null)
-            await load()
-            if (can('deal.read') && done) setDealPrompt({ id: leadId, lead_no: done.lead_no })
-          }}
-        />
-      )}
     </>
   )
 }
@@ -767,154 +782,6 @@ function LeadDetails({
 }
 
 /* ---- qualify a lead (T-011) ------------------------------------------------- */
-
-/** Qualifying never asks for Contact or Company details. The one thing it asks
- *  is the Contact's Role, because that must be chosen, never assumed. The
- *  database then finds or creates the Company and the Contact from whatever the
- *  lead holds (anything missing is left empty and the Contact is flagged
- *  incomplete). Count and quantity are the lead's own prerequisites and are only
- *  asked for here when the lead does not have them yet. */
-function QualifyPanel({
-  lead,
-  counts,
-  onClose,
-  onDone,
-}: {
-  lead: Lead
-  counts: CountRow[]
-  onClose: () => void
-  onDone: (message: string, leadId: string) => void | Promise<void>
-}) {
-  // a lead is always a buyer
-  const roles: { value: 'buyer'; label: string }[] = [{ value: 'buyer', label: 'Buyer' }]
-  const [role, setRole] = useState<'' | 'buyer'>('buyer')
-  const [countId, setCountId] = useState(lead.count_id ?? '')
-  const [quantity, setQuantity] = useState(lead.quantity === null ? '' : String(lead.quantity))
-  const [uom, setUom] = useState(lead.uom ?? 'KG')
-  const [units, setUnits] = useState<{ id: string; name: string }[] | null>(null)
-  const [companyId, setCompanyId] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // The Business Unit is chosen, never created here. One that matches the lead's name is picked for you.
-  useEffect(() => {
-    let alive = true
-    void supabase.from('companies').select('id,name').eq('is_active', true).order('name').then(({ data }) => {
-      if (!alive) return
-      const list = (data ?? []) as { id: string; name: string }[]
-      setUnits(list)
-      const hit = list.find((c) => c.name.trim().toLowerCase() === lead.party_name.trim().toLowerCase())
-      if (hit) setCompanyId(hit.id)
-    })
-    return () => { alive = false }
-  }, [lead.party_name])
-
-  const needsProduct = !lead.count_id || lead.quantity === null || lead.quantity <= 0
-  const qtyNumber = numOrNull(quantity)
-  const productReady = !needsProduct || (countId !== '' && qtyNumber !== null && qtyNumber > 0 && uom !== '')
-
-  async function qualify() {
-    if (role === '' || companyId === '') return
-    setBusy(true)
-    setError(null)
-    try {
-      if (needsProduct) {
-        const { error: e } = await supabase.from('leads').update({ count_id: countId, quantity: qtyNumber, uom }).eq('id', lead.id)
-        if (e) throw e
-      }
-      const { data, error: e } = await supabase.rpc('qualify_lead_auto', { p_lead: lead.id, p_role: role, p_company: companyId })
-      if (e) throw e
-      const res = data as { created?: string[]; incomplete?: boolean } | null
-      const created = res?.created ?? []
-      await onDone(
-        `${lead.lead_no} is now Qualified.${created.length ? ` Created ${created.join(', ')}.` : ' Linked to existing records.'}${
-          res?.incomplete ? ' The Contact has missing details -- it is marked "Incomplete" in Contacts.' : ''
-        }`,
-        lead.id,
-      )
-    } catch (caught) {
-      setError(errMessage(caught, 'Could not qualify this lead'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center', zIndex: 1000 }}>
-      <div className="card pad" role="dialog" aria-modal="true" aria-label={`Qualify ${lead.lead_no}`} style={{ maxWidth: 440, width: 'calc(100% - 32px)' }}>
-        <h3 className="section-title" style={{ marginTop: 0 }}>Qualify {lead.lead_no}</h3>
-        <p className="muted small">
-          {lead.party_name}. The Contact is created from the lead. Choose its role and the Business Unit it belongs to.
-        </p>
-
-        {error && (
-          <div className="alert" role="alert">
-            {error}
-          </div>
-        )}
-
-        <Field id="q-role" label="Role" required>
-          <select id="q-role" value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
-            <option value="">Choose…</option>
-            {roles.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field id="q-unit" label="Business Unit" required hint={units && units.length === 0 ? 'There is no active Business Unit yet. Add one in Master Data > Business Units first.' : undefined}>
-          <select id="q-unit" value={companyId} onChange={(e) => setCompanyId(e.target.value)} disabled={units === null}>
-            <option value="">{units === null ? 'Loading…' : 'Choose…'}</option>
-            {(units ?? []).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-          </select>
-        </Field>
-
-        {needsProduct && (
-          <>
-            <p className="field-hint">This lead still needs its product details before it can be qualified.</p>
-            <div className="form-grid">
-              <Field id="q-count" label="Count" required>
-                <select id="q-count" value={countId} onChange={(e) => setCountId(e.target.value)}>
-                  <option value="">Choose…</option>
-                  {counts
-                    .filter((c) => c.is_active || c.id === countId)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.display_name}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-              <Field id="q-qty" label="Quantity" required>
-                <input id="q-qty" inputMode="decimal" className="mono" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-              </Field>
-              <Field id="q-uom" label="UOM" required>
-                <select id="q-uom" value={uom} onChange={(e) => setUom(e.target.value)}>
-                  {LEAD_UOMS.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-          </>
-        )}
-
-        <div className="drawer-actions">
-          <button className="btn primary" type="button" onClick={() => void qualify()} disabled={busy || role === '' || companyId === '' || !productReady}>
-            {busy ? 'Qualifying…' : 'Qualify this lead'}
-          </button>
-          <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 /* ---- station picker, discussion log, follow-ups ------------------------------ */
 
