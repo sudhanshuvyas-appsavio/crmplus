@@ -248,7 +248,7 @@ export default function Leads() {
       file,
       (r) => r.get('party_name'),
       async (r) => {
-        const role = (r.get('party_role').toLowerCase() || 'buyer') as LeadRole
+        const role: LeadRole = 'buyer' // a lead is always a buyer
         if (!LEAD_ROLES.some((x) => x.value === role)) throw new Error('Party role must be buyer, supplier or both')
 
         const countName = r.get('count')
@@ -785,13 +785,9 @@ function QualifyPanel({
   onClose: () => void
   onDone: (message: string, leadId: string) => void | Promise<void>
 }) {
-  const roles: { value: 'buyer' | 'supplier' | 'both'; label: string }[] = [
-    { value: 'buyer', label: 'Buyer' },
-    { value: 'supplier', label: 'Supplier' },
-  ]
-  if (lead.party_role === 'both') roles.push({ value: 'both', label: 'Both' })
-
-  const [role, setRole] = useState<'' | 'buyer' | 'supplier' | 'both'>('')
+  // a lead is always a buyer
+  const roles: { value: 'buyer'; label: string }[] = [{ value: 'buyer', label: 'Buyer' }]
+  const [role, setRole] = useState<'' | 'buyer'>('buyer')
   const [countId, setCountId] = useState(lead.count_id ?? '')
   const [quantity, setQuantity] = useState(lead.quantity === null ? '' : String(lead.quantity))
   const [uom, setUom] = useState(lead.uom ?? 'KG')

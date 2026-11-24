@@ -14,8 +14,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { LEAD_ROLES, LEAD_SOURCES, LEAD_UOMS } from '../api/types'
-import type { CountRow, Lead, LeadRole, Station } from '../api/types'
+import { LEAD_SOURCES, LEAD_UOMS } from '../api/types'
+import type { CountRow, Lead, Station } from '../api/types'
 import { uomLabel } from '../lib/deals'
 import { errMessage, isGst, numOrNull } from '../lib/party'
 import { joinPhone, splitPhone } from '../lib/phone'
@@ -53,8 +53,7 @@ function errorsOf(f: LeadForm, status: FormStatus): Record<string, string> {
   if (!f.lead_type) e['l-type'] = 'Choose the lead type.'
   if (!status) e['l-status'] = 'Choose a status.'
   if (!f.party_name.trim()) e['l-name'] = f.lead_type === 'existing' ? 'Pick the party in Party Details; its name is filled in from there.' : 'Enter the lead name.'
-  if (f.lead_type === 'existing' && f.party_role !== 'supplier' && !f.buyer_id) e['l-buyer'] = 'Pick the buyer from Buyers & Suppliers.'
-  if (f.lead_type === 'existing' && f.party_role !== 'buyer' && !f.supplier_id) e['l-supplier'] = 'Pick the supplier from Buyers & Suppliers.'
+  if (f.lead_type === 'existing' && !f.buyer_id) e['l-buyer'] = 'Pick the buyer from Buyers & Suppliers.'
   if (f.mobile.trim() && !phoneOk(f.mobile_cc, f.mobile)) e['l-mobile'] = f.mobile_cc === '+91' ? 'An Indian mobile number has exactly 10 digits.' : 'A phone number has 6 to 14 digits.'
   if (f.gst.trim() && !isGst(f.gst)) e['l-gst'] = 'Not a valid 15-character GST number yet.'
   if (f.quantity.trim()) {
@@ -163,7 +162,8 @@ export function LeadFormModal({
       setError(errMessage(caught, 'Could not add the station'))
       return
     }
-    const payload = { ...leadPayload(form), station: stationName || null, status }
+    // a lead is always a buyer
+    const payload = { ...leadPayload(form), party_role: 'buyer', supplier_id: null, station: stationName || null, status }
     const { error: saveError } = updating
       ? await supabase.from('leads').update(payload).eq('id', recordId)
       : await supabase.from('leads').insert(payload)
@@ -310,24 +310,14 @@ export function LeadFormModal({
         </FormSection>
 
         <FormSection title="Party Details" collapsible columns={3}>
-          <Field id="l-role" label="Party role" required>
-            <select id="l-role" value={form.party_role} onChange={(e) => set('party_role', e.target.value as LeadRole)}>
-              {LEAD_ROLES.map((r) => (<option key={r.value} value={r.value}>{r.label}</option>))}
-            </select>
+          <Field id="l-role" label="Party role">
+            <input id="l-role" readOnly value="Buyer" title="A lead is always a buyer." />
           </Field>
-          {existing && form.party_role !== 'supplier' && (
+          {existing && (
             <Field id="l-buyer" label="Buyer" required>
               <select id="l-buyer" value={form.buyer_id} onChange={(e) => pickMaster('buyer', e.target.value)}>
                 <option value="">--None--</option>
                 {masters.buyers.filter((x) => x.is_active || x.id === form.buyer_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
-              </select>
-            </Field>
-          )}
-          {existing && form.party_role !== 'buyer' && (
-            <Field id="l-supplier" label="Supplier" required>
-              <select id="l-supplier" value={form.supplier_id} onChange={(e) => pickMaster('supplier', e.target.value)}>
-                <option value="">--None--</option>
-                {masters.suppliers.filter((x) => x.is_active || x.id === form.supplier_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
               </select>
             </Field>
           )}
