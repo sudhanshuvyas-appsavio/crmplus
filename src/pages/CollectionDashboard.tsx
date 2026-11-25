@@ -62,12 +62,12 @@ export default function CollectionDashboard() {
       {d && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-            <Tile title="Total outstanding" value={`₹${num(d.outstanding.amount)}`} to="/collection-tasks" link="Open collection tasks"
+            <Tile title="Total outstanding" value={`₹${num(d.outstanding.amount)}`} to="/tasks?view=payments" link="Open payment tasks"
               flag={d.outstanding.overdue_amount > 0 ? `₹${num(d.outstanding.overdue_amount)} overdue` : undefined}
               sub={d.outstanding.orders === 0 ? 'Nothing is owed on dispatched goods.' : `Across ${d.outstanding.orders} order${d.outstanding.orders === 1 ? '' : 's'}, after buyer receipts.`} />
             <Tile title="Today's collection" value={`₹${num(d.today.receipts_amount)}`} to="/collection-activity" link="Open collection activity"
               sub={`${d.today.receipts} receipt${d.today.receipts === 1 ? '' : 's'} recorded. Cheques collected today: ${d.today.cheques_collected} (₹${num(d.today.cheques_amount)}).`} />
-            <Tile title="Cheques pending deposit" value={String(d.cheques_pending.count)} to="/cheque-collections" link="Open cheque collection"
+            <Tile title="Cheques pending deposit" value={String(d.cheques_pending.count)} to="/tasks?view=cheques" link="Open cheques"
               flag={d.cheques_pending.older_than_3_days > 0 ? `${d.cheques_pending.older_than_3_days} held over 3 days` : undefined}
               sub={d.cheques_pending.count === 0 ? 'Every collected cheque is deposited.' : `₹${num(d.cheques_pending.amount)} in hand. Oldest ${d.cheques_pending.oldest_days} day${d.cheques_pending.oldest_days === 1 ? '' : 's'}.`} />
           </div>

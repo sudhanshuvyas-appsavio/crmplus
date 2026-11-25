@@ -3,13 +3,15 @@
  *  Kanban view of the same groups. Used by every CRM screen (Deals, Sales
  *  Confirmations, Dispatch and Billing) so they look and behave the same. */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
 export interface BoardGroup {
   value: string
   label: string
   /** Colour token name: blue, orange, green, purple, red, grey, teal, yellow. */
   tone: string
+  /** Shown only when it has items (groups monday does not have). monday's own groups always show, even empty. */
+  optional?: boolean
 }
 
 export interface BoardColumn<T> {
@@ -22,9 +24,13 @@ export interface BoardColumn<T> {
   total?: (rows: T[]) => ReactNode
   /** Keep clicks in this cell from opening the item (for inline controls). */
   interactive?: boolean
+  /** Pin the column to the right edge of the table while the rest scrolls sideways (the Actions column). */
+  pinRight?: boolean
 }
 
 export type BoardView = 'table' | 'kanban'
+
+const cellClass = (c: { align?: 'right' | 'center'; pinRight?: boolean }) => [c.align, c.pinRight ? 'pin-right' : ''].filter(Boolean).join(' ') || undefined
 
 export function Board<T>({
   rows,
@@ -37,6 +43,8 @@ export function Board<T>({
   card,
   emptyText,
   selection,
+  rowOpens = true,
+  expandable,
 }: {
   rows: T[]
   groups: BoardGroup[]
@@ -49,7 +57,12 @@ export function Board<T>({
   card: (row: T) => ReactNode
   emptyText: string
   selection?: { isSelected: (id: string) => boolean; toggle: (id: string) => void }
+  /** false: a click on a table row or a Kanban card does nothing (the Actions menu is the way in; a card's body then holds its own menu). */
+  rowOpens?: boolean
+  /** Child rows under an item, like monday's subitems: a chevron opens them below the row. */
+  expandable?: { count: (row: T) => number; render: (row: T) => ReactNode }
 }) {
+  const [openRows, setOpenRows] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => readCollapsed())
   useEffect(() => {
     try {
@@ -66,13 +79,14 @@ export function Board<T>({
     byGroup.get(g)!.push(row)
   }
 
-  if (rows.length === 0) return <div className="card pad empty">{emptyText}</div>
+  const empty = rows.length === 0 ? <p className="muted small">{emptyText}</p> : null
 
   if (view === 'kanban') {
     return (
       <div className="kanban">
         {groups.map((g) => {
           const list = byGroup.get(g.value) ?? []
+          if (list.length === 0 && g.optional) return null
           return (
             <section key={g.value} className={`kanban-col tone-${g.tone}`} aria-label={g.label}>
               <header className="kanban-head">
@@ -84,9 +98,13 @@ export function Board<T>({
                   <p className="muted small kanban-empty">Nothing here</p>
                 ) : (
                   list.map((row) => (
-                    <button key={rowKey(row)} type="button" className="kanban-card" onClick={() => onOpen(row)}>
-                      {card(row)}
-                    </button>
+                    rowOpens ? (
+                      <button key={rowKey(row)} type="button" className="kanban-card" onClick={() => onOpen(row)}>
+                        {card(row)}
+                      </button>
+                    ) : (
+                      <div key={rowKey(row)} className="kanban-card">{card(row)}</div>
+                    )
                   ))
                 )}
               </div>
@@ -99,9 +117,10 @@ export function Board<T>({
 
   return (
     <div className="board-groups">
+      {empty}
       {groups.map((g) => {
         const list = byGroup.get(g.value) ?? []
-        if (list.length === 0) return null
+        if (list.length === 0 && g.optional) return null
         const closed = !!collapsed[g.value]
         const hasTotals = columns.some((c) => c.total)
         return (
@@ -126,33 +145,58 @@ export function Board<T>({
                   <thead>
                     <tr>
                       {selection && <th className="bcell-check" aria-label="Select" />}
+                      {expandable && <th className="bcell-exp" aria-label="Subitems" />}
                       {columns.map((c) => (
-                        <th key={c.key} className={c.align ?? undefined} style={c.width ? { width: c.width } : undefined}>
+                        <th key={c.key} className={cellClass(c)} style={c.width ? { width: c.width } : undefined}>
                           {c.label}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
+                    {list.length === 0 && (
+                      <tr>
+                        <td colSpan={columns.length + (selection ? 1 : 0) + (expandable ? 1 : 0)} className="muted small bgroup-empty">No items in this group</td>
+                      </tr>
+                    )}
                     {list.map((row) => {
                       const id = rowKey(row)
+                      const subs = expandable ? expandable.count(row) : 0
+                      const isOpen = !!openRows[id]
                       return (
-                        <tr key={id} className="clickable" onClick={() => onOpen(row)}>
+                        <Fragment key={id}>
+                        <tr className={rowOpens ? 'clickable' : undefined} onClick={rowOpens ? () => onOpen(row) : undefined}>
                           {selection && (
                             <td className="bcell-check" onClick={(e) => e.stopPropagation()}>
                               <input type="checkbox" checked={selection.isSelected(id)} onChange={() => selection.toggle(id)} aria-label="Select row" />
                             </td>
                           )}
+                          {expandable && (
+                            <td className="bcell-exp" onClick={(e) => e.stopPropagation()}>
+                              <button type="button" className="exp-btn" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} subitems (${subs})`} onClick={() => setOpenRows((p) => ({ ...p, [id]: !isOpen }))}>
+                                <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
+                                <span className="exp-n">{subs}</span>
+                              </button>
+                            </td>
+                          )}
                           {columns.map((c) => (
                             <td
                               key={c.key}
-                              className={c.align ?? undefined}
+                              className={cellClass(c)}
                               onClick={c.interactive ? (e) => e.stopPropagation() : undefined}
                             >
                               {c.render(row)}
                             </td>
                           ))}
                         </tr>
+                        {expandable && isOpen && (
+                          <tr className="subrow">
+                            <td colSpan={columns.length + (selection ? 1 : 0) + 1}>
+                              <div className="subrow-wrap">{expandable.render(row)}</div>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -160,8 +204,9 @@ export function Board<T>({
                     <tfoot>
                       <tr>
                         {selection && <td />}
+                        {expandable && <td />}
                         {columns.map((c) => (
-                          <td key={c.key} className={c.align ?? undefined}>
+                          <td key={c.key} className={cellClass(c)}>
                             {c.total ? c.total(list) : null}
                           </td>
                         ))}
@@ -264,6 +309,15 @@ export function StatusPicker({
 }
 
 /** Table / Kanban switch for the board toolbar. */
+/** Small download arrow for Export buttons. */
+export function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />
+    </svg>
+  )
+}
+
 export function ViewSwitch({ view, onChange }: { view: BoardView; onChange: (v: BoardView) => void }) {
   return (
     <div className="seg" role="group" aria-label="View">

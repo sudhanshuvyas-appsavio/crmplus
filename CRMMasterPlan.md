@@ -2,6 +2,8 @@
 
 **Purpose.** One plan for every block and every feature of the monday.com "CRM" workspace (Appsavio), mapped onto the Commission Desk web app in this repository (Vite + React + Supabase). For each block it says what monday does today, what the app already does, what is missing, and the features to build. It is a feature plan for a **standalone CRM** modelled on the monday workflows; no monday data is imported.
 
+> **Update 19 Nov 2026.** Part 2 at the end of this file adds what Part 1 listed as unreadable or missing: the automations of 16 boards read from monday (every trigger, condition, action and message text), the creation forms read so far (Master data verified; Dispatch and Billing and Sales Confirmation partial), and a per-group, per-board build specification written so an AI agent can rebuild each board, form and automation. Where Part 2 and Part 1 disagree, Part 2 is newer.
+
 **Sources (all read-only, 17 Nov 2026)**
 - monday.com workspace "CRM" (id 2480519) through the monday connector: all 3 folders, 8 loose boards, 7 MDM boards, 3 CRM boards, 7 Tasks boards, subitem boards, automations, formulas, labels, item counts.
 - This repository: `src/`, `supabase/migrations/`, `supabase/schema/public.sql`, `README.md`, `MDMplan.md`.
@@ -26,7 +28,7 @@
 | **B. Sales pipeline** | Deals, Sales Confirmation | Leads, Deals, Pending confirmations, Sales confirmations |
 | **C. Execution and billing** | Dispatch and Billing (with dispatch subitems) | Orders, dispatches, payments, close rules, pending dispatches/documents |
 | **D. Billing documents** | Commission Invoices, Transport Invoice, Transporter Type Details | Commission invoices and bills, transporter invoices and payments, trip sheets |
-| **E. Field and collection tasks** | Mill Invoice Delivery, Commission Invoice Delivery, Payment Collection, Cheque Collection, Kaarthika Transport Freight Invoice, Sample Delivery, Monthly Visit | Collection tasks, cheque collections and deposits, collection and office activity, staff expenses |
+| **E. Field and collection tasks** | Mill Invoice Delivery, Commission Invoice Delivery, Payment Collection, Cheque Collection, Transport Freight Invoice, Sample Delivery, Monthly Visit | Collection tasks, cheque collections and deposits, collection and office activity, staff expenses |
 | **F. Messaging** | Whatsapp Message, Whatsapp Tracking, email buttons | Prefilled WhatsApp/email links and a notification log |
 | **G. Reporting** | Billing & Dispatch Dashboard | Sales, billing and collection dashboards; staff performance and efficiency |
 | **H. Platform** | users, boards' people columns | Supabase Auth, permission catalogue, templates, audit log |
@@ -40,7 +42,7 @@ Lead* -> Deal (New Deal > Manager Approval > Approved) -> Sales Confirmation (Dr
            |-> subitems = dispatch entries (partial dispatch, cancel, return)
            |-> task in Mill Invoice Delivery (proof of delivery of the mill invoice)
       -> Commission Invoice (buyer and/or supplier) -> task in Commission Invoice Delivery
-      -> Transporter Type Details (trip costing) -> Transport Invoice -> task in Kaarthika Transport Freight Invoice
+      -> Transporter Type Details (trip costing) -> Transport Invoice -> task in Transport Freight Invoice
       -> payment pending -> Payment Collection <- Monthly Visit (30/45/60-day escalation)
       -> Cheque Collection
 Every outbound document: email button and/or WhatsApp template -> logged in Whatsapp Message.
@@ -185,13 +187,13 @@ App: `commission_invoices` with number guard, `generate_commission_invoice`, `co
 | D-07 | Delivery task | Create the delivery task on generation (block E) | P1 |
 
 ### 6.2 Transport Invoice and Transporter Type Details (monday, 20 and 11 items)
-Transporter Type Details is a trip costing sheet: type (own, agreed, third party), vehicle, counts, bags, start/end km, actual km, diesel litres and price, cost of diesel, driver bata, loading, unloading, tiffin, other, LNT, PC, **total cost**, difference, KA invoice amount, KT invoice number, links to dispatch, sales confirmation, transport invoice. Transport Invoice: KT invoice no, business unit, From/To parties, bags, bag weight, total weight, type (Kg or Bag), rate, **total amount**, mode of payment, collected, pending, mill bill no, LR no and date, vehicle, transporter, documents, email, WhatsApp, task in the Kaarthika freight board. Known defects: total shows 0 (mirror of mirror), link TI to TTD empty on all rows, five empty rows.
+Transporter Type Details is a trip costing sheet: type (own, agreed, third party), vehicle, counts, bags, start/end km, actual km, diesel litres and price, cost of diesel, driver bata, loading, unloading, tiffin, other, LNT, PC, **total cost**, difference, agency invoice amount, transport invoice number, links to dispatch, sales confirmation, transport invoice. Transport Invoice: transport invoice no, business unit, From/To parties, bags, bag weight, total weight, type (Kg or Bag), rate, **total amount**, mode of payment, collected, pending, mill bill no, LR no and date, vehicle, transporter, documents, email, WhatsApp, task in the Transport Freight Invoice board. Known defects: total shows 0 (mirror of mirror), link TI to TTD empty on all rows, five empty rows.
 
 App: `order_trips` (trip sheets with mileage, fuel, costs, trip cost, only for own transport), dispatch-level transporter invoice fields, pending transporter invoices, transporter payments.
 
 | ID | Feature | Detail | Priority |
 |---|---|---|---|
-| D-08 | Trip costing | Extend trip sheet with driver bata, loading, unloading, tiffin, other, KA invoice amount and computed difference | P1 |
+| D-08 | Trip costing | Extend trip sheet with driver bata, loading, unloading, tiffin, other, agency invoice amount and computed difference | P1 |
 | D-09 | Transport invoice | Per dispatch or per period: type Kg/Bag, rate, total weight, amount computed; payment mode, collected, pending | P1 |
 | D-10 | Transporter bill register | Keep bill numbers as text; link bill to dispatches and trips | P1 |
 | D-11 | Third-party types | Agreed third party vs direct payment by party | P1 |
@@ -201,13 +203,15 @@ App: `order_trips` (trip sheets with mileage, fuel, costs, trip cost, only for o
 
 ## 7. Block E: Field and collection tasks
 
+> **Status (built):** this block is implemented as the Tasks module at `/tasks` (queues per task type, cheque register, proof photos, GPS check-in, payment lines, notifications bell, scheduled reminders and 30/45/60-day escalation, WhatsApp and e-mail sender with a message log, field view at `/tasks/my`). The old Collection tasks, Cheque collection and Cheques deposited screens were removed; the tables are archived. See the migrations `20261118100000`-`20261118100200` and the README section "Tasks module setup".
+
 | monday board | Items | Purpose and rules | App today | Features |
 |---|---|---|---|---|
 | **Mill Invoice Delivery** | 26 | Task per mill invoice: delivery mode (Hand/Courier), proof upload, GPS, invoice status (Not Delivered/Delivered). Proof upload sets Delivered and notifies accounts. A second generic status never changes | `collection_tasks` type `invoice_delivery`, `delivery_note`, `order_dispatches` POD fields | **E-01** Delivery task with mode, proof photo, GPS, status; auto-complete on proof; one status only |
 | **Commission Invoice Delivery** | 31 | Hand delivery of the commission invoice, acknowledgement (Yes/No), pending-payment flag; if pending, spawns a Payment Collection item | `collection_tasks` type `commission_invoice` | **E-02** Delivery with acknowledgement; **E-03** escalate to payment follow-up |
 | **Payment Collection** | 0 | Amount, collected, mode (Online, Cash, Cheque), proof, GPS, balance, status Outstanding/Completed, start/end date, ageing | `collection_tasks` types `buyer_payment`, `cash_collection`, `payment_deposit`; `order_payments` | **E-04** Collection ledger with partial amounts, proof, GPS, open ageing (monday ageing only works after completion); auto-complete when balance is zero |
 | **Cheque Collection** | 1 | Cheque no, bank, date, amount, photo, deposit status (Pending, Collected, Deposited, Cleared), groups Collected/In progress/To collect | `cheque_collections` with duplicate guard, `ChequeDeposits`, `collection_task_guard` | **E-05** Cheque lifecycle with photo, deposit slip, cleared date; link to the payment; fix the double state model (groups and status) |
-| **Kaarthika Transport Freight Invoice** | 20 | Freight bill check: bill no, amount, load reference, delivery proof, GPS, Check (Outstanding/Cleared) | `PendingTransporterInvoices`, `TransporterPayments` | **E-06** Freight-bill verification and payment status (hard-coded transporter name in monday should become data) |
+| **Transport Freight Invoice** | 20 | Freight bill check: bill no, amount, load reference, delivery proof, GPS, Check (Outstanding/Cleared) | `PendingTransporterInvoices`, `TransporterPayments` | **E-06** Freight-bill verification and payment status (hard-coded transporter name in monday should become data) |
 | **Sample Delivery** | 1 | Samples from mills for a buyer: lot, quality, type, feedback due 7 days after delivery, feedback status (Pending, Approved, Rejected), reminder | none | **E-07** Sample register with feedback reminder; approval creates a lead/deal follow-up (monday targets a board that no longer exists) |
 | **Monthly Visit** | 3 | Visit plan and log: check-in/out times, GPS, summary, visited status, pending payment flag; escalation at 30/45/60 days to Payment Collection (nine near-duplicate rules) | `activity_log` kinds (call, meeting, reminder, task), `CollectionActivity`, `OfficeActivity` | **E-08** Visit planner with check-in/out and GPS; **E-09** one escalation rule with thresholds as data (30/45/60) creating at most one open follow-up per buyer |
 
@@ -380,3 +384,336 @@ Effort is working days for one developer who knows the repo; phases 5 and 6 can 
 | Bank details exposure | Structured fields, permission-gated, never written to logs |
 | Field staff need phones, not desktops | Build the mobile task screen early (Phase 6) and test on real devices |
 | Business rules differ from monday habits | User acceptance in Phase 8 with real scenarios |
+
+---
+
+# PART 2: per-board build specification (groups, boards, creation forms, automations)
+
+Purpose of this file: one reference an AI agent (or developer) can read to build CRM+ so that every board, creation form, column, status flow and automation matches the monday.com workspace **CRM** (id 2480519, account `appsavio-corp`). It was written from read-only reads of monday on 2026-11-19. Nothing in monday was changed.
+
+Read this first, then the two supporting docs:
+
+| Doc | What it holds |
+|---|---|
+| `docs/monday-crm-reference.md` | Every board's full column table (title, type, enum labels, formulas, mirrors, relations), subitem columns, relationship map. Authoritative for **columns**. |
+| `docs/mdm-column-parity.md` | The 7 Master data boards: CRM+ column mapping and creation-form specs (done and verified on production). |
+| `docs/master-data-qa-checklist.md` | The QA scenarios used for Master data; reuse them for every new register. |
+
+---
+
+## P2-0. How verified each section is
+
+| Mark | Meaning |
+|---|---|
+| **VERIFIED** | Read directly from monday (API or the signed-in form). |
+| **PARTIAL** | Part of it read; the rest is inferred from the board's columns and flagged `(confirm)`. |
+| **UNREAD** | Not read. Derived only from columns. Must be confirmed in monday before building. |
+
+| Item | Status | Notes |
+|---|---|---|
+| Columns of all 22 boards | VERIFIED | monday API, 2026-11-17 and 2026-11-19 |
+| Automations of 16 boards | VERIFIED | Deals, Sales Confirmation, Dispatch and Billing, Commission Invoices, Transport Invoice, Transporter Type Details, Mill Invoice Delivery, Commission Invoice Delivery, Transport Freight Invoice, Cheque Collection, Payment Collection, Sample Delivery, Monthly Visit, Counts, Buyers & Suppliers, Business Units |
+| Automations of Transport Company, Location MDM, Sizing/Delivery, Payment Terms, Whatsapp Message, Whatsapp Tracking | UNREAD | Read `list_automations` for them before building (likely only date/name helpers) |
+| Creation forms of the 7 Master data boards | VERIFIED | `docs/mdm-column-parity.md` |
+| Creation form of Dispatch and Billing | PARTIAL | See §P2-3.3 |
+| Creation form of Sales Confirmation | PARTIAL | First section only |
+| Creation form of Deals | UNREAD | The monday account used shows "No sections are available for your profile" (Viewer role). Needs an admin or editor session |
+| Creation forms of the other 10 boards | UNREAD | Same reason: the form is an embedded app (app feature 16492757) that only renders in a signed-in browser |
+| Date-trigger offsets in the Monthly Visit workflows | PARTIAL | Times known, some day offsets and status labels `(confirm)` |
+
+How to finish the UNREAD items: sign in to monday with an editor/admin account in a browser, open the board's **Creation Form** view, expand every section, and record each field's label, `*` mark, type hint (shown under the field as "Type: ...") and placeholder. monday API returns the view ids (listed per board below) but not the form's fields.
+
+---
+
+## P2-1. Rules for the building agent
+
+1. **Match monday's names**: board name, column titles (spelling and order), status labels, group names. Fix only obvious typos, and record each fix in `docs/mdm-column-parity.md`-style notes (as done for "Default Commision Percentage").
+2. **Every register screen** uses the Master data pattern:
+   - Grid with monday's columns in monday's order, then an **Actions** column (Edit / Documents / Delete). No View item. Row click opens nothing.
+   - Create and Edit use the same `FormKit` cards: `FormSection` title with "(N fields)", two-column grid, `Field` with label, `*` for required, placeholder "Enter <Field>", selects "-- Select <Field> --", file field "Attach files (0/10)", footer `✓ Create Item` and `Clear Form`.
+   - A user without edit rights gets Edit opened read-only.
+   - Delete uses `ConfirmDialog`. Documents use `DocumentList` with in-app preview (image, PDF, text).
+   - Search over every visible column (whitespace-tolerant, `searchKey`), filters for Status and each enum/relation, Inactive chip.
+   - Validation messages next to the field while typing, and under every required field on Create; duplicates refused with a sentence that names the record; server errors as sentences.
+3. monday's form opens with **Select Action: Create New Record / Update Existing Record**. CRM+ drops "Update Existing Record" (decision recorded 2026-11-18: Actions > Edit is the only way to change a record).
+4. Keep monday's **groups** as a grouping or status filter in the grid, because monday users work by group (e.g. Deals: New, Manager Approval, Approved, Reconsider, Closed Lost).
+5. Mirror columns (monday "lookup") are **read-only derived columns** from the linked record. Show them in the grid and on the form as read-only. Do not store copies unless monday does (a few boards copy values with automations; those are listed per board).
+6. Formula columns are computed in the database (generated column or view), with the same formula text as monday (listed per board).
+7. Automations are listed per board as **A1, A2, ...** with trigger, conditions, actions and message texts. Build them in the automation layer of §P2-2. Mark a board done only when each A-number has a test.
+8. Never read or write monday from the app. Production checks are read-only unless a test record is agreed.
+9. Commits: no `Co-Authored-By` line. Push to `Testing` and `main` once, after the checks pass.
+
+---
+
+## P2-2. Automation layer (build once, use for every board)
+
+monday's workflows are built from a small set of triggers, conditions and actions. Build these as reusable pieces (database triggers or an Edge Function worker plus a `automation_log` table), then express each board's A-numbers with them.
+
+**Triggers**
+- `item_created`
+- `column_changed(column)`; `status_changed(column, from?, to)`
+- `button_clicked(column)` (Email / Send To Buyer / Send To Supplier)
+- `date_arrives(column, time_of_day, tz=Asia/Calcutta, offset_days?)`
+- `subitem_status_changed`, `subitem_column_changed`
+
+**Conditions**: `column_is_empty`, `column_is_not_empty`, `status_is(value)`, `number_greater_than(value)`.
+
+**Actions**
+- `set_column(col, value | template)`, `set_date(col, today|now)`, `change_status(col, label)`
+- `move_to_group(group)`
+- `create_item_and_link(target_board, name_template, column_values, link_both_ways)`
+- `create_subitem(name_template, column_values)`
+- `assign_creator(people_col)`, `notify(person_cols, title, message)`
+- `send_email(to_cols, subject, body_template, attachment_col)`
+- `send_whatsapp_template(template_name, to_phone_cols[], document_col, log_cols{response, wamid, template, message})`
+- `copy_from_lookup(target_col, source_col via relation)` (used on create and when the relation changes)
+- `duplicate_check(columns, flag_col, message_col)`
+- `autonumber(col, prefix?)`, `ai_fill(col)` (monday uses AI to fill one Deals column; skip unless asked)
+
+**Template variables** are written `{Column title}` below. Message text is verbatim from monday (typos kept for traceability).
+
+**Logging**: every run writes `automation_log(board, item, automation_id, state, error, ran_at)`; show failures to admins (monday shows run history).
+
+**Switched off in monday: do not build** (listed so nobody copies them): Commission Invoice Delivery "set date / link / assign person on create" (missing column), SC → "Orders" (old), Sample Delivery → "Qualified Leads" (target board deleted), Commission Invoices date trigger that only creates a "Test message", all deactivated Deals template automations (email opened, AI on create, etc.).
+
+---
+
+## P2-3. Group CRM (folder "CRM"): the core sales flow
+
+Flow: **Deal** → (manager approves) → **Sales Confirmation** → (send with delivery info) → **Dispatch and Billing** → dispatch entries (subitems) → **Commission Invoice**.
+
+### 3.1 Deals (board 5024227507, 28 rows)
+
+- **CRM+ today**: `/deals` (src/pages/Deals.tsx), ~20 columns, row-click style. **Gap**: ~25 monday columns missing (mostly buyer/supplier mirrors), no Actions column, no groups tabs parity.
+- **Purpose**: a buyer enquiry/deal for a count, approved by a manager before it becomes a Sales Confirmation.
+- **Groups**: New, Manager Approval, Approved, Reconsider, Closed Lost.
+- **Columns** (full table in `docs/monday-crm-reference.md` §Deals): Name, Tasks (subitems), Owner, Status (`deal_stage`: New Deal → Manager Approval → Approved / Reconsider / Closed Lost), Manager, Created Date, Deal No, Approval Date, Sales Confirmation (relation), Counts (relation), Summary (mirror of Counts.Summary), Payment Terms (relation), Buyer (relation) + 10 buyer mirrors (Messenger, Contact Person 1, Contact Person Phone, Office Address, Mill/Factory/Delivery Address, GST No., Location, IT PAN, Business Unit, Buyer Commission Type, Buyer Commission Value), Supplier (relation) + 11 supplier mirrors (Messenger, Contact Person 1, Contact Person 2, Office Address, Mill/Factory/Delivery Address, GST No., Location, IT PAN, Business Unit, Supplier Commission Type, Supplier Commission Value), Quantity, UOM (KGs, Bags, Hanks, Bales, Carton, Chippa, Meters, Tons), Bags Weight, Final Rate, Freight (text), Mode (Net, Ex-Mill), Remarks, Documents, Location (map).
+- **Creation form**: view id 51649995 "Deal Creation Form". **UNREAD**. Proposed until confirmed (from columns, in monday's column order): Deal Details (Name*, Owner, Manager, Created Date, Deal No), Parties (Buyer*, Supplier), Product (Counts*, Quantity*, UOM*, Bags Weight, Final Rate, Mode, Freight, Payment Terms), Remarks, Documents. Confirm required marks in monday.
+- **Automations** (VERIFIED):
+  - A1 `status_changed(Status → Manager Approval)`: notify the **Manager** with title `Deal - {Name}`, message `Hey, / Please Review this Deal - {Name}`; move to group Manager Approval.
+  - A2 `status_changed(Manager Approval → Approved)`: create an item in **Sales Confirmation** named `Sales Confirm -  {Deal Name}`, Status = Draft, group New, linked both ways (Deals."Sales Confirmation" ↔ SC."Link to Deals"); set **Approval Date** = today; move the deal to group Approved.
+  - A3 `status_changed(Manager Approval → Reconsider)`: notify the **Owner** with title `Revised Deal - {Name}`, message `Hey {Owner}, / Please revised this Deal - {Name}`; move to group Reconsider.
+  - A4 `status_changed(→ Closed Lost)`: move to group Closed Lost.
+  - A5 `column_changed(Deal No)`: set Name = `{Deal No}`.
+  - A6 `item_created`: assign the creator to **Owner**.
+  - A7 `item_created`: Created Date = now; Deal No = auto-number (legacy automations 29500214 and 29500216).
+- **Build notes**: an Approved deal is locked (CRM+ already has `crm_deals_status_guard`). Reconsider returns the deal to the owner for edits. Keep the existing lead link (CRM+-only).
+- **Acceptance**: each of A1 to A7 has a test; the grid shows all 45 columns with the column picker; Actions menu works.
+
+### 3.2 Sales Confirmation (board 5026795662, 78 rows)
+
+- **CRM+ today**: `/sales-confirmations`, ~22 columns, bulk send drawer and notification log exist (`src/components/sc/`). **Gap**: ~50 buyer/supplier mirror columns, statuses/groups, email/WhatsApp parity, Actions column.
+- **Purpose**: the confirmation (purchase order) sent to buyer and supplier by email and WhatsApp for an approved deal, later enriched with delivery/transport info.
+- **Groups**: New, Send, Send with Delivery Info.
+- **Columns**: see `docs/monday-crm-reference.md` §Sales Confirmation. Key enums: Status (Draft → Send → Send with Delivery Info.), Type (Local, Export), Freight (EXCLUDED, INCLUDED), UOM (as Deals), Whatsapp Message (Send to Supplier, Send To Buyer, Not Send). Buttons: Send To Supplier, Send To Buyer. Checkboxes: Confirmation approved, Send To Buyer. Files: Buyer Document, Supplier Document. Text: Confirmation No, wamid, Buyer Response, Supplier Response, Message Template Name, Transporter Name, Vehicle Number. Long text: Delivery Schedule, Remarks, Messsage [sic]. Phone: Driver Contact Phone. Dates: Created Date, Buyer Email Datetime, Supplier Email Datetime. Formula: Quantity × Bag Weight (total kg).
+- **Creation form**: view id 51649580 "Sales Confirmation Creation Form". **PARTIAL**. First section read: **Sales Confirmation Details (7 fields)**: Name*, Created Date (date and time), Type*, Status*, Link to Deals (relation), Delivery Schedule (long text), plus one field not seen `(confirm)`. Remaining sections not read. Proposed continuation from the columns: Parties (Buyer*, Supplier*), Product (Counts*, Quantity*, Bag Weight, Ex Mill, UOM*, Final Rate, Payment Terms*, Freight), Delivery (Sizing/Delivery Address, Transporter Name, Vehicle Number, Driver Contact Phone), Remarks, Documents.
+- **Automations** (VERIFIED):
+  - A1 `status_changed(Draft → Send)`: move to group Send.
+  - A2 `status_changed(Send → Send with Delivery Info.)` and `Link to Dispatch and Billing` is empty: create an item in **Dispatch and Billing** named `Sales - {Name}`, Status = Draft, group Draft, linked both ways (SC."link to Dispatch and Billing" ↔ D&B."Sales Confirmation"); copy Transporter Name, Driver Contact Phone, Vehicle Number into the new item; move the SC to group "Send with Delivery Info.".
+  - A3 `button_clicked(Send To Supplier)`: send email, subject `Sales Confirmation Document`, attach **Supplier Document**, body: `Dear Sir, / Please find attached the confirmation for your reference, / Incase there is any difference in count/ rate/ quantity , kindly revert at the earliest. Attachment to have the bank details of mill / Contact {Supplier Messenger…} / Thanking you, / Confirmation department / {…}`. Then set **Supplier Email Datetime** = now.
+  - A4 `button_clicked(Send To Buyer)`: same, subject `Sales Confirmation Document`, attach **Buyer Document**, body starts `Dear Sir, / Please find attached the confirmation for your reference, / In case there is any difference in count/ rate/ quantity , kindly revert at the earliest. Attachment to have the bank details of mill / Contact {…} / Thanking you, / Confirmation department / {…}`. Then **Buyer Email Datetime** = now.
+  - A5 `status_changed(Whatsapp Message → Send To Buyer)`: send WhatsApp template `sales_confirmation_buyer` ("Sales Conf. - BUYER (Doc)") with **Buyer Document** to Buyer Office Phone, Buyer Contact Person 1 Phone, Contact Person 2 Phone; log Buyer Response, wamid, Message Template Name, Messsage.
+  - A6 `status_changed(Whatsapp Message → Send to Supplier)`: template `sales_confirmation_supplier` ("Sales Conf. - SUPPLIER (Doc)") with **Supplier Document** to Supplier Office Phone and contact phones; log Supplier Response, wamid, template, message.
+  - A7 `column_changed(Buyer Response)` is not empty: create **Whatsapp Message** item `Message-{…}` (Board = Sales Confirmation, group Sales Confirmation) with To Phone, Message, wamid, Response, Message Template Name, linked through Related Records.
+  - A8 same for `Supplier Response`.
+  - A9 `column_changed(Confirmation No)`: Name = `{Confirmation No}`.
+  - A10 `item_created`: Created Date = now; Confirmation No = auto-number.
+- **Build notes**: Email = SMTP/Gmail sender with the same subject and body; WhatsApp = template API with a response-capture webhook that fills the Response columns. Quantity × Bag Weight is a generated column.
+
+### 3.3 Dispatch and Billing (board 5026792171, 27 rows)
+
+- **CRM+ today**: `/orders` with tabs Main table, Reports, "Dispatch & Billing Creation Form" (`src/components/DnbCreationForm.tsx`); ~40 columns. **Gap**: monday columns not shown (about 35 mirrors), Actions column, automation parity.
+- **Purpose**: one item per order/invoice against a Sales Confirmation. Subitems are individual dispatch entries (partial dispatches), each with its own invoice and commission maths.
+- **Groups**: Draft, In Progress, Fully Dispatch, New Group.
+- **Columns**: `docs/monday-crm-reference.md` §Dispatch and Billing. Status labels: Draft → Partially Dispatch → In Progress → Fully Dispatch, plus Cancel and Return. UOM as Deals. Transport Type: Own Transport, Agreed Third Party, Third Party (Direct Payment by Party). Send Email and Send Whatsapp: Send, Not Send.
+- **Formulas** (keep exactly):
+  - Total Weight = Bags Weight × Quantity
+  - Value = Total Weight × Final Rate
+  - Buyer Commission = IF(Buyer Commission Type="Percentage", Value × Buyer Commission Value / 100, IF="BAG", Value-of-type × Quantity, IF="KG", × Total Weight, 0); Supplier Commission is the same with the supplier type/value
+  - Total Amount = Value + Value × CGST/100 + Value × Insurance Tax/100 + Add − Deduct
+  - Validation Errors = IF(sum of subitem Quantity Dispatched > Quantity, "Sum of Subitems quantity is greater than parent item's quantity.", "")
+  - Record Validation = IF(Quantity < sum of subitem quantity, "True", "False")
+- **Creation form**: view id 51650025 "Dispatch & Billing Creation Form". **PARTIAL** (read in the signed-in browser; the middle was skipped while scrolling):
+  - **Buyer & Supplier Details (2 fields)**: Bags Weight, Final Rate.
+  - **Product Congifurations [sic] (2 fields)**: UOM (status select), Quantity (numbers).
+  - A section (name not seen, `confirm`) with: Add, Deduct, Insurance Tax, Round off (all numbers), and presumably CGST `(confirm)`.
+  - **Transporter Type Details (1 field)**: Transporter Type Details (relation, select).
+  - **Documents (1 field)**: Documents (file, "Attach files (0/10)").
+  - Footer: `✓ Create Item`, `Clear Form`. Select Action radio at the top.
+  - Note: the form has no buyer/supplier/SC fields. Items are normally created by automation A2 of Sales Confirmation; CRM+ builds them from a picked confirmation (one item per count), which is acceptable.
+- **Automations** (VERIFIED, 10 workflows plus legacy):
+  - A1 `status_changed(Draft → Partially Dispatch)`: create a **subitem** named `{Name}` with Status = Partially Dispatch and its Invoice No. copied; set the parent Status = In Progress; move to group In Progress.
+  - A2 `status_changed(In Progress → Cancel)`: create a subitem with Status = Cancel; set the parent Status = Fully Dispatch; move to group Fully Dispatch.
+  - A3 `status_changed(In Progress → Return)`: create a subitem with Status = Retun [sic]; parent = Fully Dispatch; move to Fully Dispatch.
+  - A4 `status_changed(Draft → Fully Dispatch)`: move to group Fully Dispatch.
+  - A5 `item_created`: create an item in **Mill Invoice Delivery** named `{Name} - Task`, Status = Working on it, linked both ways (D&B."link to Mill Invoice Delivery" ↔ MID."Dispatch and Billing").
+  - A6 `status_changed(Send Email → Send)` (parent): send email, subject `Dispatch Information`, body `Dear Sir, / Please note –{Counts}- {Quantity}… was delivered to your sizing via vehicle no. {Vehicle Number} on {Dispatch Date} / Incase you have not received the bags, kindly contact {Buyer Messenger} / Thanking you, / Delivery department / {…}`.
+  - A7 `subitem_status_changed(Send Email Not Send → Send)`: same email for a dispatch entry (`Dear Sir, / Please Note-{…} – {…} – {…} was delivered to your sizing via vehicle no. {Vehicle Number} on {Dispatch Date}. / ...`).
+  - A8 `status_changed(Send Whatsapp → Send)` (parent) and the subitem equivalent: WhatsApp template `disptach_and_billing` ("Dispatch & Billing (Doc)") to Buyer Office Phone, CP1 Phone, CP2 Phone; log Response, wamid, Message Template Name, Message.
+  - A9 `column_changed(Response)` / `subitem_column_changed(Response)` not empty: create a **Whatsapp Message** item `Message-{…}` (Board = Dispatch and Billing, group Dispatch and Billing).
+  - A10 `column_changed(Sr. No)`: Name = `{Sr. No}`.
+  - A11 `item_created` and `column_changed`: **duplicate check** on Invoice No. into Is Duplicate? and Duplication Error Message.
+  - A12 `item_created`: Created Date = now; Sr. No = auto-number.
+- **Subitems (dispatch entries)**: columns in `docs/monday-crm-reference.md` §"Subitems of Dispatch and Billing". Quantity Dispatched rolls up to the parent (sum). Same commission formulas using Quantity Dispatched.
+- **Views to mirror**: "Record Validations" (items where Record Validation = True) and "Duplicate Checks" (Is Duplicate checked) as saved filters.
+
+---
+
+## P2-4. Group Tasks (folder "Tasks"): field-staff and collection boards
+
+Common pattern: Person / People (assignee, usually the messenger), **Accounts** (people), GPS Check-In (location), proof upload (file). Meant for mobile. Messenger is copied from the buyer to the person columns by a pair of legacy automations on most of these boards (`copy_from_lookup(Person ← B&S.Messenger via the Buyer relation)` on create and on relation change).
+
+CRM+ has a Tasks module (`src/pages/tasks/*`, migration `20261118100000_tasks_module.sql`, queues: pending documents, collection tasks, cheque collections). Compare each board below with it before adding anything.
+
+### 4.1 Payment Collection (5027269376, 0 rows)
+- **Groups**: Group Title. **Columns**: Name, Subitems, Person, Accounts, Connected Boards (relation → Monthly Visit **and** Commission Invoice Delivery), Buyer Name (mirror), Invoice Number, Amount, Amount Collected, Mode of Payment (Online, Cash, Cheque), Payment Proof Upload, Balance Amount (= Amount − Amount Collected), GPS Check-In, Payment Status (Outstanding, Completed), Start Date, End Date, Days Aging (= DAYS(End Date, Start Date)).
+- **Creation form**: view id 51888761. **UNREAD**. Proposed: Payment (Name*, Connected record, Invoice Number, Amount*, Amount Collected, Mode of Payment, Payment Status, Start Date, End Date), People (Person, Accounts), Proof (Payment Proof Upload, GPS Check-In).
+- **Automations**: A1 `column_changed(Amount Collected)` and Amount Collected > 0: notify Person + Accounts, title `{Person}`, message `Hey,{user} , / Amount collected is {Amount Collected}`. A2 `item_created`: Start Date = today. A3 `status_changed(Payment Status → Completed)`: End Date = today. A4 (inactive) copy Connected Boards. Items are also created by Monthly Visit and Commission Invoice Delivery (see 4.2, 4.4).
+
+### 4.2 Monthly Visit (5027265052, 3 rows)
+- **Columns**: Name, Person, Accounts, Buyers Name (relation → B&S), Buyer Messenger (mirror), Created Date, Visited Date, GPS Check-In, Check-In Time, Check-Out Time, Meeting Summary, Pending Payment Status (No, Yes), Visited/Not Visited (Not Visited, Visited, Completed), link to Payment Collection. Extra monday view: "Dashboard".
+- **Creation form**: view id 51888089. **UNREAD**. Proposed: Visit (Name*, Buyers Name*, Person, Accounts, Visited Date, Visited/Not Visited), Check-in (GPS Check-In, Check-In Time, Check-Out Time), Summary (Meeting Summary, Pending Payment Status).
+- **Automations** (VERIFIED structure; some labels and offsets `(confirm)`), 9 workflows:
+  - A1 `item_created`: Created Date = today.
+  - A2 `date_arrives(Created Date, 17:45 IST)` and Visited/Not Visited = Not Visited: notify, title `{Name}`, message `Hey, {Person}, / You have not visited yet.`
+  - A3 `date_arrives(Visited Date +30 days, 10:00)` and Visited/Not Visited = Visited `(confirm)`: notify `Hey, {Person}, / you have visited and not collect the payment.`
+  - A4/A5/A6 visited branch at 30, 45, 60 days (Visited Date, times 18:00, 22:15, 22:45 IST): when Pending Payment Status = Yes and Visited: notify `Hey, {Person}, you have visited and not collected the payment after 30 / 45 / 60 days` and create a **Payment Collection** item `Monthly Visit - {…}` linked both ways (Monthly Visit."link to Payment Collection" ↔ PC."Connected Boards").
+  - A7/A8/A9 not-visited branch at 30, 45, 60 days (Created Date, times 18:15, 22:15, 22:45 IST): when Visited Date is empty and Pending Payment Status = Yes: notify `Hey, {Person}, you have not visited and not collected the payment after 30 / 45 / 60 days` and create the Payment Collection item.
+  - Plus Person ← Buyer Messenger copy (legacy).
+
+### 4.3 Mill Invoice Delivery (5027269220, 26 rows)
+- **Columns**: Name, People, Accounts, Status (Working on it, Stuck, Done; mirrored into D&B "Mill Invoice Status"), Buyers, Buyer Messenger, Supplier Name, Supplier Messenger, Invoice Number, Invoice Date (mirrors of D&B), Invoice Amount, Delivery Mode (Hand, Courier), Delivery Proof Upload, GPS Check-In, Dispatch and Billing (relation), Invoice Status (Not Delivered, Delivered).
+- **Creation form**: view id 51888736. **UNREAD**.
+- **Automations**: A1 `column_changed(Delivery Proof Upload)` and not empty: notify **Accounts**, title `{Name}`, message `Hey, {Accounts}, / Mill Invoice is delivered`; set Invoice Status = Delivered. A2 (legacy) People ← Messenger (copy from lookup).
+- Created by Dispatch and Billing A5.
+
+### 4.4 Commission Invoice Delivery (5027269270, 31 rows)
+- **Columns**: Name, People, Accounts, Commission Invoices (relation), Commission Amount (mirror of Net Amount), Buyer, Buyer Messenger, Commission Invoice No., Invoice Date, Acknowledgement Received (Yes, No), Photo Upload, GPS Check-In, Pending Payment Status (No, Yes), Created Date, link to Payment Collection.
+- **Creation form**: view id 51888738. **UNREAD**.
+- **Automations**: A1 `date_arrives(Created Date, 18:30 IST)` and Pending Payment Status = Yes: notify Person + Accounts, title `{Name}`, message `Hey, {Person}, / Payment is pending for this record.`; create a **Payment Collection** item `Commission Invoice - {Name}` linked both ways. A2 (legacy) People ← Messenger.
+- Created by Commission Invoices A4.
+
+### 4.5 Transport Freight Invoice (5027269319, 20 rows)
+- **Columns**: Name, Person, Accounts, Transport Invoice (relation), Buyer (mirror), Transport Bill No., Transport Amount, Load Reference, Delivery Proof, GPS Check-In, Status (Yes, No), Check (Outstanding, Cleared).
+- **Creation form**: view id 51888741. **UNREAD**.
+- **Automations**: A1 `status_changed(Check → Outstanding)`: notify Person + Accounts, title `{Name}`, message `Hey, {Accounts}, / The payment for {Name} is {Check}`.
+- Created by Transport Invoice A2.
+
+### 4.6 Sample Delivery - Comes From Mills (5027269351, 1 row)
+- **Columns**: Name, Person, Accounts, Buyer, Buyer Messenger, Supplier, Supplier Messenger, Sample Quality, Sample Type (TBD 1/2/3 placeholders), Sample Lot, Delivery Date, Feedback Due Date (= Delivery Date + 7 days, DD-MM-YYYY), Feedback Status (Pending, Approved, Rejected), GPS Check-In, Photo Proof.
+- **Creation form**: view id 51888745. **UNREAD**.
+- **Automations**: A1 `date_arrives(Delivery Date +7 days, 20:30 IST)` and Feedback Status = Pending: notify Person + Accounts, title `{Name}`, message `Hey, {Person}, / The sample {Name} feedback is due.` A2 (legacy) Person ← Buyer Messenger. Skip: Feedback Status = Approved → create "Qualified" lead (target board deleted).
+
+### 4.7 Cheque Collection (5027269441, 1 row)
+- **Groups**: To Collect, In Progress, Collected. **Columns**: Name, Accounts, Person, Buyer Name, Invoice Number, Cheque Number, Bank Name, Cheque Date, Cheque Amount, Cheque Photo Upload, Deposit Status (Pending, Deposited, Cleared, Collected), Notes, Subitems, GPS Check-In.
+- **Creation form**: view id 51888765. **UNREAD**.
+- **Automations**: A1 `column_changed(Cheque Photo Upload)` and not empty: set Deposit Status = Collected; notify Accounts, title `{Deposit Status}`, message `Your Check for {Name} is {Deposit Status}`. A2 (legacy) Person ← Messenger.
+- CRM+ already has `ChequeQueue`/`ChequeForm`; align column titles and the group view.
+
+---
+
+## P2-5. Group Root boards: billing documents and messaging
+
+### 5.1 Commission Invoices (5026907737, 36 rows)
+- **CRM+ today**: only the "Commission bills" task queue. **Gap**: no register. Build one.
+- **Groups**: Group Title, Send. **Columns**: `docs/monday-crm-reference.md` §Commission Invoices (about 55). Enums: Party Type (Supplier, Buyer), Status (Generated, Sent, Pending), Commission Type (BAG, KG, Percentage), Mode of Payment (NEFT, UPI, RTGS, Cash, Cards), Whatsapp Message (Send, Not Send). Totals (Total, Net Amount, Round Off) are numbers filled externally from Dispatch and Billing commissions; Payment Pending = Net Amount − Partial Payment/Payment Collected.
+- **Creation form**: monday has a "Commission Invoice From" app view (not a standard Creation Form; `FeatureBoardView`) `(confirm what it does)`.
+- **Automations**:
+  - A1 `button_clicked(Email)`: send email, subject `Commission Invoice From {Agency name}`, attach Documents, body `Dear Sir, / Thanks for purchasing yarn via {Business Unit Name}. / Please find attached the commission bill from Date {Invoice From Date} to {Invoice To Date} along with mill invoices for your reference. / Incase of any discrepancies revert within 15 days of bill date. / kindly contact account department. {Business Unit Phone} / Thanking you …`.
+  - A2 `status_changed(Whatsapp Message → Send)`: template (document template, name `(confirm)`) to buyer phones; log wamid, Whatsapp Response, template, Message.
+  - A3 `column_changed(Whatsapp Response)` not empty: create Whatsapp Message item (Board = Commission Invoice, group Commission Invoice).
+  - A4 `item_created`: create a **Commission Invoice Delivery** item named `{Name}` in group Group Title, linked both ways.
+  - A5 `item_created`: Name = `CI - {…}`; assign creator to Person; Creation date = now; Sr. No auto-number (`SR-`).
+
+### 5.2 Transport Invoice (5027015093, 20 rows)
+- **CRM+ today**: "Transport invoices" queue only. **Gap**: register.
+- **Columns**: `docs/monday-crm-reference.md` §Transport Invoice (about 48). Type (Kg, Bag). Formulas: Total Weight = No. Of Bags × Bag Weight; Total Amount = IF(Type="Bag", Rate × No. Of Bags, IF(Type="Kg", Rate × Total Weight, 0)); Payment Pending = Total Amount − Partial Payment. Other views: "Table", "Transport Invoice" (app).
+- **Creation form**: view id 51525761. **UNREAD**.
+- **Automations**:
+  - A1 `column_changed(Response)` not empty: create Whatsapp Message item `Message-{…}` (group Transport Invoice) copying To Phone, Message, wamid, Response, Template, Document.
+  - A2 `item_created`: create **Transport Freight Invoice** item `{Name} - Transport Task`, linked both ways.
+  - A3 `button_clicked(Email)`: send email, subject `Transport Commission Invoice`, attach Document, to the To Email and To Contact Person 1/2 Email lookups. Body: `Dear Team , / Please find attached the transport commission bill from {Business Unit Name} on date {Date}. / The physical copy of this invoice has been raised and dispatched to your office. / We kindly request you to process the payment at your earliest convenience. / All other details regarding the shipment and billing are provided in the attached document. / Thank you for your continued business! / {Business Unit Name} / Best regards`.
+  - A4 `column_changed(Transport Invoice No.)`: Name = `TI - {Transport Invoice No.}`.
+  - A5 `item_created`: assign creator to Person.
+  - A6 `status_changed(Whatsapp Message → Send)`: template `transport_invoice` ("Transport Invoice (Doc)") with Document to Office Phone, CP1 Phone, CP2 Phone lookups; log response, wamid, template, message.
+  - A7 `column_changed(Transporter Type Details)`: refresh lookups (legacy).
+
+### 5.3 Transporter Type Details (5026904637, 11 rows)
+- **CRM+ today**: partly in trip sheets / transporter payments. **Gap**: register.
+- **Columns**: `docs/monday-crm-reference.md` §Transporter Type Details (about 54). Type (Own Transport, Agreed Third Party, Third Party (Direct Payment by Party)). Formulas: Actual KM = Ending KM − Start KM; Cost Of Diesel = Consumed × POD; Total Cost = Cost Of Diesel + Driver Bata + Loading Charge + UnLoading Charge + Tiffen Charge + Others + LNT + PC.
+- **Creation form**: view id 55834935. **UNREAD**.
+- **Automations**: A1 `column_changed(Transport Invoice relation)`: tick checkbox Transport Invoice. A2 `column_changed(Serial No)`: Name = `{Serial No}`. A3 `item_created` and `column_changed(Dispatch and Billing)`: copy Office Phone, Contact Person 1/2 Phone, Email, Contact Person 1/2 Email from the linked D&B buyer lookups into the plain phone/email columns. A4 `item_created`: Created Date = now; Serial No auto-number. Two older copies of A3 are inactive.
+
+### 5.4 Whatsapp Message (5027236770, 124 rows) and Whatsapp Tracking (5027998834, 22 rows)
+- **CRM+ today**: `MessagesPanel`, `NotificationLog`, `SendMessage`.
+- **Whatsapp Message** columns: Name, Subitems, Board (Sales Confirmation, Commission Invoice, Transport Invoice, Dispatch and Billing), Related Records (relation to six boards), Created Date, To Phone, Client Name (relation), Message, wamid, Response, Message Documents, Message Template Name, monday Doc v2. Groups: Commission Invoice, Sales Confirmation, Transport Invoice, Dispatch and Billing. Rows are created by the "response arrived" automations above. Automations on this board itself: **UNREAD**.
+- **Whatsapp Tracking** columns: Name, Sr No. (auto-number), Type (Bank Details, Quotation Details, Draft), Created Date, Buyers (+ Office Phone, CP1 Phone, CP2 Phone mirrors), Suppliers, Business Units, Message, Notes, Office Phone WanId, Contact Person Phone 1 WanId, Contact Person Phone 2 WanId, Response. Used for broadcasts ("Send Bank Details", "Broadcast" views). Automations and forms: **UNREAD**.
+- Build as a message log register with a read-only grid and "resend" action; one creation form for broadcasts.
+
+### 5.5 Quotes & Invoices (5024227501, 0 rows)
+Stock monday template board, empty. **Do not build.**
+
+---
+
+## P2-6. Group MDM (folder "MDM"): done, verified on production
+
+Status of CRM+: **built and verified** (columns, forms, validation, documents, search, filters, Actions menu). Details, form specs and column mapping are in `docs/mdm-column-parity.md`; QA in `docs/master-data-qa-checklist.md`. Summary and automation notes:
+
+| Board (monday id) | CRM+ route | Rows in monday | Creation form (VERIFIED) | monday automations |
+|---|---|---|---|---|
+| Business Units (5024662780) | `/master-data/business-units` | 5 | Board Information (Name*, Trade Name, Legal Name, Email*, State, Mobile, Phone 1, Phone 2, Phone 3, Address*, GST Number); Account Details (Bank Account Details 1*, Bank Account Details 2, PAN Number); Documents | `item_created`: Date = today; `Name` → Name Copy (helper). CRM+ also keeps Short name and Reference prefix |
+| Buyers & Suppliers (5024227503) | `/master-data/buyers-suppliers` | 45 | Buyer & Supplier Details (Name*, Date, Type*, Email, Office Phone*, Office Address*, Mill/Factory/Delivery Address, State, GST No.*, Business Unit*, Location MDM, Default Commision Percentage*, Category, Messenger); Account Details (IT Pan); MD / Account / Dispatch Information (Contact Person 1, 2, 3 with Phone and Email); Product Configuration (Counts*, Buyer/Supplier Commission Type and Value); Incase of Buyer / Supplier; Remarks (Remark 1, 2); Documents | `status_changed(Type → Buyer)` move to group Buyer; `Type → Supplier` move to group Supplier; Name Copy sync; legacy: Emails & Activities → activity item (inactive/unused), a custom "Code It" button |
+| Counts (5026452240) | `/master-data/counts` | 32 | Count Information (Name*, Thread Count*, Machine*, Type*, Process, Certification, Yarn); Fabric Composition (Yarn 1*, Yarn 1 (Percentage)*, Yarn 2, Yarn 2 (Percentage), Overall Yarn Composition, Overall Yarn) | Summary text rebuilt when Name/Thread Count/Machine/Yarn 1/Yarn 1 %/Yarn 2/Yarn 2 %/Yarn/Process/Certification/Type changes (11 workflows); duplicate check on create and on each of those columns (Is Duplicate, Duplicate Error) |
+| Transport Company (5026540774) | `/master-data/transport` | 2 | Transport Type Details (Name*, Email, GST No.*, Office Phone*, Res Phone, State*, State Code*, Office Address*, Mill/Factory/Delivery Address, Locations*, Business Units*); Account Details (Bank Account Number 1*, Bank Account Number 2, IT PAN*); Contact Details (Contact Person 1*, Phone*, Contact Person 2, Phone); Vehicle Details (Vehicle Type*, Vehicle No 1-3); Remarks; Documents | UNREAD |
+| Location MDM (5026540835) | `/master-data/locations` | 2 | Location Details (Name*, State, Zone, GST Number, Phone, Email, Contact Person (MD), Accounts Dept Phone, Address*); Documents | UNREAD |
+| Sizing/Delivery Address (5026819478) | `/master-data/delivery-address` | 2 | Information (Name*, GST No.*, State*, Office Address*, Locations); Contact Details (Contact Person 1* and 2*, their Phones* and Emails*); Remarks 1*; Documents* | UNREAD |
+| Payment Terms (5026694999) | `/master-data/payment-terms` | 6 | none in monday; CRM+ asks Name*, Days* (0 to 365) | UNREAD |
+
+**Still to do in Master data**
+- Import monday's real rows (production holds only test data).
+- Implement the Counts Summary rebuild and the Buyers & Suppliers Type → group behaviour if not already in the grid.
+- Read the automations of Transport Company, Location MDM, Sizing/Delivery and Payment Terms.
+
+Known deliberate differences (do not "fix"): no Date field on Location, Transport and Sizing/Delivery forms; Transport "CGST" is labelled "GST No."; Counts show title case while storing upper case; "OEKO TEX" corrects monday's "OKEA TEX"; "Bagwise Rate." loses its stray full stop; monday's "None" option is the empty choice.
+
+---
+
+## P2-7. Relationship map (build the links in this order)
+
+```
+Business Units ─┬─ Buyers & Suppliers ─┬─ Deals ── Sales Confirmation ── Dispatch and Billing ─┬─ subitems (dispatch entries)
+Payment Terms ──┤  Counts ─────────────┤                                  │                    ├─ Mill Invoice Delivery
+Location MDM ───┤  Location MDM ───────┘                                  │                    └─ Transporter Type Details ── Transport Invoice ── Transport Freight Invoice
+Sizing/Delivery ┘                                                         └─ Commission Invoices ── Commission Invoice Delivery ── Payment Collection ── Monthly Visit
+Transport Company ── Transporter Type Details        Cheque Collection, Sample Delivery (buyer/supplier links)
+Whatsapp Message  ← written by SC, D&B, Commission Invoices, Transport Invoice "response arrived" automations
+```
+
+Two-way links to keep: Deals ↔ Sales Confirmation, SC ↔ Dispatch and Billing, D&B ↔ Mill Invoice Delivery, Commission Invoices ↔ Commission Invoice Delivery, Commission Invoice Delivery ↔ Payment Collection, Monthly Visit ↔ Payment Collection, Transport Invoice ↔ Transport Freight Invoice, Transporter Type Details ↔ Transport Invoice, SC ↔ Transporter Type Details.
+
+---
+
+## P2-8. Build order and acceptance
+
+| Step | Work | Done when |
+|---|---|---|
+| 0 | Automation layer (§P2-2) and the shared register pattern for CRM boards (Actions column, FormKit forms, documents) | One board runs end to end with logged automations |
+| 1 | Finish reading the UNREAD items in §P2-0 (needs an editor/admin monday session) | This file has no `(confirm)` left for the boards being built |
+| 2 | Deals, then Sales Confirmation, then Dispatch and Billing (§P2-3), including all A-numbers | Each A-number has a passing test; grids show all monday columns; production check against monday passes |
+| 3 | Billing documents: Commission Invoices, Transport Invoice, Transporter Type Details (§P2-5.1 to 5.3) | Same |
+| 4 | Tasks boards (§P2-4) | Same |
+| 5 | Messaging registers (§P2-5.4) and dashboards ("Reports", "Sales Report", Monthly Visit "Dashboard", "Billing & Dispatch Dashboard") | Same |
+| 6 | Import monday data for every board | Row counts match monday (Business Units 5, Counts 32, Buyers & Suppliers 45, Deals 28, Sales Confirmation 78, Dispatch and Billing 27, Commission Invoices 36, Transport Invoice 20, Transporter Type Details 11, Whatsapp Message 124) |
+
+Acceptance for every board: column titles and order equal monday's (plus Actions); creation form sections, field order, labels and required marks equal monday's; each A-number reproduced; status flow and groups reproduced; formulas return the same numbers on a sample of real rows; the QA checklist scenarios pass; checked on production read-only before pushing.
+
+---
+
+## P2-9. Open questions for the owner
+
+1. Which automations should run automatically in CRM+, and which only as manual actions (especially email and WhatsApp sends)?
+2. Email sender account and WhatsApp provider for CRM+ (monday uses a Gmail credential and a WhatsApp template integration with the template names listed above).
+3. Should monday's real data be imported, and from which date?
+4. A monday admin/editor session to read the remaining creation forms (Deals and the nine others in §P2-0).
+5. The unnamed Dispatch and Billing form section and the seventh Sales Confirmation field: confirm in monday.
+

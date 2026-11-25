@@ -5,14 +5,17 @@ import { Drawer } from '../Drawer'
 import { errMessage } from '../../lib/party'
 import { emailLink, whatsappLink } from '../../lib/integrations'
 import { messageFor } from './scShared'
+import { linesText } from '../CountLines'
 import type { Company, Names, Party, ScRow } from './scShared'
 
 /** Send several confirmations at once. Browsers allow only one chat or mail window per click,
  *  so every message is queued here and opened with its own button; each open is logged. */
 export function BulkSendDrawer({
-  rows, suppliers, buyers, companies, counts, terms, onClose, onChanged,
+  rows, lineRows, suppliers, buyers, companies, counts, terms, onClose, onChanged,
 }: {
   rows: ScRow[]
+  /** The count rows of every confirmation, by confirmation id. */
+  lineRows: Map<string, { count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }[]>
   suppliers: Party[]
   buyers: Party[]
   companies: Company[]
@@ -39,7 +42,9 @@ export function BulkSendDrawer({
     const n: Names = {
       supplier: nameOf(suppliers, sc.supplier_id), buyer: nameOf(buyers, sc.buyer_id),
       supplierCompany: nameOf(companies, sc.supplier_company_id), buyerCompany: nameOf(companies, sc.buyer_company_id),
-      count: counts.find((c) => c.id === sc.count_id)?.display_name ?? '', term: terms.find((t) => t.id === sc.payment_term_id)?.name ?? '',
+      count: counts.find((c) => c.id === sc.count_id)?.display_name ?? '',
+      lines: linesText(lineRows.get(sc.id) ?? [], (id) => counts.find((c) => c.id === id)?.display_name ?? ''),
+      term: terms.find((t) => t.id === sc.payment_term_id)?.name ?? '',
     }
     for (const who of ['supplier', 'buyer'] as const) {
       if ((who === 'supplier' && !toSupplier) || (who === 'buyer' && !toBuyer)) continue

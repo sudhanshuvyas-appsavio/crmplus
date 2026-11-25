@@ -1,27 +1,36 @@
-/** Payment terms (T-005 base). The sheet points at layout screenshots that are
- *  not available, so this holds the fields a deal needs: a name, credit days,
- *  an advance percentage and a description. Reading needs deal/lead access;
- *  changing the list needs "Change system settings". */
+/** Payment terms: the monday "Payment Terms" board has two columns, Name and Days.
+ *  Reading needs deal/lead access; changing the list needs "Change system settings".
+ *  (The database also keeps an advance % and a description; they are not on monday and
+ *  are not shown here.) */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { PaymentTerm } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { GridPager, GridToolbar, usePaging } from '../components/GridKit'
+import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components/GridKit'
 import { Drawer, DeleteControl } from '../components/Drawer'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ErrorBanner } from '../components/FormKit'
 import { Field } from '../components/PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
+import { findDuplicate, focusFirstError, nameKey, nameProblem, type FieldErrors, searchKey } from '../lib/validate'
 
-type Form = { name: string; days: string; advance_pct: string; description: string; is_active: boolean }
-const blank: Form = { name: '', days: '0', advance_pct: '0', description: '', is_active: true }
+type Form = { name: string; days: string; is_active: boolean }
+const blank: Form = { name: '', days: '0', is_active: true }
 
 export default function PaymentTerms() {
   const { can } = useAuth()
   const canEdit = can('settings.manage')
   const [rows, setRows] = useState<PaymentTerm[] | null>(null)
   const [editing, setEditing] = useState<PaymentTerm | 'new' | null>(null)
+  const [viewing, setViewing] = useState<PaymentTerm | null>(null)
+  const [deleting, setDeleting] = useState<PaymentTerm | null>(null)
+  const [delBusy, setDelBusy] = useState(false)
+  const [delErr, setDelErr] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
 
   const load = useCallback(async () => {
@@ -33,11 +42,32 @@ export default function PaymentTerms() {
     void load()
   }, [load])
 
+  async function confirmDelete() {
+    if (!deleting) return
+    setDelBusy(true)
+    setDelErr(null)
+    const { data, error } = await supabase.from('payment_terms').delete().eq('id', deleting.id).select('id')
+    setDelBusy(false)
+    if (error || !data || data.length === 0) return setDelErr(error ? errMessage(error) : 'Could not delete this term.')
+    setBanner({ kind: 'ok', text: `${deleting.name} deleted.` })
+    setDeleting(null)
+    await load()
+  }
+
+  const filterDefs: FilterDef[] = [
+    { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
+  ]
+
+  // Search covers every column the grid shows: Name and Days.
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return (rows ?? []).filter((r) => !q || [r.name, r.description].some((v) => (v ?? '').toLowerCase().includes(q)))
-  }, [rows, search])
-  const paging = usePaging(shown, search)
+    const q = searchKey(search)
+    return (rows ?? []).filter(
+      (r) =>
+        (!statusFilter || (statusFilter === 'active') === r.is_active) &&
+        (!q || [r.name, String(r.days)].some((v) => searchKey(v).includes(q))),
+    )
+  }, [rows, search, statusFilter])
+  const paging = usePaging(shown, `${search}|${statusFilter}`)
 
   if (!rows) return <Loading label="Loading payment terms" />
   return (
@@ -46,6 +76,7 @@ export default function PaymentTerms() {
         <TermDrawer
           key={editing === 'new' ? 'new' : editing.id}
           term={editing === 'new' ? null : editing}
+          rows={rows}
           onClose={() => setEditing(null)}
           onDone={async (text) => {
             setBanner({ kind: 'ok', text })
@@ -55,6 +86,13 @@ export default function PaymentTerms() {
         />
       )}
 
+      {viewing && <TermDrawer key={`v-${viewing.id}`} term={viewing} rows={rows} readOnly onClose={() => setViewing(null)} onDone={() => setViewing(null)} />}
+      {deleting && (
+        <ConfirmDialog title="Delete payment term" busy={delBusy} error={delErr} onConfirm={() => void confirmDelete()} onClose={() => setDeleting(null)}>
+          Delete <strong>{deleting.name}</strong>? This cannot be undone.
+        </ConfirmDialog>
+      )}
+
       <GridToolbar
         title="Payment Terms"
         total={rows.length}
@@ -62,6 +100,11 @@ export default function PaymentTerms() {
         plural="payment terms"
         query={search}
         onQuery={setSearch}
+        searchPlaceholder="Search name or days"
+        filters={filterDefs}
+        values={{ status: statusFilter }}
+        onFilter={(_, value) => setStatusFilter(value)}
+        onClear={() => setStatusFilter('')}
       >
         {canEdit && (
           <button className="btn primary" type="button" onClick={() => setEditing('new')}>
@@ -82,28 +125,33 @@ export default function PaymentTerms() {
           <thead>
             <tr>
               <th className="left">Name</th>
-              <th>Credit days</th>
-              <th>Advance %</th>
-              <th>Description</th>
-              <th>Status</th>
+              <th>Days</th>
+              <th className="md-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {paging.visible.map((r) => (
-              <tr key={r.id} className={canEdit ? 'clickable' : ''} onClick={() => canEdit && setEditing(r)}>
+              <tr key={r.id}>
                 <td className="left">
                   <strong>{r.name}</strong>
+                  {!r.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                 </td>
                 <td className="mono">{r.days}</td>
-                <td className="mono">{r.advance_pct}</td>
-                <td className="small">{r.description ?? '—'}</td>
-                <td>{r.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
+                <td className="md-actions">
+                  <RowActionMenu
+                    label={r.name}
+                    actions={[
+                      { label: 'Edit', onSelect: () => (canEdit ? setEditing(r) : setViewing(r)) },
+                      { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(r) }, disabledReason: canEdit ? null : 'Needs “Change system settings”' },
+                    ]}
+                  />
+                </td>
               </tr>
             ))}
             {shown.length === 0 && (
               <tr>
-                <td className="empty" colSpan={5}>
-                  {rows.length === 0 ? 'No payment terms yet.' : 'No payment term matches that search.'}
+                <td className="empty" colSpan={3}>
+                  {rows.length === 0 ? 'No payment terms yet.' : 'No payment term matches those filters.'}
                 </td>
               </tr>
             )}
@@ -115,27 +163,48 @@ export default function PaymentTerms() {
   )
 }
 
-function TermDrawer({ term, onClose, onDone }: { term: PaymentTerm | null; onClose: () => void; onDone: (m: string) => void | Promise<void> }) {
-  const [f, setF] = useState<Form>(
-    term ? { name: term.name, days: String(term.days), advance_pct: String(term.advance_pct), description: term.description ?? '', is_active: term.is_active } : blank,
-  )
+function TermDrawer({
+  term,
+  rows,
+  onClose,
+  onDone,
+  readOnly = false,
+}: {
+  term: PaymentTerm | null
+  rows: PaymentTerm[]
+  onClose: () => void
+  onDone: (m: string) => void | Promise<void>
+  readOnly?: boolean
+}) {
+  const [f, setF] = useState<Form>(term ? { name: term.name, days: String(term.days), is_active: term.is_active } : blank)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [submitted, setSubmitted] = useState(false)
   const days = numOrNull(f.days)
-  const adv = numOrNull(f.advance_pct)
-  const problems: string[] = []
-  if (!f.name.trim()) problems.push('Name')
-  if (days === null || days < 0 || days > 365 || !Number.isInteger(days)) problems.push('Credit days (0–365)')
-  if (adv === null || adv < 0 || adv > 100) problems.push('Advance % (0–100)')
+
+  const errors = useMemo(() => {
+    const e: FieldErrors = {}
+    if (!f.name.trim()) e['pt-name'] = 'Name is required.'
+    else if (nameProblem('Name', f.name)) e['pt-name'] = nameProblem('Name', f.name) as string
+    else if (findDuplicate(rows, term?.id, (r) => r.name, f.name, nameKey)) e['pt-name'] = 'A payment term with this name already exists.'
+    if (!f.days.trim()) e['pt-days'] = 'Days is required.'
+    else if (days === null || !Number.isInteger(days) || days < 0 || days > 365) e['pt-days'] = 'Days must be a whole number between 0 and 365.'
+    return e
+  }, [f, rows, term, days])
+  const show = (id: string, value: string) => (submitted || value.trim() !== '' ? errors[id] : undefined)
 
   async function save() {
-    setBusy(true)
+    setSubmitted(true)
     setErr(null)
-    const payload = { name: f.name.trim(), days, advance_pct: adv, description: f.description.trim() || null, is_active: f.is_active, updated_at: new Date().toISOString() }
-    const { error } = term ? await supabase.from('payment_terms').update(payload).eq('id', term.id) : await supabase.from('payment_terms').insert(payload)
+    if (Object.keys(errors).length > 0) return focusFirstError(errors)
+    setBusy(true)
+    const base = { name: f.name.trim().replace(/\s+/g, ' '), days, is_active: f.is_active }
+    const { error } = term
+      ? await supabase.from('payment_terms').update({ ...base, updated_at: new Date().toISOString() }).eq('id', term.id)
+      : await supabase.from('payment_terms').insert(base)
     setBusy(false)
     if (error) return setErr(errMessage(error, 'Could not save this payment term'))
-    await onDone(`${payload.name} ${term ? 'updated' : 'added'}.`)
+    await onDone(`${base.name} ${term ? 'updated' : 'added'}.`)
   }
 
   async function remove() {
@@ -148,31 +217,19 @@ function TermDrawer({ term, onClose, onDone }: { term: PaymentTerm | null; onClo
   }
 
   return (
-    <Drawer title={term ? term.name : 'Add a payment term'} onClose={onClose}>
-      {err && <div className="alert">{err}</div>}
+    <Drawer title={term ? term.name : 'Add a payment term'} onClose={onClose} readOnly={readOnly}>
+      <ErrorBanner message={err} />
       <div className="form-grid">
-        <Field id="pt-name" label="Name" required hint="Must be unique.">
-          <input id="pt-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <Field id="pt-name" label="Name" required error={show('pt-name', f.name)} hint="Must be unique.">
+          <input id="pt-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus />
         </Field>
-        <Field id="pt-days" label="Credit days" required>
+        <Field id="pt-days" label="Days" required error={show('pt-days', f.days)} hint="Number of days for the payment term.">
           <input id="pt-days" className="mono" inputMode="numeric" value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })} />
         </Field>
-        <Field id="pt-adv" label="Advance %" required>
-          <input id="pt-adv" className="mono" inputMode="decimal" value={f.advance_pct} onChange={(e) => setF({ ...f, advance_pct: e.target.value })} />
-        </Field>
       </div>
-      <Field id="pt-desc" label="Description">
-        <textarea id="pt-desc" rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
-      </Field>
-      <label className="check">
-        <input type="checkbox" checked={f.is_active} onChange={(e) => setF({ ...f, is_active: e.target.checked })} />
-        <span className="check-body">
-          <span className="check-label">Active</span>
-        </span>
-      </label>
-      {problems.length > 0 && <p className="field-hint">Still needed: {problems.join(', ')}.</p>}
+
       <div className="drawer-actions">
-        <button className="btn primary" type="button" disabled={busy || problems.length > 0} onClick={() => void save()}>
+        <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>
           {busy ? 'Saving…' : term ? 'Save changes' : 'Add the term'}
         </button>
         <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>

@@ -14,6 +14,14 @@ import { VEHICLE_TYPES } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
 import { Drawer, DeleteControl } from '../components/Drawer'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { setActive } from '../lib/active'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { DocumentList, countDocuments, uploadDocuments, type DocumentStore } from '../components/documents/DocumentList'
+import { ErrorBanner, FormSection, FullWidth } from '../components/FormKit'
+import { findDuplicate, focusFirstError, isEmail, isPan, isStateCode, nameKey, nameProblem, personProblem, placeProblem, requireText, type FieldErrors, searchKey } from '../lib/validate'
+import { PendingDocuments } from '../components/documents/PendingDocuments'
+import { DocumentsModal } from '../components/documents/DocumentsModal'
 import { Field } from '../components/PartyForms'
 import { LinkPicker, useLocationOptions } from '../components/LinkPicker'
 import { loadLinkIds, syncLinks } from '../lib/links'
@@ -23,14 +31,19 @@ import { bulkDelete, deleteSummary, importCsvFile, importSummary, parseBool, pic
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { GST_STATES, errMessage, isGst, isMobile } from '../lib/party'
-import { formatDateTime } from '../lib/format'
+import { formatDate } from '../lib/format'
+import { todayIST } from '../lib/tasks'
 
 type Company = { id: string; name: string; is_active: boolean }
 
-const TYPES = [
-  { value: 'third_party', label: 'Third party' },
-  { value: 'internal', label: 'Internal' },
-] as const
+/** Where a transporter's documents (monday's Documents column) are kept. */
+const transporterDocStore = (id: string): DocumentStore => ({
+  table: 'transporter_documents',
+  bucket: 'mdm-documents',
+  parentColumn: 'transporter_id',
+  pathPrefix: `transporter/${id}`,
+  noun: 'transporter',
+})
 
 const CSV_COLUMNS = [
   'transporter_code', 'name', 'short_name', 'transporter_type', 'station', 'contact_person', 'mobile',
@@ -40,6 +53,7 @@ const CSV_COLUMNS = [
 ] as const
 
 type Form = {
+  record_date: string
   transporter_type: 'internal' | 'third_party'
   name: string
   short_name: string
@@ -70,13 +84,14 @@ type Form = {
 }
 
 const blank: Form = {
-  transporter_type: 'third_party', name: '', short_name: '', station_id: '', office_address: '', delivery_address: '',
+  record_date: '', transporter_type: 'third_party', name: '', short_name: '', station_id: '', office_address: '', delivery_address: '',
   contact_person: '', mobile: '', contact_person_2: '', mobile_2: '', office_phone: '', res_phone: '',
   gst: '', state_code: '', state: '', pan: '', bank_account: '', company_id: '', info: '', remarks: '', is_active: true,
   email: '', vehicle_type: '', vehicle_no_1: '', vehicle_no_2: '', vehicle_no_3: '', bank_account_2: '',
 }
 
 const fromRow = (r: Transporter): Form => ({
+  record_date: r.record_date ?? '',
   transporter_type: r.transporter_type, name: r.name, short_name: r.short_name ?? '', station_id: r.station_id ?? '',
   office_address: r.office_address ?? '', delivery_address: r.delivery_address ?? '', contact_person: r.contact_person ?? '',
   mobile: r.mobile ?? '', contact_person_2: r.contact_person_2 ?? '', mobile_2: r.mobile_2 ?? '', office_phone: r.office_phone ?? '',
@@ -86,22 +101,48 @@ const fromRow = (r: Transporter): Form => ({
   vehicle_no_3: r.vehicle_no_3 ?? '', bank_account_2: r.bank_account_2 ?? '',
 })
 
-function problems(f: Form): string[] {
-  const out: string[] = []
-  if (!f.name.trim()) out.push('Transporter name')
-  if (f.mobile && !isMobile(f.mobile)) out.push('Mobile (10 digits)')
-  if (f.mobile_2 && !isMobile(f.mobile_2)) out.push('Second mobile (10 digits)')
-  if (f.gst && !isGst(f.gst)) out.push('GST (15 characters, valid format)')
-  if (f.email.trim() && !f.email.includes('@')) out.push('Email (must contain @)')
-  if (f.pan && f.pan.trim().length !== 10) out.push('PAN (10 characters)')
-  if (f.gst && f.state_code && f.gst.slice(0, 2) !== f.state_code) out.push('State code (must match the first two digits of the GST)')
-  return out
+/** Field id -> message, in the order the fields appear. A new record also needs the
+ *  fields monday's form marks required (an existing one may lack some of them). */
+function transporterErrors(f: Form, rows: readonly Transporter[], selfId: string | null | undefined, isNew: boolean): FieldErrors {
+  const er: FieldErrors = {}
+  requireText(er, 't-name', f.name, 'Name is required.')
+  if (!er['t-name'] && findDuplicate(rows, selfId, (r) => r.name, f.name, nameKey)) er['t-name'] = 'A transport company with this name already exists.'
+  if (!er['t-name']) { const m = nameProblem('Name', f.name); if (m) er['t-name'] = m }
+  if (f.email.trim() && !isEmail(f.email)) er['t-email'] = 'Enter a valid email, like name@company.com.'
+  if (isNew) requireText(er, 't-gst', f.gst, 'GST No. is required.')
+  const gst = f.gst.trim().toUpperCase()
+  if (gst && !isGst(gst)) er['t-gst'] = 'Enter a complete GST number (15 characters, like 33AHFPS5121G2ZK).'
+  else if (gst) {
+    const same = findDuplicate(rows, selfId, (r) => r.gst, gst, (v) => (v ?? '').trim().toUpperCase())
+    if (same) er['t-gst'] = `A transport company with this GST number already exists (${same.name}).`
+  }
+  if (isNew) requireText(er, 't-ophone', f.office_phone, 'Office Phone is required.')
+  if (f.office_phone.trim() && !/^[0-9]{6,15}$/.test(f.office_phone.trim())) er['t-ophone'] = 'Office Phone must be 6 to 15 digits.'
+  if (f.res_phone.trim() && !/^[0-9]{6,15}$/.test(f.res_phone.trim())) er['t-rphone'] = 'Res Phone must be 6 to 15 digits.'
+  if (isNew) requireText(er, 't-state', f.state, 'State is required.')
+  { const m = placeProblem('State', f.state); if (m) er['t-state'] = m }
+  if (isNew) requireText(er, 't-sc', f.state_code, 'State Code is required.')
+  if (f.state_code.trim() && !isStateCode(f.state_code)) er['t-sc'] = 'State Code must be 2 digits.'
+  else if (gst && isGst(gst) && f.state_code.trim() && gst.slice(0, 2) !== f.state_code.trim()) er['t-sc'] = 'State Code must match the first two digits of the GST number.'
+  if (isNew) requireText(er, 't-oaddr', f.office_address, 'Office Address is required.')
+  if (isNew && !f.company_id) er['t-company'] = 'Business Units is required.'
+  if (isNew) requireText(er, 't-bank', f.bank_account, 'Bank Account Number 1 is required.')
+  if (isNew) requireText(er, 't-pan', f.pan, 'PAN is required.')
+  if (f.pan.trim() && !isPan(f.pan)) er['t-pan'] = 'Enter a valid PAN: 5 letters, 4 digits, 1 letter (like AHFPS5121G).'
+  if (isNew) requireText(er, 't-cp', f.contact_person, 'Contact Person 1 is required.')
+  { const m = personProblem('Contact Person 1', f.contact_person); if (m) er['t-cp'] = m }
+  { const m = personProblem('Contact Person 2', f.contact_person_2); if (m) er['t-cp2'] = m }
+  if (isNew) requireText(er, 't-mob', f.mobile, 'Contact Person 1 Phone is required.')
+  if (f.mobile.trim() && !isMobile(f.mobile)) er['t-mob'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
+  if (f.mobile_2.trim() && !isMobile(f.mobile_2)) er['t-mob2'] = 'Phone numbers are 10 digits, without +91 or a leading 0.'
+  if (isNew) requireText(er, 't-vtype', f.vehicle_type, 'Vehicle Type is required.')
+  return er
 }
 
 const payload = (f: Form) => {
   const t = (v: string) => v.trim() || null
   return {
-    transporter_type: f.transporter_type, name: f.name.trim(), short_name: t(f.short_name), station_id: f.station_id || null,
+    record_date: f.record_date || null, transporter_type: f.transporter_type, name: f.name.trim(), short_name: t(f.short_name), station_id: f.station_id || null,
     office_address: t(f.office_address), delivery_address: t(f.delivery_address), contact_person: t(f.contact_person),
     mobile: t(f.mobile), contact_person_2: t(f.contact_person_2), mobile_2: t(f.mobile_2), office_phone: t(f.office_phone),
     res_phone: t(f.res_phone), gst: t(f.gst.toUpperCase()), state_code: t(f.state_code), state: t(f.state),
@@ -120,9 +161,17 @@ export default function Transporters() {
   const [stations, setStations] = useState<Station[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [editing, setEditing] = useState<Transporter | 'new' | null>(null)
+  const [viewing, setViewing] = useState<Transporter | null>(null)
+  const [deleting, setDeleting] = useState<Transporter | null>(null)
+  const [docsFor, setDocsFor] = useState<Transporter | null>(null)
+  const [delErr, setDelErr] = useState<string | null>(null)
+  const [docCounts, setDocCounts] = useState<Record<string, number>>({})
+  const [locationsOf, setLocationsOf] = useState<Record<string, string[]>>({})
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [vehicleFilter, setVehicleFilter] = useState('')
+  const [stateFilter, setStateFilter] = useState('')
+  const [companyFilter, setCompanyFilter] = useState('')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -137,6 +186,17 @@ export default function Transporters() {
     setRows((r.data ?? []) as Transporter[])
     setStations((s.data ?? []) as Station[])
     setCompanies((c.data ?? []) as Company[])
+    const list = (r.data ?? []) as Transporter[]
+    setDocCounts(await countDocuments('transporter_documents', 'transporter_id', list.map((x) => x.id)))
+    // "Locations" column: the stations each transporter serves.
+    const links = await supabase.from('location_links').select('owner_id,location_id').eq('owner_type', 'transporter')
+    const names = new Map(((s.data ?? []) as Station[]).map((x) => [x.id, x.name]))
+    const byRow: Record<string, string[]> = {}
+    for (const l of (links.data ?? []) as { owner_id: string; location_id: string }[]) {
+      const n = names.get(l.location_id)
+      if (n) (byRow[l.owner_id] ??= []).push(n)
+    }
+    setLocationsOf(byRow)
   }, [])
   useEffect(() => {
     void load()
@@ -145,26 +205,48 @@ export default function Transporters() {
   const stationName = useMemo(() => new Map(stations.map((x) => [x.id, x.name])), [stations])
   const companyName = useMemo(() => new Map(companies.map((x) => [x.id, x.name])), [companies])
 
+  const stateOptions = useMemo(
+    () => [...new Set((rows ?? []).map((x) => x.state).filter((s): s is string => Boolean(s?.trim())))].sort((p, q) => p.localeCompare(q)),
+    [rows],
+  )
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return (rows ?? []).filter(
-      (x) =>
-        (!typeFilter || x.transporter_type === typeFilter) &&
-        (!statusFilter || (statusFilter === 'active') === x.is_active) &&
-        (!q ||
-          [x.name, x.short_name, x.transporter_code, x.contact_person, x.mobile, x.gst, x.pan, x.email, x.vehicle_type, x.vehicle_no_1, x.vehicle_no_2, x.vehicle_no_3, x.station_id ? stationName.get(x.station_id) : '']
-            .some((v) => (v ?? '').toLowerCase().includes(q))),
-    )
-  }, [rows, search, typeFilter, statusFilter, stationName])
+    const q = searchKey(search)
+    return (rows ?? []).filter((x) => {
+      if (statusFilter && (statusFilter === 'active') !== x.is_active) return false
+      if (vehicleFilter && x.vehicle_type !== vehicleFilter) return false
+      if (stateFilter && x.state !== stateFilter) return false
+      if (companyFilter && x.company_id !== companyFilter) return false
+      if (!q) return true
+      // Every column the grid shows.
+      return [
+        x.name, VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type, formatDate(x.record_date ?? x.created_at), x.email,
+        x.office_address, x.delivery_address, x.office_phone, x.res_phone, x.gst, x.state, x.state_code, x.bank_account,
+        x.bank_account_2, x.pan, x.contact_person, x.mobile, x.contact_person_2, x.mobile_2, x.vehicle_no_1, x.vehicle_no_2,
+        x.vehicle_no_3, x.remarks, (locationsOf[x.id] ?? []).join(' '), x.company_id ? companyName.get(x.company_id) : '',
+      ].some((v) => searchKey(v).includes(q))
+    })
+  }, [rows, search, statusFilter, vehicleFilter, stateFilter, companyFilter, locationsOf, companyName])
 
-  const paging = usePaging(shown, [search, typeFilter, statusFilter].join('|'))
+  const paging = usePaging(shown, [search, statusFilter, vehicleFilter, stateFilter, companyFilter].join('|'))
 
   const filterDefs: FilterDef[] = [
-    { name: 'type', label: 'Type', allLabel: 'All types', options: TYPES },
     { name: 'status', label: 'Status', allLabel: 'All statuses', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] },
+    { name: 'vehicle', label: 'Vehicle Type', allLabel: 'All vehicle types', options: VEHICLE_TYPES.map((v) => ({ value: v.value, label: v.label })) },
+    { name: 'state', label: 'State', allLabel: 'All states', options: stateOptions.map((s) => ({ value: s, label: s })) },
+    { name: 'company', label: 'Business Units', allLabel: 'All business units', options: companies.filter((c) => c.is_active).map((c) => ({ value: c.id, label: c.name })) },
   ]
 
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
+
+  /** Active / Inactive: nothing is deleted; inactive transporters stay listed and are no longer offered in pickers. */
+  async function toggleActive(x: Transporter) {
+    setBanner(null)
+    const next = !x.is_active
+    const message = await setActive([{ table: 'transporters', id: x.id }], next)
+    if (message) return setBanner({ kind: 'bad', text: message })
+    setBanner({ kind: 'ok', text: `${x.name} marked ${next ? 'active' : 'inactive'}.` })
+    await load()
+  }
 
   async function deleteSelected() {
     setBusy(true)
@@ -216,8 +298,8 @@ export default function Transporters() {
           vehicle_no_1: r.get('vehicle_no_1'), vehicle_no_2: r.get('vehicle_no_2'), vehicle_no_3: r.get('vehicle_no_3'),
           bank_account_2: r.get('bank_account_2'),
         }
-        const missing = problems(f)
-        if (missing.length > 0) throw new Error(`Needs: ${missing.join(', ')}`)
+        const found = Object.values(transporterErrors(f, rows ?? [], null, true))
+        if (found.length > 0) throw new Error(found.join(' '))
         const { error } = await supabase.from('transporters').insert(payload(f))
         if (error) throw error
       },
@@ -229,6 +311,18 @@ export default function Transporters() {
       await load()
     }
     setBusy(false)
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return
+    setBusy(true)
+    setDelErr(null)
+    const { data, error } = await supabase.from('transporters').delete().eq('id', deleting.id).select('id')
+    setBusy(false)
+    if (error || !data || data.length === 0) return setDelErr(error ? errMessage(error) : 'Your account cannot delete this transporter.')
+    setBanner({ kind: 'ok', text: `${deleting.name} deleted.` })
+    setDeleting(null)
+    await load()
   }
 
   if (!canRead) return <div className="card pad narrow-card">Your account does not have access to transportation records.</div>
@@ -243,13 +337,20 @@ export default function Transporters() {
         plural="transporters"
         query={search}
         onQuery={setSearch}
-        searchPlaceholder="Search name, code, contact, mobile, email, vehicle, GST, PAN or station"
+        searchPlaceholder="Search name, email, address, phone, GST, PAN, state, vehicle, contact, bank or remarks"
         filters={filterDefs}
-        values={{ type: typeFilter, status: statusFilter }}
-        onFilter={(name, value) => (name === 'type' ? setTypeFilter(value) : setStatusFilter(value))}
+        values={{ status: statusFilter, vehicle: vehicleFilter, state: stateFilter, company: companyFilter }}
+        onFilter={(name, value) => {
+          if (name === 'status') setStatusFilter(value)
+          else if (name === 'vehicle') setVehicleFilter(value)
+          else if (name === 'state') setStateFilter(value)
+          else setCompanyFilter(value)
+        }}
         onClear={() => {
-          setTypeFilter('')
           setStatusFilter('')
+          setVehicleFilter('')
+          setStateFilter('')
+          setCompanyFilter('')
         }}
       >
         {canManage && (
@@ -291,50 +392,88 @@ export default function Transporters() {
                   <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label="Select all transporters" />
                 </th>
               )}
-              <th>Code</th>
-              <th className="left">Transporter</th>
-              <th>Type</th>
-              <th>Vehicle</th>
-              <th>Station</th>
-              <th>Contact</th>
-              <th>Mobile</th>
-              <th>GST</th>
-              <th>Company</th>
-              <th>Status</th>
-              <th>Updated</th>
+              <th className="left md-sticky">Name</th>
+              <th>Vehicle Type</th>
+              <th>Date</th>
+              <th>Email</th>
+              <th>Office Address</th>
+              <th>Mill/Factory/Delivery Address</th>
+              <th>Office Phone</th>
+              <th>Res Phone</th>
+              <th>GST No.</th>
+              <th>State</th>
+              <th>State Code</th>
+              <th>Bank Account Number 1</th>
+              <th>Bank Account Number 2</th>
+              <th>PAN</th>
+              <th>Contact Person 1</th>
+              <th>Contact Person 1 Phone</th>
+              <th>Contact Person 2</th>
+              <th>Contact Person 2 Phone</th>
+              <th>Vehicle No 1</th>
+              <th>Vehicle No 2</th>
+              <th>Vehicle No 3</th>
+              <th>Remarks</th>
+              <th>Documents</th>
+              <th>Locations</th>
+              <th>Business Units</th>
+              <th className="md-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 ? (
               <tr>
-                <td className="empty" colSpan={canManage ? 12 : 11}>
+                <td className="empty" colSpan={canManage ? 28 : 27}>
                   {rows.length === 0 ? 'No transporters yet.' : 'No transporter matches.'}
                 </td>
               </tr>
             ) : (
               paging.visible.map((x) => (
-                <tr key={x.id} className="clickable" onClick={() => setEditing(x)}>
+                <tr key={x.id}>
                   {canManage && (
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td>
                       <input type="checkbox" checked={selection.isSelected(x.id)} onChange={() => selection.toggle(x.id)} aria-label={`Select ${x.name}`} />
                     </td>
                   )}
-                  <td className="mono small">{x.transporter_code}</td>
-                  <td className="left">
+                  <td className="left md-sticky">
                     <strong>{x.name}</strong>
-                    {x.short_name && <span className="muted small"> · {x.short_name}</span>}
-                  </td>
-                  <td>
-                    <span className="chip">{x.transporter_type === 'internal' ? 'Internal' : 'Third party'}</span>
+                    {!x.is_active && <span className="chip bad" style={{ marginLeft: 8 }}>Inactive</span>}
                   </td>
                   <td className="small">{x.vehicle_type ? <span className="chip">{VEHICLE_TYPES.find((v) => v.value === x.vehicle_type)?.label ?? x.vehicle_type}</span> : '—'}</td>
-                  <td className="small">{x.station_id ? stationName.get(x.station_id) ?? '—' : '—'}</td>
+                  <td className="mono small">{formatDate(x.record_date ?? x.created_at)}</td>
+                  <td className="small">{x.email ?? '—'}</td>
+                  <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.office_address ?? '—'}</td>
+                  <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.delivery_address ?? '—'}</td>
+                  <td className="mono small">{x.office_phone ?? '—'}</td>
+                  <td className="mono small">{x.res_phone ?? '—'}</td>
+                  <td className="mono small">{x.gst ?? '—'}</td>
+                  <td className="small">{x.state ?? '—'}</td>
+                  <td className="mono small">{x.state_code ?? '—'}</td>
+                  <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.bank_account ?? '—'}</td>
+                  <td className="small md-wrap" style={{ whiteSpace: 'pre-line' }}>{x.bank_account_2 ?? '—'}</td>
+                  <td className="mono small">{x.pan ?? '—'}</td>
                   <td className="small">{x.contact_person ?? '—'}</td>
                   <td className="mono small">{x.mobile ?? '—'}</td>
-                  <td className="mono small">{x.gst ?? '—'}</td>
+                  <td className="small">{x.contact_person_2 ?? '—'}</td>
+                  <td className="mono small">{x.mobile_2 ?? '—'}</td>
+                  <td className="mono small">{x.vehicle_no_1 ?? '—'}</td>
+                  <td className="mono small">{x.vehicle_no_2 ?? '—'}</td>
+                  <td className="mono small">{x.vehicle_no_3 ?? '—'}</td>
+                  <td className="small md-wrap">{x.remarks ?? '—'}</td>
+                  <td className="mono small">{docCounts[x.id] ?? 0}</td>
+                  <td className="small md-wrap">{locationsOf[x.id]?.join(', ') ?? '—'}</td>
                   <td className="small">{x.company_id ? companyName.get(x.company_id) ?? '—' : '—'}</td>
-                  <td>{x.is_active ? <span className="chip good">Active</span> : <span className="chip bad">Inactive</span>}</td>
-                  <td className="mono small">{formatDateTime(x.updated_at)}</td>
+                  <td className="md-actions">
+                    <RowActionMenu
+                      label={x.name}
+                      actions={[
+                        { label: 'Edit', onSelect: () => (canManage ? setEditing(x) : setViewing(x)) },
+                        { label: 'Documents', onSelect: () => setDocsFor(x) },
+                        { label: x.is_active ? 'Mark inactive' : 'Mark active', onSelect: () => void toggleActive(x), disabledReason: canManage ? null : 'Needs “Add and edit transporters”' },
+                        { label: 'Delete', tone: 'danger', onSelect: () => { setDelErr(null); setDeleting(x) }, disabledReason: canManage ? null : 'Needs “Add and edit transporters”' },
+                      ]}
+                    />
+                  </td>
                 </tr>
               ))
             )}
@@ -342,10 +481,41 @@ export default function Transporters() {
         </table>
       </div>
 
+      {viewing && (
+        <TransporterDrawer
+          key={`v-${viewing.id}`}
+          row={viewing}
+          rows={rows}
+          canManage={canManage}
+          viewOnly
+          stations={stations}
+          companies={companies}
+          onClose={() => setViewing(null)}
+          onDone={() => setViewing(null)}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog title="Delete transporter" busy={busy} error={delErr} onConfirm={() => void confirmDelete()} onClose={() => setDeleting(null)}>
+          Delete <strong>{deleting.name}</strong>? This cannot be undone.
+        </ConfirmDialog>
+      )}
+      {docsFor && (
+        <DocumentsModal
+          title={docsFor.name}
+          store={transporterDocStore(docsFor.id)}
+          parentId={docsFor.id}
+          canEdit={canManage}
+          onClose={() => setDocsFor(null)}
+          onChanged={() => void load()}
+        />
+      )}
+
       {editing && (
         <TransporterDrawer
           key={editing === 'new' ? 'new' : editing.id}
           row={editing === 'new' ? null : editing}
+          rows={rows}
+          onDocsChanged={() => void load()}
           canManage={canManage}
           stations={stations}
           companies={companies}
@@ -364,28 +534,42 @@ export default function Transporters() {
 }
 
 function TransporterDrawer({
-  row, canManage, stations, companies, onClose, onDone,
+  row: existing, rows, canManage: canManageRecords, viewOnly = false, companies, onClose, onDone, onDocsChanged,
 }: {
+  onDocsChanged?: () => void
   row: Transporter | null
+  rows: Transporter[]
   canManage: boolean
+  viewOnly?: boolean
   stations: Station[]
   companies: Company[]
   onClose: () => void
   onDone: (message: string) => void | Promise<void>
 }) {
-  const [f, setF] = useState<Form>(row ? fromRow(row) : blank)
-  const [tab, setTab] = useState<'account' | 'info' | 'remarks'>('account')
+  const canManage = canManageRecords && !viewOnly
+  const [files, setFiles] = useState<File[]>([])
+  const row = existing
+  const [f, setF] = useState<Form>(existing ? fromRow(existing) : { ...blank, record_date: todayIST() })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const locationOptions = useLocationOptions()
   const [locationIds, setLocationIds] = useState<string[]>([])
   const [linksLoaded, setLinksLoaded] = useState(!row)
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }))
-  const missing = problems(f)
+  const [submitted, setSubmitted] = useState(false)
+  const errors = useMemo(() => transporterErrors(f, rows, row?.id, !row), [f, rows, row])
+  const locationsMissing = !row && locationIds.length === 0
+  const fieldValue: Record<string, string> = {
+    't-name': f.name, 't-email': f.email, 't-gst': f.gst, 't-ophone': f.office_phone, 't-state': f.state, 't-sc': f.state_code,
+    't-oaddr': f.office_address, 't-company': f.company_id, 't-bank': f.bank_account, 't-pan': f.pan, 't-cp': f.contact_person,
+    't-mob': f.mobile, 't-mob2': f.mobile_2, 't-cp2': f.contact_person_2, 't-rphone': f.res_phone, 't-vtype': f.vehicle_type,
+  }
+  const show = (id: string): string | undefined => (submitted || (fieldValue[id] ?? '').trim() !== '' ? errors[id] : undefined)
 
   useEffect(() => {
-    if (!row) return
+    if (!row) return undefined
     let live = true
+    setLinksLoaded(false)
     loadLinkIds('location', 'transporter', row.id)
       .then((ids) => { if (live) { setLocationIds(ids); setLinksLoaded(true) } })
       .catch(() => { if (live) setErr("Could not load this record's locations.") })
@@ -408,7 +592,13 @@ function TransporterDrawer({
   }
 
   async function save() {
-    if (missing.length > 0) return setErr(`Fix: ${missing.join(', ')}.`)
+    setSubmitted(true)
+    setErr(null)
+    if (Object.keys(errors).length > 0 || locationsMissing) {
+      if (Object.keys(errors).length > 0) focusFirstError(errors)
+      else document.getElementById('t-locations')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      return
+    }
     setBusy(true)
     setErr(null)
     const { data, error } = row
@@ -422,166 +612,163 @@ function TransporterDrawer({
       setBusy(false)
       return setErr('Your account cannot change this transporter.')
     }
+    const savedId = data[0]!.id as string
     const saved = row ? `${f.name.trim()} updated.` : `${f.name.trim()} added.`
-    let linkFailed = false
+    const notes: string[] = []
     if (row ? linksLoaded : locationIds.length > 0) {
       try {
-        await syncLinks('location', 'transporter', data[0]!.id as string, locationIds)
+        await syncLinks('location', 'transporter', savedId, locationIds)
       } catch {
-        linkFailed = true
+        notes.push('its locations could not be saved; open it again to retry')
       }
     }
+    if (!row && files.length > 0) {
+      const failed = await uploadDocuments(transporterDocStore(savedId), savedId, files)
+      if (failed.length > 0) notes.push(`some documents were not uploaded (${failed.join('; ')}); use Documents on the list to retry`)
+    }
     setBusy(false)
-    await onDone(linkFailed ? `${saved} The record saved, but its locations could not be saved; open it again to retry.` : saved)
+    await onDone(notes.length > 0 ? `${saved} The record saved, but ${notes.join('; ')}.` : saved)
   }
 
   async function remove() {
-    if (!row) return
+    if (!existing) return
     setBusy(true)
-    const { data, error } = await supabase.from('transporters').delete().eq('id', row.id).select('id')
+    const { data, error } = await supabase.from('transporters').delete().eq('id', existing.id).select('id')
     setBusy(false)
     if (error || !data || data.length === 0) return setErr(error ? errMessage(error) : 'Your account cannot delete this transporter.')
-    await onDone(`${row.name} deleted.`)
+    await onDone(`${existing.name} deleted.`)
   }
 
   return (
-    <Drawer title={row ? `${row.transporter_code} · ${row.name}` : 'New transporter'} onClose={onClose}>
-      {err && <div className="alert">{err}</div>}
-      {!canManage && <div className="notice small">You can view this record; changing it needs the “Add and edit transporters” permission.</div>}
+    <Drawer title={existing ? `${existing.transporter_code} · ${existing.name}` : 'Transport Company Creation Form'} onClose={onClose} readOnly={viewOnly}>
+      <ErrorBanner message={err} />
+      {!canManage && !viewOnly && <div className="notice small">You can view this record; changing it needs the “Add and edit transporters” permission.</div>}
       <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <div className="form-grid">
-          <Field id="t-type" label="Type" required hint="Internal = our own vehicle or resource.">
-            <select id="t-type" value={f.transporter_type} onChange={(e) => set('transporter_type', e.target.value as Form['transporter_type'])}>
-              {TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
-            </select>
-          </Field>
-          <Field id="t-name" label="Transporter" required>
-            <input id="t-name" value={f.name} onChange={(e) => set('name', e.target.value)} />
-          </Field>
-          <Field id="t-short" label="Short name">
-            <input id="t-short" value={f.short_name} onChange={(e) => set('short_name', e.target.value)} />
-          </Field>
-          <Field id="t-station" label="Station">
-            <select id="t-station" value={f.station_id} onChange={(e) => set('station_id', e.target.value)}>
-              <option value="">—</option>
-              {stations.filter((s) => s.is_active || s.id === f.station_id).map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-            </select>
-          </Field>
-          <Field id="t-vtype" label="Vehicle type">
-            <select id="t-vtype" value={f.vehicle_type} onChange={(e) => set('vehicle_type', e.target.value)}>
-              <option value="">—</option>
-              {VEHICLE_TYPES.map((v) => (<option key={v.value} value={v.value}>{v.label}</option>))}
-            </select>
-          </Field>
-          <Field id="t-v1" label="Vehicle no. 1">
-            <input id="t-v1" className="mono" value={f.vehicle_no_1} onChange={(e) => set('vehicle_no_1', e.target.value.toUpperCase())} />
-          </Field>
-          <Field id="t-v2" label="Vehicle no. 2">
-            <input id="t-v2" className="mono" value={f.vehicle_no_2} onChange={(e) => set('vehicle_no_2', e.target.value.toUpperCase())} />
-          </Field>
-          <Field id="t-v3" label="Vehicle no. 3">
-            <input id="t-v3" className="mono" value={f.vehicle_no_3} onChange={(e) => set('vehicle_no_3', e.target.value.toUpperCase())} />
-          </Field>
-          <Field id="t-email" label="Email">
-            <input id="t-email" type="email" value={f.email} onChange={(e) => set('email', e.target.value)} />
-          </Field>
-          <Field id="t-cp" label="Contact person">
-            <input id="t-cp" value={f.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
-          </Field>
-          <Field id="t-mob" label="Mobile" hint="10 digits.">
-            <input id="t-mob" className="mono" inputMode="numeric" maxLength={10} value={f.mobile} onChange={(e) => set('mobile', e.target.value.replace(/\D/g, ''))} />
-          </Field>
-          <Field id="t-cp2" label="Contact person 2">
-            <input id="t-cp2" value={f.contact_person_2} onChange={(e) => set('contact_person_2', e.target.value)} />
-          </Field>
-          <Field id="t-mob2" label="Mobile 2" hint="10 digits.">
-            <input id="t-mob2" className="mono" inputMode="numeric" maxLength={10} value={f.mobile_2} onChange={(e) => set('mobile_2', e.target.value.replace(/\D/g, ''))} />
-          </Field>
-          <Field id="t-ophone" label="Office phone">
-            <input id="t-ophone" className="mono" value={f.office_phone} onChange={(e) => set('office_phone', e.target.value)} />
-          </Field>
-          <Field id="t-rphone" label="Res. phone">
-            <input id="t-rphone" className="mono" value={f.res_phone} onChange={(e) => set('res_phone', e.target.value)} />
-          </Field>
-        </div>
-        <LinkPicker
-          id="t-locations"
-          label="Locations"
-          hint="Optional: the stations this transporter serves."
-          options={locationOptions}
-          value={locationIds}
-          onChange={setLocationIds}
-          disabled={!canManage}
-        />
-        <Field id="t-oaddr" label="Office address">
-          <textarea id="t-oaddr" rows={3} value={f.office_address} onChange={(e) => set('office_address', e.target.value)} />
-        </Field>
-        <Field id="t-daddr" label="Mill / Factory / Delivery address">
-          <textarea id="t-daddr" rows={3} value={f.delivery_address} onChange={(e) => set('delivery_address', e.target.value)} />
-        </Field>
+          <FormSection title="Transport Type Details" count={12}>
+            <Field id="t-name" label="Name" required error={show('t-name')}>
+              <input id="t-name" value={f.name} placeholder="Enter Name" onChange={(ev) => set('name', ev.target.value)} />
+            </Field>
+            <Field id="t-date" label="Date">
+              <input id="t-date" type="date" value={f.record_date} onChange={(ev) => set('record_date', ev.target.value)} />
+            </Field>
+            <Field id="t-email" label="Email" error={show('t-email')}>
+              <input id="t-email" type="email" value={f.email} placeholder="Enter Email" onChange={(ev) => set('email', ev.target.value)} />
+            </Field>
+            <Field id="t-gst" label="GST No." required error={show('t-gst')} hint="monday calls this CGST. Fills state code, state and PAN.">
+              <input id="t-gst" className="mono" maxLength={15} value={f.gst} placeholder="Enter GST No." onChange={(ev) => setGst(ev.target.value)} />
+            </Field>
+            <Field id="t-ophone" label="Office Phone" required error={show('t-ophone')}>
+              <input id="t-ophone" className="mono" value={f.office_phone} placeholder="Office Phone number" onChange={(ev) => set('office_phone', ev.target.value)} />
+            </Field>
+            <Field id="t-rphone" label="Res Phone" error={show('t-rphone')}>
+              <input id="t-rphone" className="mono" value={f.res_phone} placeholder="Res Phone number" onChange={(ev) => set('res_phone', ev.target.value)} />
+            </Field>
+            <Field id="t-state" label="State" required error={show('t-state')}>
+              <input id="t-state" value={f.state} placeholder="Enter State" onChange={(ev) => set('state', ev.target.value)} />
+            </Field>
+            <Field id="t-sc" label="State Code" required error={show('t-sc')}>
+              <input id="t-sc" className="mono" maxLength={2} value={f.state_code} placeholder="Enter State Code" onChange={(ev) => set('state_code', ev.target.value.replace(/\D/g, ''))} />
+            </Field>
+            <Field id="t-oaddr" label="Office Address" required error={show('t-oaddr')}>
+              <textarea id="t-oaddr" rows={3} value={f.office_address} placeholder="Enter Office Address" onChange={(ev) => set('office_address', ev.target.value)} />
+            </Field>
+            <Field id="t-daddr" label="Mill/Factory/Delivery Address">
+              <textarea id="t-daddr" rows={3} value={f.delivery_address} placeholder="Enter Mill/Factory/Delivery Address" onChange={(ev) => set('delivery_address', ev.target.value)} />
+            </Field>
+            <LinkPicker
+              id="t-locations"
+              label="Locations *"
+              hint="The stations this transporter serves."
+              options={locationOptions}
+              value={locationIds}
+              onChange={setLocationIds}
+              disabled={!canManage}
+              placeholder="-- Select Locations --"
+              emptyText="No locations yet: add one in Master data > Locations first"
+            />
+            {submitted && locationsMissing && <p className="field-warn" role="alert">Locations is required: choose at least one.</p>}
+            <Field id="t-company" label="Business Units" required error={show('t-company')}>
+              <select id="t-company" value={f.company_id} onChange={(ev) => set('company_id', ev.target.value)}>
+                <option value="">-- Select Business Units --</option>
+                {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+              </select>
+            </Field>
+          </FormSection>
 
-        <div role="tablist" className="drawer-actions" style={{ marginTop: 8, paddingTop: 0, borderTop: 'none' }}>
-          {(['account', 'info', 'remarks'] as const).map((k) => (
-            <button key={k} role="tab" aria-selected={tab === k} type="button" className={`btn sm${tab === k ? ' primary' : ' ghost'}`} onClick={() => setTab(k)}>
-              {k === 'account' ? 'Account' : k === 'info' ? 'Info' : 'Remarks'}
-            </button>
-          ))}
-        </div>
+          <FormSection title="Account Details" count={3}>
+            <Field id="t-bank" label="Bank Account Number 1" required error={show('t-bank')}>
+              <textarea id="t-bank" rows={2} value={f.bank_account} placeholder="Enter Bank Account Number 1" onChange={(ev) => set('bank_account', ev.target.value)} />
+            </Field>
+            <Field id="t-bank2" label="Bank Account Number 2">
+              <textarea id="t-bank2" rows={2} value={f.bank_account_2} placeholder="Enter Bank Account Number 2" onChange={(ev) => set('bank_account_2', ev.target.value)} />
+            </Field>
+            <Field id="t-pan" label="PAN" required error={show('t-pan')} hint="10 characters.">
+              <input id="t-pan" className="mono" maxLength={10} value={f.pan} placeholder="Enter PAN" onChange={(ev) => set('pan', ev.target.value.toUpperCase().replace(/\s+/g, ''))} />
+            </Field>
+          </FormSection>
 
-        {tab === 'account' && (
-          <div className="form-grid">
-            <Field id="t-gst" label="GST" hint="Fills state code, state and PAN.">
-              <input id="t-gst" className="mono" maxLength={15} value={f.gst} onChange={(e) => setGst(e.target.value)} />
+          <FormSection title="Contact Details" count={4}>
+            <Field id="t-cp" label="Contact Person 1" required error={show('t-cp')}>
+              <input id="t-cp" value={f.contact_person} placeholder="Enter Contact Person 1" onChange={(ev) => set('contact_person', ev.target.value)} />
             </Field>
-            <Field id="t-pan" label="IT PAN" hint="10 characters.">
-              <input id="t-pan" className="mono" maxLength={10} value={f.pan} onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
+            <Field id="t-mob" label="Contact Person 1 Phone" required error={show('t-mob')} hint="10 digits.">
+              <input id="t-mob" className="mono" inputMode="numeric" maxLength={10} value={f.mobile} placeholder="Contact Person 1 Phone number" onChange={(ev) => set('mobile', ev.target.value.replace(/\D/g, ''))} />
             </Field>
-            <Field id="t-sc" label="State code">
-              <input id="t-sc" className="mono" maxLength={2} value={f.state_code} onChange={(e) => set('state_code', e.target.value.replace(/\D/g, ''))} />
+            <Field id="t-cp2" label="Contact Person 2" error={show('t-cp2')}>
+              <input id="t-cp2" value={f.contact_person_2} placeholder="Enter Contact Person 2" onChange={(ev) => set('contact_person_2', ev.target.value)} />
             </Field>
-            <Field id="t-state" label="State">
-              <input id="t-state" value={f.state} onChange={(e) => set('state', e.target.value)} />
+            <Field id="t-mob2" label="Contact Person 2 Phone" error={show('t-mob2')} hint="10 digits.">
+              <input id="t-mob2" className="mono" inputMode="numeric" maxLength={10} value={f.mobile_2} placeholder="Contact Person 2 Phone number" onChange={(ev) => set('mobile_2', ev.target.value.replace(/\D/g, ''))} />
             </Field>
-            <Field id="t-bank" label="Bank A/c. No.">
-              <textarea id="t-bank" rows={3} value={f.bank_account} onChange={(e) => set('bank_account', e.target.value)} />
-            </Field>
-            <Field id="t-bank2" label="Bank A/c. No. 2">
-              <textarea id="t-bank2" rows={3} value={f.bank_account_2} onChange={(e) => set('bank_account_2', e.target.value)} />
-            </Field>
-          </div>
-        )}
-        {tab === 'info' && (
-          <Field id="t-info" label="Info" hint="Vehicle details, routes served or anything else worth knowing.">
-            <textarea id="t-info" rows={5} value={f.info} onChange={(e) => set('info', e.target.value)} />
-          </Field>
-        )}
-        {tab === 'remarks' && (
-          <Field id="t-remarks" label="Remarks">
-            <textarea id="t-remarks" rows={5} value={f.remarks} onChange={(e) => set('remarks', e.target.value)} />
-          </Field>
-        )}
+          </FormSection>
 
-        <div className="form-grid" style={{ marginTop: 12 }}>
-          <Field id="t-company" label="Company">
-            <select id="t-company" value={f.company_id} onChange={(e) => set('company_id', e.target.value)}>
-              <option value="">—</option>
-              {companies.filter((c) => c.is_active || c.id === f.company_id).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-            </select>
-          </Field>
-          <label style={{ alignSelf: 'end' }}>
-            <input type="checkbox" checked={f.is_active} onChange={(e) => set('is_active', e.target.checked)} /> Active
-          </label>
-        </div>
+          <FormSection title="Vehicle Details" count={4}>
+            <Field id="t-vtype" label="Vehicle Type" required error={show('t-vtype')}>
+              <select id="t-vtype" value={f.vehicle_type} onChange={(ev) => set('vehicle_type', ev.target.value)}>
+                <option value="">-- Select Vehicle Type --</option>
+                {VEHICLE_TYPES.map((v) => (<option key={v.value} value={v.value}>{v.label}</option>))}
+              </select>
+            </Field>
+            <Field id="t-v1" label="Vehicle No 1">
+              <input id="t-v1" className="mono" value={f.vehicle_no_1} placeholder="Enter Vehicle No 1" onChange={(ev) => set('vehicle_no_1', ev.target.value.toUpperCase())} />
+            </Field>
+            <Field id="t-v2" label="Vehicle No 2">
+              <input id="t-v2" className="mono" value={f.vehicle_no_2} placeholder="Enter Vehicle No 2" onChange={(ev) => set('vehicle_no_2', ev.target.value.toUpperCase())} />
+            </Field>
+            <Field id="t-v3" label="Vehicle No 3">
+              <input id="t-v3" className="mono" value={f.vehicle_no_3} placeholder="Enter Vehicle No 3" onChange={(ev) => set('vehicle_no_3', ev.target.value.toUpperCase())} />
+            </Field>
+          </FormSection>
+
+          <FormSection title="Remarks" count={1}>
+            <FullWidth>
+              <Field id="t-remarks" label="Remarks">
+                <textarea id="t-remarks" rows={3} value={f.remarks} placeholder="Enter Remarks" onChange={(ev) => set('remarks', ev.target.value)} />
+              </Field>
+            </FullWidth>
+          </FormSection>
+
+          {!viewOnly && (
+            <FormSection title="Documents" count={1}>
+              <FullWidth>
+                {row ? <DocumentList store={transporterDocStore(row.id)} parentId={row.id} canEdit={canManage} onChanged={onDocsChanged} /> : <PendingDocuments files={files} onChange={setFiles} disabled={busy} />}
+              </FullWidth>
+            </FormSection>
+          )}
+
+
       </fieldset>
 
-      {missing.length > 0 && <p className="field-hint">Fix: {missing.join(', ')}.</p>}
 
       {canManage && (
         <div className="drawer-actions">
           <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
-            {busy ? 'Saving…' : row ? 'Save changes' : 'Add transporter'}
+            {busy ? 'Saving…' : row ? '✓ Update Item' : '✓ Create Item'}
           </button>
-          {row && <DeleteControl label="Delete" name={row.name} busy={busy} onConfirm={() => void remove()} />}
+          <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          {existing && <DeleteControl label="Delete" name={existing.name} busy={busy} onConfirm={() => void remove()} />}
         </div>
       )}
     </Drawer>

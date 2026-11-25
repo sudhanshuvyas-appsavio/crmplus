@@ -42,22 +42,21 @@ export const commTerms = (basis: string | null, value: number | null) => {
   return `₹${value}${basis === 'per_kg' ? '/kg' : '/bag'}`
 }
 
+/** monday: Total Weight = Bags Weight x Quantity. With no bag weight, KGs and Tons use the quantity (Tons x 1000). */
 export function totalWeight(uom: string, qty: number | null, unitWeight: number | null): number | null {
   if (qty === null) return null
+  if (unitWeight !== null) return qty * unitWeight
   if (uom === 'KG') return qty
   if (uom === 'TONS') return qty * 1000
-  return unitWeight === null ? null : qty * unitWeight
+  return null
 }
 
-export function commission(basis: string | null, value: number | null, amount: number | null, uom: string,
-  qty: number | null, weight: number | null, unitWeight: number | null): number | null {
+export function commission(basis: string | null, value: number | null, amount: number | null, _uom: string,
+  qty: number | null, weight: number | null, _unitWeight: number | null): number | null {
   if (!basis || value === null) return null
   if (basis === 'pct') return amount === null ? null : (amount * value) / 100
   if (basis === 'per_kg') return weight === null ? null : value * weight
-  if (basis === 'per_bag') {
-    if (uom === 'BAGS') return qty === null ? null : value * qty
-    return weight !== null && unitWeight ? (value * weight) / unitWeight : null
-  }
+  if (basis === 'per_bag') return qty === null ? null : value * qty
   return null
 }
 
@@ -87,6 +86,23 @@ export const DISPATCH_STATUSES: { value: string; label: string; tone: string }[]
   { value: 'returned', label: 'Return', tone: 'purple' },
   { value: 'cancelled', label: 'Cancel', tone: 'red' },
 ]
+/* Board groups, named as on the monday boards. A row's status decides its group. */
+export const DEAL_GROUPS = DEAL_STATUSES.map((g) => (g.value === 'new_deal' ? { ...g, label: 'New' } : g))
+export const SC_GROUPS = [
+  { value: 'draft', label: 'New', tone: 'grey' },
+  { value: 'send', label: 'Send', tone: 'blue' },
+  { value: 'send_delivery', label: 'Send with Delivery Info.', tone: 'green' },
+  { value: 'cancelled', label: 'Cancelled', tone: 'red', optional: true },
+]
+export const DNB_GROUPS = [
+  { value: 'draft', label: 'Draft', tone: 'grey' },
+  { value: 'in_progress', label: 'In Progress', tone: 'blue' },
+  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'green' },
+  { value: 'returned', label: 'Return', tone: 'purple', optional: true },
+  { value: 'cancelled', label: 'Cancel', tone: 'red', optional: true },
+]
+/** monday keeps partly dispatched items in its In Progress group. */
+export const dnbGroup = (o: { dispatch_status: string }) => (o.dispatch_status === 'partially_dispatched' ? 'in_progress' : o.dispatch_status)
 export const dispatchStatus = (v: string) => DISPATCH_STATUSES.find((x) => x.value === v) ?? { value: v, label: v, tone: 'grey' }
 
 export const TRANSPORT_TYPES = [
@@ -102,5 +118,7 @@ export function totalAmount(value: number | null, cgst: number | null, ins: numb
   return value + (value * (cgst ?? 0)) / 100 + (value * (ins ?? 0)) / 100 + (add ?? 0) - (deduct ?? 0)
 }
 
+/** A rate per kg: up to 4 decimals, so 1.221 is not shown as 1.22 (amounts use inr and 2). */
+export const rateText = (n: number | null | undefined) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 4 }))
 export const inr = (n: number | null | undefined, digits = 2) =>
   n === null || n === undefined ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: digits })

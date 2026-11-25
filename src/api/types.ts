@@ -148,6 +148,8 @@ export interface Company {
 
 /** A delivery / station name (`station_master`), the monday "Location MDM" list. */
 export interface StationMaster {
+  /** monday's Date field: the day the record is dated; falls back to created_at. */
+  record_date?: string | null
   id: string
   name: string
   is_active: boolean
@@ -188,11 +190,9 @@ export const COMPANY_CSV_COLUMNS = [
   'trade_name',
   'legal_name',
   'short_name',
-  'brand_name',
   'currency',
   'ref_prefix',
   'address',
-  'phone_numbers',
   'phone_1',
   'phone_2',
   'phone_3',
@@ -206,8 +206,6 @@ export const COMPANY_CSV_COLUMNS = [
   'bank_account_1',
   'bank_account_2',
   'is_home',
-  'is_buyer',
-  'is_supplier',
   'is_active',
 ] as const
 
@@ -218,26 +216,25 @@ export type CompanyCsvColumn = (typeof COMPANY_CSV_COLUMNS)[number]
 export const COUNT_MACHINES = ['OE', 'RING SPUN', 'VORTEX'] as const
 export const COUNT_YARNS = ['COTTON', 'POLYESTER', 'VISCOSE', 'LINEN', 'HEMP', 'LYCRA'] as const
 export const COUNT_COMPOSITIONS = [...COUNT_YARNS, 'BLENDED'] as const
-/** Every pair of two different yarns, the two long-standing blends first. */
-export const COUNT_BLENDS: string[] = [
-  'COTTON/POLYESTER',
-  'COTTON/VISCOSE',
-  ...COUNT_YARNS.flatMap((a, i) => COUNT_YARNS.slice(i + 1).map((b) => `${a}/${b}`)).filter(
-    (x) => x !== 'COTTON/POLYESTER' && x !== 'COTTON/VISCOSE',
-  ),
-]
 export const COUNT_YARN_TYPES = ['CHEESE', 'CONE'] as const
 export const COUNT_PROCESSES = ['COMBED', 'KARDED', 'KARDED COMPACT', 'COMBED COMPACT'] as const
 export const COUNT_CERTIFICATIONS = ['BCI', 'OEKO TEX', 'GOTS', 'NPOP', 'NOP', 'GRS'] as const
 export const COUNT_PLIES = ['SINGLE', 'DOUBLE'] as const
-export const COUNT_COMMON_RATIOS = ['100%', '50/50', '60/40', '70/30', '65/35', '80/20'] as const
 
-/** A row in `count_master`. display_name is built by a database trigger, e.g.
- *  "10 S RING SPUN 100% COTTON CONE COMBED COMPACT". */
+/** A row in `count_master`. The yarn recipe (yarn_1 / yarn_2 and their
+ *  percentages) is what is saved; composition, ratio, blended, display_name,
+ *  recipe_key and the duplicate flag are derived by the database trigger, e.g.
+ *  "20S VORTEX 40% COTTON 60% POLYESTER BLENDED DOUBLE KARDED COMPACT BCI CHEESE". */
 export interface CountRow {
   id: string
+  item_no: number
+  name: string | null
   count_no: number
   machine: string
+  yarn_1: string
+  yarn_1_pct: number
+  yarn_2: string | null
+  yarn_2_pct: number | null
   composition: string
   ratio: string
   blended: string | null
@@ -246,6 +243,9 @@ export interface CountRow {
   certification: string | null
   ply: string | null
   display_name: string
+  recipe_key: string
+  is_duplicate: boolean
+  duplicate_error: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -287,6 +287,9 @@ export interface PartyProfile {
   messenger_id: string | null
   qty_bags_month: number | null
   qty_kgs_month: number | null
+  /** monday's Date and Default Commission (added by the party creation form migration). */
+  record_at?: string | null
+  default_commission?: string | null
 }
 
 /* ---- Supplier and buyer masters (T-003, T-004) --------------------------- */
@@ -331,6 +334,8 @@ export interface SupplierMaster extends PartyProfile {
   counts_supplying: number | null
   spindles: number | null
   monthly_production: number | null
+  /** monday's supplier "Current Machines" (text). */
+  current_machines: string | null
   created_at: string
   updated_at: string
 }
@@ -369,6 +374,9 @@ export interface BuyerMaster extends PartyProfile {
   fabric_producing: string | null
   reed_pick: string | null
   width: string | null
+  /** monday's buyer "Quantity" and "Type" (text) fields. */
+  quantity: number | null
+  type_text: string | null
   created_at: string
   updated_at: string
 }
@@ -383,10 +391,10 @@ export const LEAD_ROLES: { value: 'buyer' | 'supplier' | 'both'; label: string }
 export const LEAD_UOMS = ['KG', 'BAGS', 'HANKS', 'BALES', 'CARTON', 'CHIPPA', 'METERS', 'TONS'] as const
 export const LEAD_SOURCES = ['Referral', 'Repeat buyer', 'Phone call', 'WhatsApp', 'Email', 'Visit', 'Trade fair', 'Website', 'Other'] as const
 export const LEAD_STATUSES: { value: LeadStatus; label: string }[] = [
-  { value: 'new', label: 'New' },
+  { value: 'new', label: 'New Lead' },
   { value: 'contacted', label: 'Contacted' },
   { value: 'qualified', label: 'Qualified' },
-  { value: 'lost', label: 'Lost' },
+  { value: 'lost', label: 'Disqualified' },
 ]
 
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'lost'
@@ -430,6 +438,12 @@ export interface Lead {
   timeline_from: string | null
   timeline_to: string | null
   mobile_cc: string
+  // migration 20261119110000: monday's entry filter questions
+  entry_weaves_yarn: 'yes' | 'no' | null
+  entry_payment_cycle: string | null
+  entry_current_supplier: string | null
+  entry_price_range: string | null
+  entry_next_purchase: string | null
 }
 
 /* ---- Station, payment terms, documents, contacts, activity, deals -------- */
@@ -511,8 +525,8 @@ export interface Deal {
   buyer_gst: string | null
   supplier_gst: string | null
   payment_term_id: string | null
-  count_id: string
-  quantity: number
+  count_id: string | null
+  quantity: number | null
   uom: string
   supplier_rate: number | null
   buyer_rate: number | null
@@ -550,6 +564,9 @@ export interface Deal {
   supplier_commission: number | null
   lost_reason: string | null
   status_changed_at: string | null
+  location_text: string | null
+  location_lat: number | null
+  location_lng: number | null
 }
 
 export interface Order {
@@ -611,6 +628,8 @@ export interface Order {
   round_off: number | null
   total_amount: number | null
   cancelled_at: string | null
+  is_duplicate: boolean
+  duplication_error: string | null
 }
 
 export interface CommissionInvoice {
@@ -746,6 +765,7 @@ export const PROFILE_TEMPLATES: ProfileTemplate[] = [
       'lead.manage', 'lead.qualify', 'sc.read', 'sc.manage', 'transport.read', 'transport.manage', 'jobprocess.read', 'jobprocess.manage',
       'stage.move.lead', 'stage.move.enquiry', 'stage.move.quoted', 'stage.move.approval',
       'stage.move.order', 'stage.move.sent',
+      'task.read', 'task.work', 'message.send',
     ],
   },
   {
@@ -755,6 +775,7 @@ export const PROFILE_TEMPLATES: ProfileTemplate[] = [
       'deal.read', 'quote.read', 'money.read', 'document.read', 'report.view',
       'deal.edit', 'document.upload', 'buyer.manage', 'mill.manage', 'stage.move_back',
       'stage.move.sent', 'stage.move.production', 'stage.move.shipped', 'stage.move.delivered',
+      'task.read', 'task.work',
     ],
   },
   {
@@ -766,6 +787,7 @@ export const PROFILE_TEMPLATES: ProfileTemplate[] = [
       'document.upload', 'report.export', 'audit.view', 'stage.move_back',
       'stage.move.invoiced', 'stage.move.paid', 'stage.move.comm_invoiced',
       'stage.move.comm_paid', 'stage.move.closed', 'md_contact.view',
+      'task.read', 'task.manage', 'task.work', 'message.send', 'message.view',
     ],
   },
   {
@@ -774,7 +796,13 @@ export const PROFILE_TEMPLATES: ProfileTemplate[] = [
     permissions: [
       'deal.read', 'quote.read', 'money.read', 'document.read', 'report.view',
       'deal.approve', 'order.read', 'report.export', 'audit.view', 'sc.read', 'transport.read', 'jobprocess.read', 'closeout.edit', 'stage.move.closed', 'stage.move_back', 'md_contact.view',
+      'task.read', 'message.view',
     ],
+  },
+  {
+    id: 'field', label: 'Field & collection staff',
+    description: 'Works the tasks assigned to them: deliveries, collections, visits, with proof photos and check-in.',
+    permissions: ['task.work'],
   },
   {
     id: 'viewer', label: 'Viewer',
@@ -835,6 +863,8 @@ export interface SalesConfirmation {
 /* ---- Transportation ---------------------------------------------------------- */
 
 export interface Transporter {
+  /** monday's Date field: the day the record is dated; falls back to created_at. */
+  record_date?: string | null
   id: string
   transporter_code: string
   transporter_type: 'internal' | 'third_party'
@@ -871,6 +901,8 @@ export interface Transporter {
 /* ---- Job process ------------------------------------------------------------- */
 
 export interface JobProcess {
+  /** monday's Date field: the day the record is dated; falls back to created_at. */
+  record_date?: string | null
   id: string
   process_code: string
   name: string
@@ -900,32 +932,244 @@ export interface JobProcess {
   updated_at: string
 }
 
-export interface CollectionTask {
+/* ---- Tasks module -------------------------------------------------------- */
+
+export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
+export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
+export type PaymentMode = 'online' | 'cash' | 'cheque' | 'neft' | 'upi' | 'rtgs' | 'cards'
+
+export interface TaskTypeRow {
+  key: string
+  label: string
+  view_key: string
+  requires_proof: boolean
+  requires_gps: boolean
+  auto_done_on_proof: boolean
+  default_due_days: number
+  sort_order: number
+  is_active: boolean
+}
+
+/** Type-specific fields carried in `tasks.details` (all optional). */
+export interface TaskDetails {
+  delivery_mode?: 'hand' | 'courier'
+  delivery_status?: 'not_delivered' | 'delivered'
+  acknowledgement?: 'yes' | 'no'
+  pending_payment?: boolean
+  invoice_no?: string
+  bill_no?: string
+  load_reference?: string
+  check_status?: 'outstanding' | 'cleared'
+  sample_lot?: string
+  sample_quality?: string
+  sample_type?: string
+  delivery_date?: string
+  feedback_status?: 'pending' | 'approved' | 'rejected'
+  visit_status?: 'planned' | 'visited' | 'completed' | 'missed'
+  received?: 'yes' | 'no'
+  invoice_date?: string
+  visited_on?: string
+  visit_summary?: string
+  escalation?: boolean
+  step_days?: number
+  [key: string]: unknown
+}
+
+export interface Task {
   id: string
-  order_id: string
-  task_type: 'buyer_payment' | 'commission_invoice' | 'follow_up' | 'cheque_collection' | 'invoice_delivery' | 'payment_deposit' | 'cash_collection' | 'delivery_note' | 'mill_payment_deposit'
+  task_no: string
+  task_type: string
+  title: string
+  status: TaskStatus
+  priority: TaskPriority
   due_date: string
+  start_date: string
   assigned_to: string | null
-  amount_to_collect: number
-  status: 'pending' | 'in_progress' | 'done' | 'cancelled'
+  accounts_staff_id: string | null
+  buyer_id: string | null
+  supplier_id: string | null
+  order_id: string | null
+  dispatch_id: string | null
+  commission_invoice_id: string | null
+  transporter_id: string | null
+  source_task_id: string | null
+  amount: number
+  amount_collected: number
+  mode: PaymentMode | null
   notes: string | null
+  check_in_at: string | null
+  check_out_at: string | null
+  lat: number | null
+  lng: number | null
+  accuracy_m: number | null
   completed_at: string | null
+  completed_by: string | null
+  details: TaskDetails
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SubitemStatus = 'working_on_it' | 'done' | 'stuck'
+
+/** A subitem of a Payment Collection or Cheque Collection task (monday's default subitem columns). */
+export interface TaskSubitem {
+  id: string
+  task_id: string
+  name: string
+  owner_id: string | null
+  status: SubitemStatus
+  item_date: string | null
   created_at: string
 }
 
-export interface ChequeCollection {
+/** One line of the rule log: a rule that fired for a task, a failure, or a run summary. */
+export interface TaskRuleRun {
+  id: number
+  run_at: string
+  as_of: string | null
+  rule_key: string
+  task_id: string | null
+  outcome: 'fired' | 'failed' | 'summary'
+  detail: Record<string, unknown> | null
+}
+
+export interface TaskPayment {
   id: string
-  order_id: string
+  task_id: string
+  amount: number
+  paid_on: string
+  mode: PaymentMode | null
+  reference: string | null
+  notes: string | null
+  order_payment_id: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export type ChequeStatus = 'pending' | 'collected' | 'deposited' | 'cleared' | 'bounced'
+
+export interface TaskCheque {
+  id: string
+  task_id: string | null
+  order_id: string | null
+  buyer_id: string | null
+  invoice_no: string | null
   cheque_no: string
   bank_name: string | null
+  cheque_date: string | null
   amount: number
-  collection_date: string
+  photo_path: string | null
+  status: ChequeStatus
   collected_by: string | null
+  collection_date: string
   deposited_on: string | null
   deposit_bank: string | null
   slip_no: string | null
+  deposited_by: string | null
+  cleared_on: string | null
   notes: string | null
+  created_by: string | null
   created_at: string
+  updated_at: string
+}
+
+export interface TaskAttachment {
+  id: string
+  task_id: string
+  kind: 'proof' | 'photo' | 'document'
+  file_name: string
+  storage_path: string
+  size_bytes: number | null
+  content_type: string | null
+  lat: number | null
+  lng: number | null
+  uploaded_by: string | null
+  uploaded_at: string
+}
+
+export type TaskEventKind =
+  | 'created' | 'assigned' | 'status' | 'comment' | 'check_in' | 'check_out'
+  | 'payment' | 'proof' | 'message' | 'escalation' | 'reminder' | 'system'
+
+export interface TaskEvent {
+  id: number
+  task_id: string
+  kind: TaskEventKind
+  from_value: string | null
+  to_value: string | null
+  note: string | null
+  data: Record<string, unknown> | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface TaskRule {
+  rule_key: string
+  label: string
+  task_type: string | null
+  kind: 'reminder' | 'escalation'
+  config: { days?: number[]; after_days?: number; time?: string; window_days?: number; [key: string]: unknown }
+  is_active: boolean
+  updated_at: string
+}
+
+export interface AppNotification {
+  id: string
+  user_id: string
+  kind: string
+  severity: 'critical' | 'warning' | 'info'
+  title: string
+  message: string | null
+  href: string | null
+  task_id: string | null
+  read_at: string | null
+  created_at: string
+}
+
+export interface MessageTemplate {
+  key: string
+  channel: 'whatsapp' | 'email'
+  provider_template: string | null
+  subject: string | null
+  body: string
+  variables: string[]
+  is_active: boolean
+  updated_at: string
+}
+
+export type MessageStatus = 'queued' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied' | 'manual'
+
+export interface MessageRow {
+  id: string
+  direction: 'out' | 'in'
+  channel: 'whatsapp' | 'email'
+  template_key: string | null
+  recipient: string
+  buyer_id: string | null
+  task_id: string | null
+  subject: string | null
+  body: string
+  variables: Record<string, string>
+  document_path: string | null
+  status: MessageStatus
+  provider_message_id: string | null
+  error: string | null
+  attempts: number
+  sent_at: string | null
+  delivered_at: string | null
+  read_at: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface TaskCounts {
+  open: number
+  due_today: number
+  overdue: number
+  awaiting_proof: number
+  payment_outstanding: number
+  mine: number
 }
 
 export interface OrderTrip {

@@ -1,5 +1,5 @@
 /** The signed-in frame: a sidebar of boards on the left, a top bar with search
- *  and "+ New", and the current screen.
+ *  and notifications, and the current screen.
  *
  *  The sidebar follows the monday.com workspace: the CRM boards first, then
  *  dashboards, master data, the day-to-day task lists, and administration.
@@ -11,6 +11,9 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { useAuth } from '../auth/AuthProvider'
 import { supabase } from '../lib/supabase'
 import { BrandMark } from './BrandMark'
+import NotificationBell from './NotificationBell'
+import { ToastHost } from './Toast'
+import { REGISTERS } from '../pages/MasterData'
 
 interface NavItem {
   to: string
@@ -50,20 +53,60 @@ const I = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   users: 'M9 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6M3 20c1.2-3 3.4-4.5 6-4.5S13.8 17 15 20M16 5.5a3 3 0 0 1 0 5.8M18 20c-.3-1.5-.9-2.7-1.7-3.6',
   audit: 'M7 4h7l4 4v12H7zM14 4v5h4M10 13h5M10 16h5',
+  building: 'M5 21V5l7-2v18M12 8h7v13M8 8h1M8 12h1M8 16h1M15 12h1M15 16h1M3 21h18',
+  spool: 'M6 5h12M6 19h12M8 5v14M16 5v14M8 9l8 2M8 13l8 2',
+  pin: 'M12 21s6-5.5 6-11a6 6 0 1 0-12 0c0 5.5 6 11 6 11zM12 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4',
   truck: 'M5 17a2 2 0 1 0 0-.01M17 17a2 2 0 1 0 0-.01M3 17V8h11v9M14 11h4l3 3v3M7 12h4',
 }
 
 const ORDER = ['order.read', 'order.manage']
+/** One sign per master data register, so the seven links are told apart at a glance. */
+const REGISTER_ICON: Record<string, string> = {
+  'business-units': I.building,
+  'buyers-suppliers': I.people,
+  counts: I.spool,
+  transport: I.truck,
+  'delivery-address': I.factory,
+  locations: I.pin,
+  'payment-terms': I.card,
+}
+
+const TASK = ['task.read', 'task.work', 'task.manage']
 
 const NAV: NavSection[] = [
+  {
+    id: 'mdm',
+    heading: 'Master data',
+    // the seven MDM registers, each one a link of its own
+    items: REGISTERS.map((r) => ({
+      to: `/master-data/${r.key}`,
+      label: r.label,
+      icon: REGISTER_ICON[r.key] ?? I.grid,
+      ...(r.anyOf.length > 0 ? { anyOf: r.anyOf } : {}),
+    })),
+  },
   {
     id: 'crm',
     heading: 'CRM',
     items: [
+      { to: '/leads', label: 'Leads', icon: I.leads, anyOf: ['lead.manage', 'lead.qualify'] },
       { to: '/deals', label: 'Deals', icon: I.deals, permission: 'deal.read' },
       { to: '/sales-confirmations', label: 'Sales Confirmation', icon: I.sc, anyOf: ['sc.read', 'sc.manage'] },
       { to: '/orders', label: 'Dispatch and Billing', icon: I.dispatch, anyOf: ORDER },
-      { to: '/leads', label: 'Leads', icon: I.leads, anyOf: ['lead.manage', 'lead.qualify'] },
+    ],
+  },
+  {
+    // monday's Tasks folder: seven boards of its own, apart from CRM (order of lib/taskBoards.ts).
+    id: 'tasks',
+    heading: 'Tasks',
+    items: [
+      { to: '/tasks?view=visits', label: 'Monthly Visit', icon: I.clock, anyOf: TASK },
+      { to: '/tasks?view=mill', label: 'Mill Invoice Delivery', icon: I.doc, anyOf: TASK },
+      { to: '/tasks?view=commission', label: 'Commission Invoice Delivery', icon: I.bill, anyOf: TASK },
+      { to: '/tasks?view=freight', label: 'Transport Freight Invoice', icon: I.truck, anyOf: TASK },
+      { to: '/tasks?view=samples', label: 'Sample Delivery', icon: I.factory, anyOf: TASK },
+      { to: '/tasks?view=payments', label: 'Payment Collection', icon: I.cash, anyOf: TASK },
+      { to: '/tasks?view=cheques', label: 'Cheque Collection', icon: I.cheque, anyOf: TASK },
     ],
   },
   {
@@ -78,35 +121,6 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    id: 'mdm',
-    heading: 'Master data',
-    items: [
-      // one hub for every MDM register (parties, business units, counts, transport, locations, delivery addresses, payment terms)
-      { to: '/master-data', label: 'Master data', icon: 'M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2zM4 6v6c0 1.1 3.6 2 8 2s8-.9 8-2V6M4 12v6c0 1.1 3.6 2 8 2s8-.9 8-2v-6' },
-      { to: '/mailing-list', label: 'Mailing list', icon: I.mail, anyOf: ['buyer.manage', 'mill.manage'] },
-    ],
-  },
-  {
-    id: 'tasks',
-    heading: 'Tasks',
-    startClosed: true,
-    items: [
-      { to: '/pending-confirmations', label: 'Pending confirmations', icon: I.clock, permission: 'deal.read' },
-      { to: '/pending-dispatches', label: 'Pending dispatches', icon: I.dispatch, anyOf: ORDER },
-      { to: '/pending-documents', label: 'Mill invoice delivery', icon: I.doc, anyOf: ORDER },
-      { to: '/pending-commission-bills', label: 'Commission bills', icon: I.bill, anyOf: ORDER },
-      { to: '/pending-transporter-invoices', label: 'Transport invoices', icon: I.truck, anyOf: ORDER },
-      { to: '/transporter-payments', label: 'Transporter payments', icon: I.truck, anyOf: ORDER },
-      { to: '/trip-sheets', label: 'Trip sheets', icon: I.truck, anyOf: ORDER },
-      { to: '/collection-tasks', label: 'Payment collection', icon: I.task, anyOf: ORDER },
-      { to: '/cheque-collections', label: 'Cheque collection', icon: I.cheque, anyOf: ORDER },
-      { to: '/cheque-deposits', label: 'Cheques deposited', icon: I.bank, anyOf: ORDER },
-      { to: '/collection-activity', label: 'Collection activity', icon: I.chart, anyOf: ORDER },
-      { to: '/office-activity', label: 'Office activity', icon: I.chart, anyOf: ORDER },
-      { to: '/staff-expenses', label: 'Staff expenses', icon: I.cash, anyOf: ['order.manage', 'report.view'] },
-    ],
-  },
-  {
     id: 'admin',
     heading: 'Administration',
     startClosed: true,
@@ -116,6 +130,7 @@ const NAV: NavSection[] = [
       { to: '/audit', label: 'Audit log', icon: I.audit, permission: 'audit.view' },
       { to: '/transporter-type-details', label: 'Transporter Type Details', icon: I.truck, anyOf: ORDER },
       { to: '/transport-invoices', label: 'Transport Invoice', icon: I.truck, anyOf: ORDER },
+      { to: '/automation-log', label: 'Automation log', icon: I.audit, permission: 'audit.view' },
     ],
   },
 ]
@@ -128,11 +143,27 @@ function readOpen(): Record<string, boolean> {
   }
 }
 
+const RAIL_KEY = 'nav.collapsed'
+
 export function AppShell() {
   const { me, meta, can, canAny, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [open, setOpen] = useState<Record<string, boolean>>(() => readOpen())
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed])
   useEffect(() => {
     try {
       localStorage.setItem('nav.open', JSON.stringify(open))
@@ -147,10 +178,32 @@ export function AppShell() {
   }
 
   const allowed = (item: NavItem) => (!item.permission || can(item.permission)) && (!item.anyOf || canAny(...item.anyOf))
-  const isHere = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to))
+  const isHere = (to: string) => {
+    if (to === '/') return location.pathname === '/'
+    const [path, query] = to.split('?')
+    if (!query) return location.pathname.startsWith(path ?? to)
+    return location.pathname === path && new URLSearchParams(location.search).get('view') === new URLSearchParams(query).get('view')
+  }
+  const renderItem = (item: NavItem) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      end={item.to === '/'}
+      className={({ isActive }) => {
+        const active = item.to.includes('?') ? isHere(item.to) : isActive
+        return active ? 'nav-item active' : 'nav-item'
+      }}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d={item.icon} />
+      </svg>
+      <span>{item.label}</span>
+      {item.soon && <em className="tag">next</em>}
+    </NavLink>
+  )
 
   return (
-    <div className="shell">
+    <div className={collapsed ? 'shell rail-collapsed' : 'shell'}>
       <aside className="rail">
         <div className="rail-brand">
           <BrandMark org={meta?.org} />
@@ -172,21 +225,7 @@ export function AppShell() {
                   <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
                   {section.heading}
                 </button>
-                {isOpen &&
-                  items.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      end={item.to === '/'}
-                      className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d={item.icon} />
-                      </svg>
-                      <span>{item.label}</span>
-                      {item.soon && <em className="tag">next</em>}
-                    </NavLink>
-                  ))}
+                {isOpen && items.map((item) => renderItem(item))}
               </div>
             )
           })}
@@ -194,13 +233,21 @@ export function AppShell() {
       </aside>
       <div className="main">
         <header className="topbar">
+          <button
+            type="button"
+            className="btn ghost rail-toggle"
+            aria-label={collapsed ? 'Show the sidebar' : 'Hide the sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Show the sidebar' : 'Hide the sidebar'}
+            onClick={() => setCollapsed((c) => !c)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
           <GlobalSearch />
           <span className="push" />
-          {can('deal.create') && (
-            <Link className="btn primary sm" to="/deals?new=1">
-              + New deal
-            </Link>
-          )}
+          <NotificationBell />
           <UserMenu
             name={me?.name ?? ''}
             sub={me?.is_admin ? 'Administrator' : me?.job_title || `${me?.permissions.length ?? 0} permissions`}
@@ -211,6 +258,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <ToastHost />
     </div>
   )
 }

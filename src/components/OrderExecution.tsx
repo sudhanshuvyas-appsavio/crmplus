@@ -214,7 +214,7 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
         </div>
       )}
       {manage && order.quantity - dispatched > 0 && (
-        <DispatchForm trs={trs} trName={trName} left={order.quantity - dispatched} defaults={order} onAdd={(r) => add('order_dispatches', r)} />
+        <DispatchForm people={people} trs={trs} trName={trName} left={order.quantity - dispatched} defaults={order} onAdd={(r) => add('order_dispatches', r)} />
       )}
 
       <h4>Payment tracking</h4>
@@ -291,7 +291,8 @@ function JobForm({ jobs, onAdd }: { jobs: JobProcess[]; onAdd: (r: Record<string
 
 /** One dispatch entry (a monday subitem). Weight, value, commissions and total
  *  are worked out by the database from the item's rate and commission terms. */
-function DispatchForm({ trs, trName, left, defaults, onAdd }: {
+function DispatchForm({ people, trs, trName, left, defaults, onAdd }: {
+  people: Record<string, string>
   trs: OrderTransport[]
   trName: (id: string | null) => string
   left: number
@@ -313,42 +314,52 @@ function DispatchForm({ trs, trName, left, defaults, onAdd }: {
   const [ins, setIns] = useState(defaults.insurance_pct === null ? '' : String(defaults.insurance_pct))
   const [addA, setAddA] = useState('')
   const [ded, setDed] = useState('')
+  const [round, setRound] = useState('')
+  const [person, setPerson] = useState(defaults.person_id ?? '')
   const q = numOrNull(qty)
   const tooMuch = q !== null && q > left
   return (
     <div className="dispatch-form">
       <div className="form-grid">
-        <Field id="x-dq" label={`Quantity (${uomLabel(defaults.uom)})`} required hint={`Up to ${money(left)}.`}><input id="x-dq" className="mono" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
-        <Field id="x-dd" label="Dispatch date" required><input id="x-dd" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <Field id="x-di" label="Invoice no."><input id="x-di" value={inv} onChange={(e) => setInv(e.target.value)} /></Field>
-        <Field id="x-did" label="Invoice date"><input id="x-did" type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} /></Field>
-        <Field id="x-dc" label="DC no."><input id="x-dc" value={dc} onChange={(e) => setDc(e.target.value)} /></Field>
-        <Field id="x-ddel" label="Delivery date"><input id="x-ddel" type="date" value={delDate} onChange={(e) => setDelDate(e.target.value)} /></Field>
-        <Field id="x-dtt" label="Transport type">
+        <Field id="x-dq" label={`Quantity Dispatched (${uomLabel(defaults.uom)})`} required hint={`Up to ${money(left)}.`}><input id="x-dq" className="mono" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
+        <Field id="x-dd" label="Dispatch Date" required><input id="x-dd" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field id="x-di" label="Invoice No."><input id="x-di" value={inv} onChange={(e) => setInv(e.target.value)} /></Field>
+        <Field id="x-did" label="Invoice Date"><input id="x-did" type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} /></Field>
+        <Field id="x-dc" label="DC No."><input id="x-dc" value={dc} onChange={(e) => setDc(e.target.value)} /></Field>
+        <Field id="x-ddel" label="Del Date"><input id="x-ddel" type="date" value={delDate} onChange={(e) => setDelDate(e.target.value)} /></Field>
+        <Field id="x-dtt" label="Transport Type">
           <select id="x-dtt" value={tt} onChange={(e) => setTt(e.target.value)}>
             <option value="">—</option>
             {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
           </select>
         </Field>
-        <Field id="x-dt" label="Transport record">
+        <Field id="x-dt" label="Transport Company">
           <select id="x-dt" value={tid} onChange={(e) => setTid(e.target.value)}>
             <option value="">—</option>
             {trs.map((t) => (<option key={t.id} value={t.id}>{t.kind === 'our' ? 'Our' : trName(t.transporter_id)}{t.vehicle_no ? ` · ${t.vehicle_no}` : ''}</option>))}
           </select>
         </Field>
-        <Field id="x-dv" label="Vehicle no."><input id="x-dv" value={veh} onChange={(e) => setVeh(e.target.value.toUpperCase())} /></Field>
-        <Field id="x-dl" label="LR no."><input id="x-dl" value={lr} onChange={(e) => setLr(e.target.value)} /></Field>
-        <Field id="x-dcg" label="CGST %"><input id="x-dcg" className="mono" inputMode="decimal" value={cgst} onChange={(e) => setCgst(e.target.value)} /></Field>
-        <Field id="x-dins" label="Insurance %"><input id="x-dins" className="mono" inputMode="decimal" value={ins} onChange={(e) => setIns(e.target.value)} /></Field>
-        <Field id="x-dadd" label="Add (₹)"><input id="x-dadd" className="mono" inputMode="decimal" value={addA} onChange={(e) => setAddA(e.target.value)} /></Field>
-        <Field id="x-dded" label="Deduct (₹)"><input id="x-dded" className="mono" inputMode="decimal" value={ded} onChange={(e) => setDed(e.target.value)} /></Field>
+        <Field id="x-dv" label="Vehicle Number"><input id="x-dv" value={veh} onChange={(e) => setVeh(e.target.value.toUpperCase())} /></Field>
+        <Field id="x-dl" label="LR No."><input id="x-dl" value={lr} onChange={(e) => setLr(e.target.value)} /></Field>
+        <Field id="x-dcg" label="CGST"><input id="x-dcg" className="mono" inputMode="decimal" value={cgst} onChange={(e) => setCgst(e.target.value)} /></Field>
+        <Field id="x-dins" label="Insurance Tax"><input id="x-dins" className="mono" inputMode="decimal" value={ins} onChange={(e) => setIns(e.target.value)} /></Field>
+        <Field id="x-dadd" label="Add"><input id="x-dadd" className="mono" inputMode="decimal" value={addA} onChange={(e) => setAddA(e.target.value)} /></Field>
+        <Field id="x-dded" label="Deduct"><input id="x-dded" className="mono" inputMode="decimal" value={ded} onChange={(e) => setDed(e.target.value)} /></Field>
+        <Field id="x-dro" label="Round off"><input id="x-dro" className="mono" inputMode="decimal" value={round} onChange={(e) => setRound(e.target.value)} /></Field>
+        <Field id="x-dpe" label="Person">
+          <select id="x-dpe" value={person} onChange={(e) => setPerson(e.target.value)}>
+            <option value="">—</option>
+            {Object.entries(people).sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => (<option key={id} value={id}>{name}</option>))}
+          </select>
+        </Field>
       </div>
       {tooMuch && <p className="field-warn">That is more than the {money(left)} left to dispatch.</p>}
       <button className="btn" type="button" disabled={!date || q === null || q <= 0 || tooMuch} onClick={() => void onAdd({
         dispatch_date: date, quantity: q, transport_id: tid || null, vehicle_no: veh.trim() || null, lr_no: lr.trim() || null,
         invoice_no: inv.trim() || null, invoice_date: inv.trim() ? invDate || null : null, dc_no: dc.trim() || null, delivery_date: delDate || null,
         transport_type: tt || null, cgst_pct: numOrNull(cgst), insurance_pct: numOrNull(ins), add_amount: numOrNull(addA), deduct_amount: numOrNull(ded),
-      }).then((d) => { if (d) { setQty(''); setLr(''); setInv(''); setDc(''); setDelDate(''); setTid(''); setAddA(''); setDed('') } })}>
+        round_off: numOrNull(round), person_id: person || null,
+      }).then((d) => { if (d) { setQty(''); setLr(''); setInv(''); setDc(''); setDelDate(''); setTid(''); setAddA(''); setDed(''); setRound('') } })}>
         Add dispatch entry
       </button>
     </div>
