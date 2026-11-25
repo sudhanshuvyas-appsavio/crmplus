@@ -391,6 +391,15 @@ await as(clerk)
 err = await fails(edit(inv8, 'X', null, null)); ok('editing needs order.manage', err && err.includes('permission'), err)
 await as(admin)
 
+// a manual rate makes parties without commission terms billable
+const B5 = await id(`insert into buyer_master(name) values ('Buyer No Terms') returning id`)
+const O11 = await id(`insert into orders(order_no, buyer_id, supplier_id, company_id, count_id, quantity, uom) values ('ORD-11', '${B5}', '${S1}', '${C2}', '${CNT}', 5, 'BAGS') returning id`)
+await db.exec(`insert into order_dispatches(order_id, quantity, invoice_date, invoice_no, entry_value, total_weight) values ('${O11}', 5, '2026-11-24', 'DI-NT', 100000, 250)`)
+ok('a party whose orders have no commission terms is not offered without a manual rate', (await q(`select count(*)::int n from commission_billable_parties('${C2}', 'buyer') where party_id='${B5}'`))[0].n === 0)
+const mr = await q(`select party_id, lines::int n from commission_billable_parties('${C2}', 'buyer', 'pct', 1) where party_id='${B5}'`)
+ok('with a manual rate (1%) the same party is offered, its line worth 1,000', mr.length === 1 && mr[0].n === 1, JSON.stringify(mr))
+ok('and its line is billed at that rate', Number((await q(`select amount from commission_candidate_lines('${C2}', 'buyer', '${B5}', '2026-11-01', '2026-11-30', 'pct', 1)`))[0].amount) === 1000)
+
 // RLS: a user without permission sees no lines
 await as(clerk)
 await db.exec(`grant select on all tables in schema public to authenticated; grant usage on schema public to authenticated; set role authenticated`)

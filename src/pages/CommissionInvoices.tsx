@@ -722,7 +722,11 @@ function NewInvoice({ refs, onClose, onCreated }: {
     if (!companyId || !partyType) return
     let stale = false
     void (async () => {
-      const { data, error } = await supabase.rpc('commission_billable_parties', { p_company: companyId, p_party_type: partyType })
+      const manual = basis !== '' && rateNum !== null && rateNum >= 0
+      let res = await supabase.rpc('commission_billable_parties', { p_company: companyId, p_party_type: partyType, p_basis: manual ? basis : null, p_value: manual ? rateNum : null })
+      // a database that has not been updated yet only knows the two-argument form
+      if (res.error && /schema cache|could not find the function/i.test(res.error.message)) res = await supabase.rpc('commission_billable_parties', { p_company: companyId, p_party_type: partyType })
+      const { data, error } = res
       if (stale) return
       if (error) { setLoadErr(errMessage(error, 'Could not load the parties')); setPartyOpts([]); return }
       const list = ((data ?? []) as BillableParty[]).map((x) => ({ ...x, lines: Number(x.lines) }))
@@ -730,7 +734,8 @@ function NewInvoice({ refs, onClose, onCreated }: {
       setPartyId((cur) => (list.some((x) => x.party_id === cur) ? cur : ''))
     })()
     return () => { stale = true }
-  }, [companyId, partyType])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, partyType, basis, rate])
 
   // the list follows the filters
   useEffect(() => {

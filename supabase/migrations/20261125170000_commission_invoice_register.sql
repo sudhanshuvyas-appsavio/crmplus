@@ -218,20 +218,23 @@ end $$;
 revoke all on function public.commission_candidate_lines(uuid, text, uuid, date, date, text, numeric) from public, anon;
 grant execute on function public.commission_candidate_lines(uuid, text, uuid, date, date, text, numeric) to authenticated;
 
--- The parties of a Business Unit that still have something to bill (monday: the Company list is loaded per Business Unit)
-create or replace function public.commission_billable_parties(p_company uuid, p_party_type text)
+-- The parties of a Business Unit that still have something to bill (monday: the Company list is loaded per Business Unit).
+-- With a manual commission type and value (monday: "Commission Type / Value") every dispatch line can be billed at that rate, so
+-- parties whose orders carry no commission terms are listed too.
+drop function if exists public.commission_billable_parties(uuid, text);
+create or replace function public.commission_billable_parties(p_company uuid, p_party_type text, p_basis text default null, p_value numeric default null)
 returns table(party_id uuid, party_name text, lines bigint, first_date date, last_date date)
 language plpgsql stable security definer set search_path = public as $$
 begin
   if not (has_permission('order.read') or has_permission('order.manage')) then raise exception 'You need permission to view orders'; end if;
   return query
   select c.party_id, c.party_name, count(*), min(c.invoice_date), max(c.invoice_date)
-  from commission_candidate_lines(p_company, p_party_type, null, date '2000-01-01', date '2100-12-31') c
+  from commission_candidate_lines(p_company, p_party_type, null, date '2000-01-01', date '2100-12-31', p_basis, p_value) c
   group by c.party_id, c.party_name
   order by c.party_name;
 end $$;
-revoke all on function public.commission_billable_parties(uuid, text) from public, anon;
-grant execute on function public.commission_billable_parties(uuid, text) to authenticated;
+revoke all on function public.commission_billable_parties(uuid, text, text, numeric) from public, anon;
+grant execute on function public.commission_billable_parties(uuid, text, text, numeric) to authenticated;
 
 -- ---------------------------------------------------------------- 5. create an invoice (all amounts are worked out here, not in the browser)
 -- p: { company_id, party_type, party_id, period_from, period_to, invoice_date?, commission_basis?, commission_value?,
