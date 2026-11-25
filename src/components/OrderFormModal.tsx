@@ -465,16 +465,16 @@ export function OrderFormModal({
           {updating && !readOnly && current && (current.status === 'draft' || current.status === 'confirmed') && (
             <FormSection title="Dispatch" collapsible columns={3}>
               <FullWidth>
-                <p className="muted small">Start dispatch to move the item to In Progress. Then its entries (partial dispatch, cancel, return), transport, job process and payments can be added here.</p>
+                <p className="muted small">Start dispatch to move the item to In Progress. Then its entries (partial dispatch, fully dispatch, cancel, return) and the commission invoice can be added here.</p>
                 <button className="btn" type="button" disabled={busy} onClick={() => void startDispatch()}>Start dispatch</button>
               </FullWidth>
             </FormSection>
           )}
 
           {updating && current && (current.status === 'open_for_execution' || current.status === 'closed') && (
-            <FormSection title="Entries, transport and payments" collapsible columns={3}>
+            <FormSection title="Dispatch entries and commission invoice" collapsible columns={3}>
               <FullWidth>
-                <OrderExecution order={current} canManage={!readOnly} jobs={jobs} onChanged={async () => { if (onRefresh) await onRefresh() }} />
+                <OrderExecution order={current} canManage={!readOnly} onChanged={async () => { if (onRefresh) await onRefresh() }} />
               </FullWidth>
             </FormSection>
           )}
