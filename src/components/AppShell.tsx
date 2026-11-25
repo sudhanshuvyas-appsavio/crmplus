@@ -93,6 +93,7 @@ const NAV: NavSection[] = [
       { to: '/deals', label: 'Deals', icon: I.deals, permission: 'deal.read' },
       { to: '/sales-confirmations', label: 'Sales Confirmation', icon: I.sc, anyOf: ['sc.read', 'sc.manage'] },
       { to: '/orders', label: 'Dispatch and Billing', icon: I.dispatch, anyOf: ORDER },
+      { to: '/commission-invoices', label: 'Commission Invoices', icon: I.bill, anyOf: ORDER },
     ],
   },
   {
