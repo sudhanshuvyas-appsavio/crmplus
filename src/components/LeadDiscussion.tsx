@@ -41,8 +41,7 @@ export function DiscussionPanel({ lead, onLogged }: { lead: Lead; onLogged: () =
   }
 
   return (
-    <section className="fs-card" style={{ marginTop: 16 }}>
-      <header className="fs-head"><div><h3>Log a discussion</h3></div></header>
+    <section className="fs-flat">
       <div className="fs-body">
         <p className="muted small" style={{ marginTop: 0 }}>
           Saving moves a New lead to Contacted. Fill in quantity, rate or timeline only if they changed.

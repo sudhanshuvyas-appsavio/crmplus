@@ -460,6 +460,12 @@ export function ScFormModal({
                   </select>
                 </Field>
               </FormSection>
+              {current && (buyerParty || supplierParty) && (
+                <div className="lookup-grid">
+                  {buyerParty && <ScParty title="Buyer" p={buyerParty} unit={companies.find((c) => c.id === (current.buyer_company_id || buyerParty.company_id))} />}
+                  {supplierParty && <ScParty title="Supplier" p={supplierParty} unit={companies.find((c) => c.id === (current.supplier_company_id || supplierParty.company_id))} />}
+                </div>
+              )}
               <FormSection title="Product Configurations" collapsible columns={3}>
                 <FullWidth>
                   <CountLinesEditor weightRequired lines={lines} onChange={setLines} counts={counts} disabled={locked} buyer={buyerTerms} supplier={supplierTerms} />
@@ -506,12 +512,6 @@ export function ScFormModal({
 
           {!dealPick && (
             <>
-              {current && (buyerParty || supplierParty) && (
-                <div className="lookup-grid">
-                  {buyerParty && <ScParty title="Buyer" p={buyerParty} unit={companies.find((c) => c.id === (current.buyer_company_id || buyerParty.company_id))} />}
-                  {supplierParty && <ScParty title="Supplier" p={supplierParty} unit={companies.find((c) => c.id === (current.supplier_company_id || supplierParty.company_id))} />}
-                </div>
-              )}
 
               {current && !cancelled && (
                 <div className="notice">

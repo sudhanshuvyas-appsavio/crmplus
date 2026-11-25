@@ -203,7 +203,7 @@ export function Board<T>({
               onClick={() => setCollapsed((p) => ({ ...p, [g.value]: !closed }))}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" className={closed ? 'chev closed' : 'chev'}>
-                <path d="M6 9l6 6 6-6" />
+                <path d="M7 9.5h10L12 16z" />
               </svg>
               <span className="bgroup-title">{g.label}</span>
               <span className="bgroup-count" title={`${list.length} ${list.length === 1 ? 'item' : 'items'}`}>{list.length}</span>
@@ -248,7 +248,7 @@ export function Board<T>({
                           {expandable && (
                             <td className="bcell-exp" onClick={(e) => e.stopPropagation()}>
                               <button type="button" className="exp-btn" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} subitems (${subs})`} onClick={() => setOpenRows((p) => ({ ...p, [id]: !isOpen }))}>
-                                <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
+                                <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M7 9.5h10L12 16z" /></svg>
                                 <span className="exp-n">{subs}</span>
                               </button>
                             </td>

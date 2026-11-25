@@ -275,7 +275,7 @@ select { width: auto; }
   text-align: left;
 }
 .nav-heading:hover { color: var(--ink); }
-.chev { width: 12px; height: 12px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; transition: transform 0.15s; }
+.chev { width: 12px; height: 12px; flex: none; stroke: currentColor; fill: currentColor; stroke-width: 1.5; stroke-linejoin: round; transition: transform 0.15s; }
 .chev.closed { transform: rotate(-90deg); }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .topbar {
@@ -1791,3 +1791,15 @@ input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); 
 .bgroup-table tr.sub-line .sub-no { padding-left: 14px; color: var(--ink-2); }
 .bgroup-table tr.sub-line .faint { color: var(--ink-3); }
 .bgroup-table tr.sub-line .entry-status { font-size: 11px; padding: 2px 8px; }
+
+/* ---- form polish: one control height, flat nested cards, bottom-aligned fields in a row ---- */
+.fs-card .field select { min-height: 42px; }
+.fs-card.cols-3 .fs-grid { align-items: stretch; }
+.fs-card.cols-3 .field { justify-content: flex-end; }
+.fs-card .docs-card { border: 0; border-radius: 0; background: none; margin: 0 0 12px; }
+.fs-card .docs-head { padding: 0 0 10px; border-bottom: 0; }
+.fs-card .docs-head h3 { display: none; }
+.fs-card .docs-bar { padding: 0 0 10px; }
+.fs-card .docs-body { padding: 0; }
+.fs-flat { margin: 0 0 12px; }
+.fs-flat .fs-body { padding: 0; }

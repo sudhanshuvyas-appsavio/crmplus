@@ -119,6 +119,7 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
             </tr>
           ))}
         </tbody>
+        {(!disabled || total((f) => f.buyer) !== null || total((f) => f.supplier) !== null) && (
         <tfoot>
           <tr>
             <td colSpan={6} className="small muted">
@@ -129,6 +130,7 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
             {!disabled && <td />}
           </tr>
         </tfoot>
+        )}
       </table>
     </div>
   )

@@ -380,13 +380,17 @@ export function LeadFormModal({
           </FullWidth>
         </FormSection>
 
-        <FormSection title="Remarks" collapsible columns={2}>
+        <FormSection title="Remarks" collapsible columns={3}>
+          <FullWidth>
           <Field id="l-remarks" label="Remarks">
-            <textarea id="l-remarks" rows={3} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} />
+            <textarea id="l-remarks" rows={2} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} />
           </Field>
+          </FullWidth>
+          <FullWidth>
           <Field id="l-notes" label="Notes">
-            <textarea id="l-notes" rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+            <textarea id="l-notes" rows={2} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
           </Field>
+          </FullWidth>
         </FormSection>
         </Lock>
 

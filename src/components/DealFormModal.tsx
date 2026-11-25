@@ -403,7 +403,7 @@ export function DealFormModal({
                 <input id="d-loc" placeholder="Address or place for this deal" value={f.location_text} onChange={(e) => set('location_text', e.target.value)} />
               </Field>
             </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', minHeight: 42, alignSelf: 'start' }}>
               <button className="btn sm" type="button" disabled={locBusy} onClick={() => void captureLocation()}>{locBusy ? 'Locating…' : 'Capture my location'}</button>
               {f.location_lat !== null && f.location_lng !== null && (
                 <>
@@ -427,10 +427,10 @@ export function DealFormModal({
 
           {updating && dealNow && (
             <>
-              <FormSection title="Documents" collapsible columns={2}>
+              <FormSection title="Documents" collapsible columns={3}>
                 <FullWidth><DealDocuments dealId={dealNow.id} canEdit={!readOnly && canEdit && !approved} /></FullWidth>
               </FormSection>
-              <FormSection title="History" collapsible columns={2}>
+              <FormSection title="History" collapsible columns={3}>
                 <FullWidth><DealHistory dealId={dealNow.id} refreshKey={dealNow.updated_at} /></FullWidth>
               </FormSection>
             </>
