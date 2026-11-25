@@ -3,14 +3,17 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useProfileNames } from '../PartyExtras'
 import { PartyCard } from '../PartyLookup'
 import type { Party, ScRow } from './scShared'
 
 /** A party's contact details, as monday's Sales Confirmation board mirrors them from Buyers & Suppliers. */
 export function ScParty({ title, p, unit }: { title: string; p: Party; unit: { phone_1?: string | null; mobile?: string | null } | undefined }) {
   const unitPhone = unit?.phone_1 || unit?.mobile
+  const names = useProfileNames()
   return (
     <PartyCard title={title} name={p.name} rows={[
+      ['Messenger', p.messenger_id ? names[p.messenger_id] ?? null : null],
       ['Office address', p.address],
       ['Office phone', p.office_phone ? `+91 ${p.office_phone}` : null],
       ['GST', p.gst ? <span className="mono">{p.gst}</span> : null],

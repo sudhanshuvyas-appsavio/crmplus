@@ -38,7 +38,7 @@ type Named = { id: string; name: string }
 type ScRef = { id: string; sc_no: string }
 
 const CSV_COLUMNS = [
-  'order_no', 'status', 'sales_confirmation', 'invoice_no', 'invoice_date', 'buyer', 'supplier', 'count', 'quantity', 'dispatched_qty', 'uom',
+  'order_no', 'sr_no', 'status', 'sales_confirmation', 'invoice_no', 'invoice_date', 'buyer', 'supplier', 'count', 'quantity', 'dispatched_qty', 'uom',
   'final_rate', 'total_weight', 'order_value', 'buyer_commission', 'supplier_commission', 'cgst_pct', 'insurance_pct', 'add_amount',
   'deduct_amount', 'total_amount', 'round_off', 'sale_type', 'transport_type', 'transporter', 'vehicle_no',
 ] as const
@@ -229,6 +229,7 @@ export default function DispatchAndBilling() {
   // Columns: monday's Dispatch and Billing columns (the document does not cover this board), without the party lookups.
   const columns: BoardColumn<Order>[] = [
     { key: 'no', label: 'Item', width: 130, render: (x) => <span className="mono">{x.order_no}</span> },
+    { key: 'srno', hidden: true, label: 'Sr. No', render: (x) => cell(x.sr_no, { mono: true }) },
     { key: 'status', label: 'Status', width: 170, interactive: true, render: (x) => {
       const st = dispatchStatus(x.dispatch_status)
       const open = x.status === 'open_for_execution'

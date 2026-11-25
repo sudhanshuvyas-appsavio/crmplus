@@ -32,6 +32,7 @@ type Sc = { id: string; sc_no: string; confirmed_at: string; buyer_id: string | 
 type Line = { id: string; sc_id: string; line_no: number; count_id: string; quantity: number; uom: string; bag_weight: number | null; rate: number | null }
 
 type Form = {
+  sr_no: string
   invoice_no: string
   invoice_date: string
   cgst_pct: string
@@ -55,6 +56,7 @@ const s = (n: number | null | undefined) => (n === null || n === undefined ? '' 
 
 function toForm(o: Order | null): Form {
   return {
+    sr_no: o?.sr_no ?? '',
     invoice_no: o?.invoice_no ?? '',
     invoice_date: o?.invoice_date ?? '',
     cgst_pct: s(o?.cgst_pct),
@@ -188,6 +190,7 @@ export function OrderFormModal({
   const total = totalAmount(value, cgst, ins, add, ded)
 
   const payload = () => ({
+    sr_no: f.sr_no.trim() || null,
     invoice_no: f.invoice_no.trim() || null,
     invoice_date: f.invoice_date || null,
     cgst_pct: cgst,
@@ -325,20 +328,7 @@ export function OrderFormModal({
       {show && (
         <FieldErrorsProvider value={visible}>
           <fieldset className="ro-fieldset" disabled={readOnly}>
-          {updating ? (
-            <FormSection title="Item Details" collapsible columns={3}>
-              <Field id="o-no" label="Item"><input id="o-no" readOnly value={cr?.order_no ?? ''} /></Field>
-              <Field id="o-status" label="Status"><input id="o-status" readOnly value={cr ? dispatchStatus(cr.dispatch_status).label : ''} title="Starting dispatch and cancelling are in the row's Actions menu." /></Field>
-              <Field id="o-created" label="Created Date"><input id="o-created" readOnly value={cr ? formatDateTime(cr.created_at) : ''} /></Field>
-              <Field id="o-scno" label="Sales Confirmation"><input id="o-scno" readOnly value={cr ? scNos.get(cr.sales_confirmation_id) ?? '' : ''} /></Field>
-              <Field id="o-person" label="Person">
-                <select id="o-person" value={f.person_id} onChange={(e) => set('person_id', e.target.value)}>
-                  <option value="">--None--</option>
-                  {people.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                </select>
-              </Field>
-            </FormSection>
-          ) : (
+          {!updating && (
             <FormSection title="Sales Confirmation Details" collapsible columns={3}>
               <div className="fs-span-2">
                 <Field id="o-sc" label="Sales Confirmation" required>
@@ -376,42 +366,54 @@ export function OrderFormModal({
             </FormSection>
           )}
 
-          <FormSection title="Parties" collapsible columns={3}>
+          <FormSection title="Dispatch & Billing Details" collapsible columns={3}>
+            {updating && (
+              <>
+              <Field id="o-no" label="Name" required><input id="o-no" readOnly value={cr?.order_no ?? ''} placeholder="Assigned on save" /></Field>
+              <Field id="o-created" label="Created Date"><input id="o-created" readOnly value={cr ? formatDateTime(cr.created_at) : ''} /></Field>
+              <Field id="o-status" label="Status"><input id="o-status" readOnly value={cr ? dispatchStatus(cr.dispatch_status).label : ''} title="Starting dispatch and cancelling are in the row's Actions menu." /></Field>
+              <Field id="o-cgst" label="CGST"><input id="o-cgst" className="mono" inputMode="decimal" placeholder="Enter CGST" value={f.cgst_pct} onChange={(e) => set('cgst_pct', e.target.value)} /></Field>
+              <Field id="o-date" label="Dispatch Date"><input id="o-date" type="date" value={f.tentative_dispatch_date} onChange={(e) => set('tentative_dispatch_date', e.target.value)} /></Field>
+              </>
+            )}
+            <Field id="o-tt" label="Transport Type">
+              <select id="o-tt" value={f.transport_type} onChange={(e) => set('transport_type', e.target.value)}>
+                <option value="">--None--</option>
+                {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
+              </select>
+            </Field>
+            {updating && (
+              <>
+              <Field id="o-inv" label="Invoice No."><input id="o-inv" className="mono" placeholder="Enter Invoice No." value={f.invoice_no} onChange={(e) => set('invoice_no', e.target.value)} /></Field>
+              <Field id="o-invd" label="Invoice Date"><input id="o-invd" type="date" value={f.invoice_date} onChange={(e) => set('invoice_date', e.target.value)} /></Field>
+              </>
+            )}
+          </FormSection>
+
+          <FormSection title="Buyer & Supplier Details" collapsible columns={3}>
+            <Field id="o-bag" label="Bags Weight"><input id="o-bag" readOnly value={perCount || bagText} placeholder="From the Sales Confirmation" /></Field>
+            <Field id="o-rate" label="Final Rate"><input id="o-rate" readOnly value={perCount || rateTextVal} placeholder="From the Sales Confirmation" /></Field>
             <Field id="o-buyer" label="Buyer"><input id="o-buyer" readOnly value={buyerVal} placeholder="From the Sales Confirmation" /></Field>
             <Field id="o-supplier" label="Supplier"><input id="o-supplier" readOnly value={supplierVal} placeholder="From the Sales Confirmation" /></Field>
           </FormSection>
 
-          <FormSection title="Goods" collapsible columns={3}>
-            {updating && (
-              <div className="fs-span-2">
-                <Field id="o-count" label="Counts"><input id="o-count" readOnly value={countName.get(cr?.count_id ?? '') ?? counts.find((c) => c.id === cr?.count_id)?.display_name ?? ''} /></Field>
-              </div>
-            )}
+          <FormSection title="Product Configurations" collapsible columns={3}>
             <Field id="o-uom" label="UOM"><input id="o-uom" readOnly value={perCount || uomVal} placeholder="From the Sales Confirmation" /></Field>
             <Field id="o-qty" label="Quantity"><input id="o-qty" readOnly value={perCount || qtyVal} placeholder="From the Sales Confirmation" /></Field>
-            <Field id="o-bag" label="Bags Weight"><input id="o-bag" readOnly value={perCount || bagText} placeholder="From the Sales Confirmation" /></Field>
-            <Field id="o-rate" label="Final Rate"><input id="o-rate" readOnly value={perCount || rateTextVal} placeholder="From the Sales Confirmation" /></Field>
+            {updating && (
+              <Field id="o-count" label="Counts"><input id="o-count" readOnly value={countName.get(cr?.count_id ?? '') ?? counts.find((c) => c.id === cr?.count_id)?.display_name ?? ''} /></Field>
+            )}
           </FormSection>
 
-          {updating && (
-            <FormSection title="Invoice" collapsible columns={3}>
-              <Field id="o-inv" label="Invoice No."><input id="o-inv" className="mono" placeholder="Enter Invoice No." value={f.invoice_no} onChange={(e) => set('invoice_no', e.target.value)} /></Field>
-              <Field id="o-invd" label="Invoice Date"><input id="o-invd" type="date" value={f.invoice_date} onChange={(e) => set('invoice_date', e.target.value)} /></Field>
-            </FormSection>
-          )}
-
-          <FormSection title="Charges and Tax" collapsible columns={3}>
-            {updating && (
-              <Field id="o-cgst" label="CGST"><input id="o-cgst" className="mono" inputMode="decimal" placeholder="Enter CGST" value={f.cgst_pct} onChange={(e) => set('cgst_pct', e.target.value)} /></Field>
-            )}
-            <Field id="o-ins" label="Insurance Tax">
-              <input id="o-ins" className="mono" inputMode="decimal" placeholder="Enter Insurance Tax" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.insurance_pct} onChange={(e) => set('insurance_pct', e.target.value)} />
-            </Field>
+          <FormSection title="Cost Details" collapsible columns={3}>
             <Field id="o-add" label="Add">
               <input id="o-add" className="mono" inputMode="decimal" placeholder="Enter Add" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.add_amount} onChange={(e) => set('add_amount', e.target.value)} />
             </Field>
             <Field id="o-ded" label="Deduct">
               <input id="o-ded" className="mono" inputMode="decimal" placeholder="Enter Deduct" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.deduct_amount} onChange={(e) => set('deduct_amount', e.target.value)} />
+            </Field>
+            <Field id="o-ins" label="Insurance Tax">
+              <input id="o-ins" className="mono" inputMode="decimal" placeholder="Enter Insurance Tax" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.insurance_pct} onChange={(e) => set('insurance_pct', e.target.value)} />
             </Field>
             <Field id="o-round" label="Round off">
               <input id="o-round" className="mono" inputMode="decimal" placeholder="Enter Round off" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.round_off} onChange={(e) => set('round_off', e.target.value)} />
@@ -423,15 +425,8 @@ export function OrderFormModal({
             )}
           </FormSection>
 
-          <FormSection title="Transport" collapsible columns={3}>
-            <Field id="o-tt" label="Transporter Type Details" hideLabel>
-              <select id="o-tt" value={f.transport_type} onChange={(e) => set('transport_type', e.target.value)}>
-                <option value="">--None--</option>
-                {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
-              </select>
-            </Field>
-            {updating && (
-              <>
+          {updating && (
+            <FormSection title="Transport Company Details" collapsible columns={3}>
               <Field id="o-tr" label="Transporter Name">
                 <select id="o-tr" value={f.transporter_id} onChange={(e) => set('transporter_id', e.target.value)}>
                   <option value="">--None--</option>
@@ -440,13 +435,19 @@ export function OrderFormModal({
               </Field>
               <Field id="o-veh" label="Vehicle Number"><input id="o-veh" className="mono" placeholder="Enter Vehicle Number" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} /></Field>
               <Field id="o-drv" label="Driver Contact Phone"><input id="o-drv" inputMode="tel" placeholder="Driver Contact Phone number" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} /></Field>
-              </>
-            )}
-          </FormSection>
+            </FormSection>
+          )}
 
           {updating && (
-            <FormSection title="Delivery" collapsible columns={3}>
-              <Field id="o-date" label="Dispatch Date"><input id="o-date" type="date" value={f.tentative_dispatch_date} onChange={(e) => set('tentative_dispatch_date', e.target.value)} /></Field>
+            <FormSection title="Orders Details" collapsible columns={3}>
+              <Field id="o-scno" label="Sales Confirmation"><input id="o-scno" readOnly value={cr ? scNos.get(cr.sales_confirmation_id) ?? '' : ''} /></Field>
+              <Field id="o-person" label="Person">
+                <select id="o-person" value={f.person_id} onChange={(e) => set('person_id', e.target.value)}>
+                  <option value="">--None--</option>
+                  {people.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                </select>
+              </Field>
+              <Field id="o-sr" label="Sr. No"><input id="o-sr" value={f.sr_no} placeholder="Enter Sr. No" onChange={(e) => set('sr_no', e.target.value)} /></Field>
               <Field id="o-job" label="Sizing/Delivery Address">
                 <select id="o-job" value={f.job_process_id} title="--None-- means the buyer's own address." onChange={(e) => pickJob(e.target.value)}>
                   <option value="">--None--</option>
@@ -456,7 +457,14 @@ export function OrderFormModal({
               <div className="fs-span-2">
                 <Field id="o-sched" label="Delivery Schedule"><textarea id="o-sched" rows={2} placeholder="Enter Delivery Schedule" value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} /></Field>
               </div>
-              <Field id="o-instr" label="Remark 1"><textarea id="o-instr" rows={2} placeholder="Enter Remark 1" value={f.special_instructions} onChange={(e) => set('special_instructions', e.target.value)} /></Field>
+            </FormSection>
+          )}
+
+          {updating && (
+            <FormSection title="Remarks" collapsible columns={3}>
+              <div className="fs-span-2">
+                <Field id="o-instr" label="Remark 1"><textarea id="o-instr" rows={2} placeholder="Enter Remark 1" value={f.special_instructions} onChange={(e) => set('special_instructions', e.target.value)} /></Field>
+              </div>
             </FormSection>
           )}
 

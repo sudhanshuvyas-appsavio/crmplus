@@ -418,6 +418,11 @@ export interface Lead {
   quantity: number | null
   uom: string | null
   expected_rate: number | null
+  notes: string | null
+  supplier_rate: number | null
+  dup_phone: string | null
+  dup_phone_2: string | null
+  sample_delivery_id: string | null
   timeline: string | null
   remarks: string | null
   sales_staff_id: string | null
@@ -570,6 +575,8 @@ export interface Deal {
 }
 
 export interface Order {
+  /** monday's Sr. No (free text). */
+  sr_no: string | null
   id: string
   order_no: string
   order_date: string

@@ -32,7 +32,7 @@ import { formatDate, formatShortDate } from '../lib/format'
 
 const LEAD_CSV_COLUMNS = [
   'lead_no', 'status', 'lead_type', 'lead_source', 'party_role', 'party_name', 'contact_person', 'mobile_cc', 'mobile', 'station', 'office_address',
-  'gst', 'count', 'quantity', 'uom', 'expected_rate', 'timeline', 'timeline_from', 'timeline_to', 'remarks', 'sales_staff',
+  'gst', 'count', 'quantity', 'uom', 'expected_rate', 'timeline', 'timeline_from', 'timeline_to', 'remarks', 'notes', 'sales_staff',
   'follow_up_date', 'follow_up_at', 'buyer_code', 'qualified_at', 'created_at',
 ] as const
 
@@ -61,6 +61,7 @@ export default function Leads() {
   const [counts, setCounts] = useState<CountRow[]>([])
   const [subLines, setSubLines] = useState<SubLine[]>([])
   const [supplierNames, setSupplierNames] = useState<Map<string, string>>(new Map())
+  const [sampleNos, setSampleNos] = useState<Map<string, string>>(new Map())
   const [stations, setStations] = useState<Station[]>([])
   const [staff, setStaff] = useState<StaffOption[]>([])
   const [editing, setEditing] = useState<Editing>(null)
@@ -147,14 +148,16 @@ export default function Leads() {
   const [importResults, setImportResults] = useState<CsvRowResult[] | null>(null)
 
   const load = useCallback(async () => {
-    const [leadRes, countRes, staffRes, stationRes, subRes, supRes] = await Promise.all([
+    const [leadRes, countRes, staffRes, stationRes, subRes, supRes, sampRes] = await Promise.all([
       supabase.from('leads').select('*').order('created_at', { ascending: false }),
       supabase.from('count_master').select('*').order('count_no').order('display_name'),
       supabase.from('profiles').select('id, name').eq('is_active', true).order('name'),
       supabase.from('station_master').select('*').order('name'),
       supabase.from('lead_quote_lines').select('lead_id, line_no, count_id, supplier_id, rate, created_by, created_at').order('line_no'),
       supabase.from('supplier_master').select('id, name'),
+      supabase.from('tasks').select('id, task_no, title').eq('task_type', 'sample_delivery'),
     ])
+    setSampleNos(new Map(((sampRes.data ?? []) as { id: string; task_no: string | null; title: string }[]).map((x) => [x.id, x.task_no ?? x.title])))
     setSubLines((subRes.data ?? []) as SubLine[])
     setSupplierNames(new Map(((supRes.data ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name])))
     setStations((stationRes.data ?? []) as Station[])
@@ -309,12 +312,13 @@ export default function Leads() {
           timeline_from: r.get('timeline_from'),
           timeline_to: r.get('timeline_to'),
           remarks: r.get('remarks'),
+          notes: r.get('notes'),
           sales_staff_id: staffId ?? '',
           follow_up_at: /^\d{4}-\d{2}-\d{2}$/.test(followDate) ? `${followDate}T10:00` : '',
           entry_weaves_yarn: '', entry_payment_cycle: '', entry_current_supplier: '', entry_price_range: '', entry_next_purchase: '',
         }
         const missing = leadProblems(form).filter((m) => !m.startsWith('Buyer from') && !m.startsWith('Supplier from'))
-        if (form.expected_rate && numOrNull(form.expected_rate) === null) missing.push('Expected rate (a number)')
+        if (form.expected_rate && numOrNull(form.expected_rate) === null) missing.push('Buyer rate (a number)')
         if (followDate && !/^\d{4}-\d{2}-\d{2}$/.test(followDate)) missing.push('Follow-up date (YYYY-MM-DD)')
         for (const [k, v] of [['timeline_from', form.timeline_from], ['timeline_to', form.timeline_to]] as const) {
           if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) missing.push(`${k} (YYYY-MM-DD)`)
@@ -415,6 +419,10 @@ export default function Leads() {
     { key: 'qty', label: 'Quantity', align: 'right', render: (l) => <span className="mono">{l.quantity !== null ? `${l.quantity} ${l.uom ?? ''}` : '—'}</span> },
     { key: 'follow', label: 'Follow-up', render: (l) => <span className="mono small">{formatDate(l.follow_up_date)}</span> },
     { key: 'staff', label: 'Sales staff', width: 160, render: (l) => <PersonCell name={l.sales_staff_id ? staffById.get(l.sales_staff_id) : undefined} /> },
+    { key: 'srate', hidden: true, label: 'Supplier Rate', align: 'right', render: (l) => (l.supplier_rate === null || l.supplier_rate === undefined ? <span className="muted">—</span> : <span className="mono">₹{l.supplier_rate}</span>) },
+    { key: 'dup1', hidden: true, label: 'Dup. Phone', render: (l) => (l.dup_phone ? <span className="mono small">{l.dup_phone}</span> : <span className="muted">—</span>) },
+    { key: 'dup2', hidden: true, label: 'Dup. Phone 2', render: (l) => (l.dup_phone_2 ? <span className="mono small">{l.dup_phone_2}</span> : <span className="muted">—</span>) },
+    { key: 'sample', hidden: true, label: 'Link to Sample Delivery', render: (l) => (l.sample_delivery_id ? <span className="mono small">{sampleNos.get(l.sample_delivery_id) ?? '—'}</span> : <span className="muted">—</span>) },
     { key: 'created', label: 'Created Date', render: (l) => <span className="small">{formatShortDate(l.created_at)}</span> },
     {
       key: 'action', label: 'Actions', interactive: true, pinRight: true,

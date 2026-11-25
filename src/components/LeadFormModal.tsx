@@ -57,14 +57,13 @@ function blankForm(staffId: string | null): LeadForm {
   return {
     lead_type: 'new', lead_source: '', party_role: 'buyer', party_name: '', contact_person: '', mobile_cc: '+91', mobile: '', station: '',
     office_address: '', gst: '', buyer_id: '', supplier_id: '', count_id: '', quantity: '', uom: '', expected_rate: '',
-    timeline: '', timeline_from: '', timeline_to: '', remarks: '', sales_staff_id: staffId ?? '', follow_up_at: '',
+    timeline: '', timeline_from: '', timeline_to: '', remarks: '', notes: '', sales_staff_id: staffId ?? '', follow_up_at: '',
     entry_weaves_yarn: '', entry_payment_cycle: '', entry_current_supplier: '', entry_price_range: '', entry_next_purchase: '',
   }
 }
 
 function errorsOf(f: LeadForm, status: FormStatus): Record<string, string> {
   const e: Record<string, string> = {}
-  if (!f.lead_type) e['l-type'] = 'Choose the lead type.'
   if (!status) e['l-status'] = 'Choose a status.'
   if (!f.party_name.trim()) e['l-name'] = f.lead_type === 'existing' ? 'Pick the party in Party Details; its name is filled in from there.' : 'Enter the lead name.'
   if (f.lead_type === 'existing' && !f.buyer_id) e['l-buyer'] = 'Pick the buyer from Buyers & Suppliers.'
@@ -256,18 +255,9 @@ export function LeadFormModal({
       {(!updating || recordId) && (
       <FieldErrorsProvider value={visible}>
         <Lock on={readOnly}>
-        <FormSection title="Lead Details" collapsible columns={3}>
+        <FormSection title="Leads Information" collapsible columns={3}>
           <Field id="l-name" label="Name" required>
             <input id="l-name" autoFocus={!existing && !updating} value={form.party_name} readOnly={existing} placeholder={existing ? 'Filled in from the party you pick' : 'Enter Name'} onChange={(e) => set('party_name', e.target.value)} />
-          </Field>
-          <Field id="l-type" label="Type" required>
-            <select id="l-type" value={form.lead_type} title={existing ? 'Pick the party from Buyers & Suppliers in Contact.' : 'A party not yet in Buyers & Suppliers.'} onChange={(e) => set('lead_type', e.target.value as LeadForm['lead_type'])}>
-              <option value="new">New</option>
-              <option value="existing">Existing</option>
-            </select>
-          </Field>
-          <Field id="l-source" label="Lead Source">
-            <ComboInput id="l-source" placeholder="Enter Lead Source" value={form.lead_source} onChange={(t) => set('lead_source', t)} options={[...LEAD_SOURCES]} />
           </Field>
           <Field id="l-status" label="Status" required>
             <select id="l-status" value={status} title={current?.status === 'qualified' ? 'Moving a Qualified lead to another status clears its qualification.' : 'A lead becomes Qualified from its Qualify action, once its count and party are in place.'} onChange={(e) => setStatus(e.target.value as FormStatus)}>
@@ -280,11 +270,30 @@ export function LeadFormModal({
           <Field id="l-created" label="Created Date">
             <input id="l-created" readOnly value={current ? formatDateTime(current.created_at) : ''} placeholder="Assigned on save" />
           </Field>
-        </FormSection>
-
-        <FormSection title="Contact" collapsible columns={3}>
-          <Field id="l-role" label="Party role">
-            <input id="l-role" readOnly value="Buyer" title="A lead is always a buyer." />
+          <Field id="l-follow" label="Follow Up Date">
+            <input id="l-follow" type="datetime-local" value={form.follow_up_at} onChange={(e) => set('follow_up_at', e.target.value)} />
+          </Field>
+          <Field id="l-source" label="Lead Source">
+            <ComboInput id="l-source" placeholder="Enter Lead Source" value={form.lead_source} onChange={(t) => set('lead_source', t)} options={[...LEAD_SOURCES]} />
+          </Field>
+          <Field id="l-tfrom" label="Timeline">
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input id="l-tfrom" aria-label="Timeline from" type="date" style={{ minWidth: 0, flex: 1 }} value={form.timeline_from} onChange={(e) => set('timeline_from', e.target.value)} />
+              <span aria-hidden="true">→</span>
+              <input id="l-tto" aria-label="Timeline to" type="date" style={{ minWidth: 0, flex: 1 }} min={form.timeline_from || undefined} value={form.timeline_to} onChange={(e) => set('timeline_to', e.target.value)} />
+            </div>
+          </Field>
+          <PhoneField
+            id="l-mobile"
+            label="Phone"
+            value={joinPhone({ code: form.mobile_cc, number: form.mobile })}
+            onChange={(v) => { const p = splitPhone(v); setForm((prev) => ({ ...prev, mobile_cc: p.code, mobile: p.number })) }}
+          />
+          <Field id="l-type" label="Type">
+            <select id="l-type" value={form.lead_type} title={existing ? 'Pick the party from Buyers & Suppliers in Leads Information.' : 'A party not yet in Buyers & Suppliers.'} onChange={(e) => set('lead_type', e.target.value as LeadForm['lead_type'])}>
+              <option value="new">New</option>
+              <option value="existing">Existing</option>
+            </select>
           </Field>
           {existing && (
             <Field id="l-buyer" label="Buyer" required>
@@ -294,29 +303,9 @@ export function LeadFormModal({
               </select>
             </Field>
           )}
-          <Field id="l-contact" label="Contact person">
-            <input id="l-contact" value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
-          </Field>
-          <PhoneField
-            id="l-mobile"
-            label="Phone"
-            value={joinPhone({ code: form.mobile_cc, number: form.mobile })}
-            onChange={(v) => { const p = splitPhone(v); setForm((prev) => ({ ...prev, mobile_cc: p.code, mobile: p.number })) }}
-          />
-          <Field id="l-station" label="Station">
-            <StationPicker value={form.station} stations={stations} onChange={(v) => set('station', v)} />
-          </Field>
-          <Field id="l-gst" label="GST">
-            <input id="l-gst" className="mono" maxLength={15} value={form.gst} onChange={(e) => set('gst', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
-          </Field>
-          <FullWidth>
-            <Field id="l-address" label="Office address">
-              <textarea id="l-address" rows={2} value={form.office_address} onChange={(e) => set('office_address', e.target.value)} />
-            </Field>
-          </FullWidth>
         </FormSection>
 
-        <FormSection title="Requirement" collapsible columns={3}>
+        <FormSection title="Product Details" collapsible columns={3}>
           <div className="fs-span-2">
             <Field id="l-count" label="Counts">
               <select id="l-count" value={form.count_id} onChange={(e) => set('count_id', e.target.value)}>
@@ -334,21 +323,8 @@ export function LeadFormModal({
           <Field id="l-qty" label="Quantity">
             <input id="l-qty" inputMode="decimal" className="mono" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} />
           </Field>
-          <Field id="l-rate" label="Expected rate">
+          <Field id="l-rate" label="Buyer Rate">
             <input id="l-rate" inputMode="decimal" className="mono" value={form.expected_rate} onChange={(e) => set('expected_rate', e.target.value)} />
-          </Field>
-          <Field id="l-tfrom" label="Timeline">
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input id="l-tfrom" aria-label="Timeline from" type="date" style={{ minWidth: 0, flex: 1 }} value={form.timeline_from} onChange={(e) => set('timeline_from', e.target.value)} />
-              <span aria-hidden="true">→</span>
-              <input id="l-tto" aria-label="Timeline to" type="date" style={{ minWidth: 0, flex: 1 }} min={form.timeline_from || undefined} value={form.timeline_to} onChange={(e) => set('timeline_to', e.target.value)} />
-            </div>
-          </Field>
-        </FormSection>
-
-        <FormSection title="Follow-up" collapsible columns={3}>
-          <Field id="l-follow" label="Follow Up Date">
-            <input id="l-follow" type="datetime-local" value={form.follow_up_at} onChange={(e) => set('follow_up_at', e.target.value)} />
           </Field>
         </FormSection>
 
@@ -384,12 +360,33 @@ export function LeadFormModal({
           )}
         </FormSection>
 
-        <FormSection title="Notes" collapsible columns={3}>
+        <FormSection title="Party Details" collapsible columns={3}>
+          <Field id="l-role" label="Party role">
+            <input id="l-role" readOnly value="Buyer" title="A lead is always a buyer." />
+          </Field>
+          <Field id="l-contact" label="Contact person">
+            <input id="l-contact" value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
+          </Field>
+          <Field id="l-station" label="Station">
+            <StationPicker value={form.station} stations={stations} onChange={(v) => set('station', v)} />
+          </Field>
+          <Field id="l-gst" label="GST">
+            <input id="l-gst" className="mono" maxLength={15} value={form.gst} onChange={(e) => set('gst', e.target.value.toUpperCase().replace(/\s+/g, ''))} />
+          </Field>
           <FullWidth>
-            <Field id="l-remarks" label="Remarks">
-              <textarea id="l-remarks" rows={2} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} />
+            <Field id="l-address" label="Office address">
+              <textarea id="l-address" rows={2} value={form.office_address} onChange={(e) => set('office_address', e.target.value)} />
             </Field>
           </FullWidth>
+        </FormSection>
+
+        <FormSection title="Remarks" collapsible columns={2}>
+          <Field id="l-remarks" label="Remarks">
+            <textarea id="l-remarks" rows={3} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} />
+          </Field>
+          <Field id="l-notes" label="Notes">
+            <textarea id="l-notes" rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+          </Field>
         </FormSection>
         </Lock>
 

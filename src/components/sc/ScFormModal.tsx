@@ -407,8 +407,8 @@ export function ScFormModal({
           )}
 
           <Lock locked={readOnly}>
-          <FormSection title="Confirmation Details" collapsible columns={3}>
-            <Field id="sc-name" label="Name">
+          <FormSection title="Sales Confirmation Details" collapsible columns={3}>
+            <Field id="sc-name" label="Name" required>
               <input id="sc-name" readOnly value={current?.sc_no ?? ''} placeholder="Assigned on save" title="The confirmation number is its name." />
             </Field>
             <Field id="sc-created" label="Created Date">
@@ -419,7 +419,7 @@ export function ScFormModal({
                 {SALE_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
               </select>
             </Field>
-            <Field id="sc-status" label="Status">
+            <Field id="sc-status" label="Status" required>
               <input id="sc-status" readOnly value={stage} title="Change the status from the row's Actions menu." />
             </Field>
             <Field id="sc-link" label="Link to Deals">
@@ -432,10 +432,21 @@ export function ScFormModal({
                 </select>
               )}
             </Field>
+            <Field id="sc-freight" label="Freight">
+              <select id="sc-freight" value={f.freight} onChange={(e) => set('freight', e.target.value as Form['freight'])}>
+                <option value="excluded">Excluded</option>
+                <option value="included">Included</option>
+              </select>
+            </Field>
+            <FullWidth>
+              <Field id="sc-sched" label="Delivery Schedule">
+                <textarea id="sc-sched" rows={2} placeholder="Enter Delivery Schedule" value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} />
+              </Field>
+            </FullWidth>
           </FormSection>
           {!dealPick && (
             <>
-              <FormSection title="Parties" collapsible columns={3}>
+              <FormSection title="Buyer & Supplier Details" collapsible columns={3}>
                 <Field id="sc-buyer" label="Buyer" required>
                   <select id="sc-buyer" value={f.buyer_id} disabled={locked} onChange={(e) => pickParty('buyer', e.target.value)}>
                     <option value="">--None--</option>
@@ -449,51 +460,28 @@ export function ScFormModal({
                   </select>
                 </Field>
               </FormSection>
-              <FormSection title="Counts" collapsible columns={3}>
+              <FormSection title="Product Configurations" collapsible columns={3}>
                 <FullWidth>
                   <CountLinesEditor weightRequired lines={lines} onChange={setLines} counts={counts} disabled={locked} buyer={buyerTerms} supplier={supplierTerms} />
                 </FullWidth>
               </FormSection>
-            </>
-          )}
-          <FormSection title="Commercial Terms" collapsible columns={3}>
-            {!dealPick && (
-            <>
+          <FormSection title="Business Configuration" collapsible columns={3}>
                 <Field id="sc-term" label="Payment Terms">
                   <select id="sc-term" value={f.payment_term_id} disabled={locked} onChange={(e) => set('payment_term_id', e.target.value)}>
                     <option value="">--None--</option>
                     {terms.filter((t) => t.is_active || t.id === f.payment_term_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
                   </select>
                 </Field>
-            </>
-            )}
-            <Field id="sc-freight" label="Freight">
-              <select id="sc-freight" value={f.freight} onChange={(e) => set('freight', e.target.value as Form['freight'])}>
-                <option value="excluded">Excluded</option>
-                <option value="included">Included</option>
-              </select>
-            </Field>
           </FormSection>
-          <FormSection title="Delivery" collapsible columns={3}>
-            <FullWidth>
-              <Field id="sc-sched" label="Delivery Schedule">
-                <textarea id="sc-sched" rows={2} placeholder="Enter Delivery Schedule" value={f.delivery_schedule} onChange={(e) => set('delivery_schedule', e.target.value)} />
-              </Field>
-            </FullWidth>
-            {!dealPick && (
-            <>
+          <FormSection title="Sizing/Delivery Address Information" collapsible columns={3}>
                 <Field id="sc-job" label="Sizing/Delivery Address" hideLabel>
                   <select id="sc-job" value={f.job_process_id} title="--None-- means the buyer's own address." onChange={(e) => pickJob(e.target.value)}>
                     <option value="">--None--</option>
                     {jobs.filter((j) => j.is_active || j.id === f.job_process_id).map((j) => (<option key={j.id} value={j.id}>{j.name}</option>))}
                   </select>
                 </Field>
-            </>
-            )}
           </FormSection>
-          {!dealPick && (
-            <>
-              <FormSection title="Transport" collapsible columns={3}>
+              <FormSection title="Transportation Company Details" collapsible columns={3}>
                 <Field id="sc-tr" label="Transporter Name">
                   <select id="sc-tr" value={f.transporter_id} onChange={(e) => set('transporter_id', e.target.value)}>
                     <option value="">--None--</option>
