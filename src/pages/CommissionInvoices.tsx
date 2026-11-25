@@ -127,12 +127,16 @@ export default function CommissionInvoices() {
     const [inv, c, b, s] = await Promise.all([
       supabase.from('commission_invoices').select('*').order('created_at', { ascending: false }),
       supabase.from('companies').select('*').order('name'),
-      supabase.from('buyer_master').select('id,name,address').order('name'),
-      supabase.from('supplier_master').select('id,name,address').order('name'),
+      supabase.from('buyer_master').select('id,name,address,mill_address').order('name'),
+      supabase.from('supplier_master').select('id,name,address,mill_address').order('name'),
     ])
+    // the bill's address is the party's address; a party with only a mill address uses that
+    const named = (r: { id: string; name: string; address: string | null; mill_address?: string | null }): Named => ({
+      id: r.id, name: r.name, address: r.address?.trim() ? r.address : r.mill_address?.trim() ? r.mill_address : null,
+    })
     if (inv.error) setError(errMessage(inv.error, 'Could not load the commission invoices'))
     setRows((inv.data ?? []) as CommissionInvoiceRow[])
-    setRefs({ companies: (c.data ?? []) as Company[], buyers: (b.data ?? []) as Named[], suppliers: (s.data ?? []) as Named[] })
+    setRefs({ companies: (c.data ?? []) as Company[], buyers: (b.data ?? []).map(named), suppliers: (s.data ?? []).map(named) })
   }, [])
 
   useEffect(() => { void load() }, [load])
@@ -530,11 +534,12 @@ function InvoiceView({ inv, refs, canManage, busy, onClose, onDownload, onCancel
   )
 }
 
-function ReadOnly({ label, value }: { label: string; value: string }) {
+function ReadOnly({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="field">
       <label>{label}</label>
       <input readOnly value={value} style={{ background: 'var(--surface-3)' }} />
+      {hint && <small className="muted">{hint}</small>}
     </div>
   )
 }
@@ -852,7 +857,11 @@ function NewInvoice({ refs, onClose, onCreated }: {
             {(partyOpts ?? []).map((p) => <option key={p.party_id} value={p.party_id}>{p.party_name} ({p.lines} line{p.lines === 1 ? '' : 's'})</option>)}
           </select>
         </Field>
-        <ReadOnly label="Address" value={party?.address ?? ''} />
+        <ReadOnly
+          label="Address"
+          value={party?.address ?? ''}
+          hint={party && !party.address ? 'No address saved for this party. Add it in Buyers & Suppliers; the bill prints without one until then.' : 'Taken from Buyers & Suppliers.'}
+        />
         <Field id="ci-basis" label="Commission Type (manual)" hint="Leave empty to use each line's own commission.">
           <select id="ci-basis" value={basis} onChange={(e) => setBasis(e.target.value)}>
             <option value="">Use the order's terms</option>
