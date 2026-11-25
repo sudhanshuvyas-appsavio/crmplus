@@ -20,6 +20,12 @@ import type { MirrorParty } from './board/mirrors'
 import { PartyLookup } from './PartyLookup'
 import { ComboInput } from './ComboInput'
 import { getPosition } from './GeoCapture'
+import { Link } from 'react-router-dom'
+import { StatusPill } from './board/Board'
+import { DealDocuments } from './DealDocuments'
+import { DealHistory } from './DealHistory'
+import { useProfileNames } from './PartyExtras'
+import { formatDateTime } from '../lib/format'
 
 export type DealCompany = { id: string; name: string; is_home: boolean; is_active: boolean }
 export type DealPerson = { id: string; name: string }
@@ -75,7 +81,7 @@ async function loadLines(d: Deal): Promise<LineForm[]> {
 }
 
 export function DealFormModal({
-  buyers, suppliers, counts, terms, companies, people, meId, deals, lockedIds, initialDeal, buyerName, leadNos, onClose, onDone,
+  buyers, suppliers, counts, terms, companies, people, meId, deals, lockedIds, initialDeal, buyerName, leadNos, scNos, canEdit = true, readOnly = false, onEdit, onClose, onDone,
 }: {
   buyers: MirrorParty[]
   suppliers: MirrorParty[]
@@ -94,10 +100,18 @@ export function DealFormModal({
   buyerName: Map<string, string>
   /** Lead numbers by lead id, for the read-only Leads field. */
   leadNos: Map<string, string>
+  /** Sales Confirmation numbers by id (read-only view). */
+  scNos?: Map<string, string>
+  /** The signed-in user may edit deals (read-only view: enables the Edit button). */
+  canEdit?: boolean
+  /** Locked view of the deal: same sections as Edit, nothing can be changed. */
+  readOnly?: boolean
+  onEdit?: (deal: Deal) => void
   onClose: () => void
   onDone: (message: string) => void | Promise<void>
 }) {
   const updating = Boolean(initialDeal)
+  const names = useProfileNames()
   const textOf = (d: Deal) => `${d.deal_no} · ${d.buyer_id ? buyerName.get(d.buyer_id) ?? 'no buyer yet' : 'no buyer yet'}`
   const [recordId, setRecordId] = useState(initialDeal?.id ?? '')
   const [recordText, setRecordText] = useState(initialDeal ? textOf(initialDeal) : '')
@@ -235,13 +249,22 @@ export function DealFormModal({
   }
 
   const show = !updating || recordId
+  const approved = (current ?? initialDeal)?.status === 'approved'
+  const dealNow = current ?? initialDeal ?? null
   return (
     <Modal
-      title={updating ? 'Update Deal' : 'New Deal'}
-      description={updating ? 'Choose the deal, then change what you need. It keeps its number and creation date.' : 'Buyer, supplier, counts and terms are added from Actions > Edit.'}
+      title={readOnly ? 'View Deal' : updating ? 'Update Deal' : 'New Deal'}
+      description={readOnly ? undefined : updating ? 'Choose the deal, then change what you need. It keeps its number and creation date.' : 'Buyer, supplier, counts and terms are added from Actions > Edit.'}
       size="lg"
       onClose={onClose}
-      footer={
+      footer={readOnly ? (
+        <>
+          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
+          <button className="btn primary" type="button" disabled={!canEdit || approved || !dealNow}
+            title={!canEdit ? 'You need the “Edit deals” permission.' : approved ? 'An Approved deal is locked.' : undefined}
+            onClick={() => dealNow && onEdit?.(dealNow)}>Edit</button>
+        </>
+      ) : (
         <>
           <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>Close</button>
           <span style={{ display: 'flex', gap: 10 }}>
@@ -249,11 +272,24 @@ export function DealFormModal({
             <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : updating ? 'Update Deal' : 'Create Deal'}</button>
           </span>
         </>
-      }
+      )}
     >
       <ErrorBanner message={error} />
 
-      {updating && (
+      {readOnly && dealNow && (
+        <div className="small" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <StatusPill label={dealStatus(dealNow.status).label} tone={dealStatus(dealNow.status).tone} />
+          <span className="muted">Created {formatDateTime(dealNow.created_at)}</span>
+          {dealNow.approved_at && <span className="muted">Approval Date {formatDateTime(dealNow.approved_at)}</span>}
+          {approved && <span className="muted">Approved by {dealNow.approved_by ? names[dealNow.approved_by] ?? 'a manager' : 'a manager'}</span>}
+          {dealNow.lead_id && <Link className="mono" to="/leads">Lead {leadNos.get(dealNow.lead_id) ?? ''}</Link>}
+          {dealNow.sales_confirmation_id
+            ? <span>Sales Confirmation <Link className="mono" to={`/sales-confirmations?open=${dealNow.sales_confirmation_id}`}>{scNos?.get(dealNow.sales_confirmation_id) ?? 'open'}</Link></span>
+            : approved && <span className="muted">Approved - create the Sales Confirmation from the row Actions</span>}
+        </div>
+      )}
+
+      {updating && !readOnly && (
         <FieldErrorsProvider value={visible}>
           <section className="fs-card" aria-label="Select Item to Update">
             <header className="fs-head"><div><h3>Select Item to Update:</h3></div></header>
@@ -268,12 +304,10 @@ export function DealFormModal({
 
       {show && (
         <FieldErrorsProvider value={visible}>
-          <FormSection title="Deals Information" collapsible columns={3}>
+          <fieldset className={readOnly ? 'ro-fieldset' : undefined} disabled={readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+          <FormSection title="Deal Details" collapsible columns={3}>
             <Field id="d-no" label="Name">
               <input id="d-no" readOnly value={current?.deal_no ?? ''} placeholder="Assigned on save" title="The deal number is the deal's name." />
-            </Field>
-            <Field id="d-owner" label="Owner">
-              <input id="d-owner" readOnly value={people.find((x) => x.id === (current?.owner_id ?? meId))?.name ?? ''} title="The signed-in user owns a new deal." />
             </Field>
             <Field id="d-status" label="Status">
               <input id="d-status" readOnly value={dealStatus(current?.status ?? 'new_deal').label} title="Change the status from the row's Actions menu." />
@@ -281,6 +315,17 @@ export function DealFormModal({
             <Field id="d-lead" label="Leads">
               <input id="d-lead" readOnly value={current?.lead_id ? leadNos.get(current.lead_id) ?? '' : ''} placeholder="Linked when a lead is converted" title="A deal is linked to its lead when the lead is converted." />
             </Field>
+            <Field id="d-owner" label="Owner">
+              <input id="d-owner" readOnly value={people.find((x) => x.id === (current?.owner_id ?? meId))?.name ?? ''} title="The signed-in user owns a new deal." />
+            </Field>
+            {updating && (
+              <Field id="d-manager" label="Manager">
+                <select id="d-manager" value={f.manager_id} title="Who approves this deal." onChange={(e) => set('manager_id', e.target.value)}>
+                  <option value="">--None--</option>
+                  {people.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                </select>
+              </Field>
+            )}
           </FormSection>
 
           {updating && (
@@ -298,12 +343,6 @@ export function DealFormModal({
                 {suppliers.filter((x) => x.is_active || x.id === f.supplier_id).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
               </select>
             </Field>
-            <Field id="d-bcomm" label="Buyer Commission">
-              <input id="d-bcomm" readOnly value={commText(f.buyer_comm_basis, f.buyer_comm_value)} placeholder="From the master" />
-            </Field>
-            <Field id="d-scomm" label="Supplier Commission">
-              <input id="d-scomm" readOnly value={commText(f.supplier_comm_basis, f.supplier_comm_value)} placeholder="From the master" />
-            </Field>
             {(f.buyer_id || f.supplier_id) && (
               <FullWidth>
                 <div className="lookup-grid" style={{ marginBottom: 0 }}>
@@ -320,7 +359,7 @@ export function DealFormModal({
           {updating && (
           <FormSection title="Counts" collapsible columns={3}>
             <FullWidth>
-              <CountLinesEditor lines={lines} onChange={setLines} counts={counts} disabled={false}
+              <CountLinesEditor lines={lines} onChange={setLines} counts={counts} disabled={readOnly}
                 buyer={{ basis: f.buyer_comm_basis || null, value: bVal }} supplier={{ basis: f.supplier_comm_basis || null, value: sVal }} />
             </FullWidth>
           </FormSection>
@@ -328,19 +367,7 @@ export function DealFormModal({
 
           {updating && (
             <>
-          <FormSection title="Commercials" collapsible columns={3}>
-            <Field id="d-manager" label="Manager">
-              <select id="d-manager" value={f.manager_id} title="Who approves this deal." onChange={(e) => set('manager_id', e.target.value)}>
-                <option value="">--None--</option>
-                {people.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-              </select>
-            </Field>
-            <Field id="d-term" label="Payment Terms">
-              <select id="d-term" value={f.payment_term_id} onChange={(e) => set('payment_term_id', e.target.value)}>
-                <option value="">--None--</option>
-                {terms.filter((t) => t.is_active || t.id === f.payment_term_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
-              </select>
-            </Field>
+          <FormSection title="Pricing and Commission" collapsible columns={3}>
             <Field id="d-mode" label="Mode">
               <select id="d-mode" value={f.price_basis} onChange={(e) => set('price_basis', e.target.value as Form['price_basis'])}>
                 <option value="net">Net</option>
@@ -351,6 +378,21 @@ export function DealFormModal({
               <select id="d-freight" value={f.freight} onChange={(e) => set('freight', e.target.value as Form['freight'])}>
                 <option value="excluded">Excluded</option>
                 <option value="included">Included</option>
+              </select>
+            </Field>
+            <Field id="d-bcomm" label="Buyer Commission">
+              <input id="d-bcomm" readOnly value={commText(f.buyer_comm_basis, f.buyer_comm_value)} placeholder="From the master" />
+            </Field>
+            <Field id="d-scomm" label="Supplier Commission">
+              <input id="d-scomm" readOnly value={commText(f.supplier_comm_basis, f.supplier_comm_value)} placeholder="From the master" />
+            </Field>
+          </FormSection>
+
+          <FormSection title="Terms" collapsible columns={3}>
+            <Field id="d-term" label="Payment Terms">
+              <select id="d-term" value={f.payment_term_id} onChange={(e) => set('payment_term_id', e.target.value)}>
+                <option value="">--None--</option>
+                {terms.filter((t) => t.is_active || t.id === f.payment_term_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
               </select>
             </Field>
           </FormSection>
@@ -379,6 +421,18 @@ export function DealFormModal({
               </Field>
             </FullWidth>
           </FormSection>
+            </>
+          )}
+          </fieldset>
+
+          {updating && dealNow && (
+            <>
+              <FormSection title="Documents" collapsible columns={2}>
+                <FullWidth><DealDocuments dealId={dealNow.id} canEdit={!readOnly && canEdit && !approved} /></FullWidth>
+              </FormSection>
+              <FormSection title="History" collapsible columns={2}>
+                <FullWidth><DealHistory dealId={dealNow.id} refreshKey={dealNow.updated_at} /></FullWidth>
+              </FormSection>
             </>
           )}
         </FieldErrorsProvider>

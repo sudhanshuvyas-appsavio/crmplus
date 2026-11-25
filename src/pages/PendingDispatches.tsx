@@ -28,7 +28,6 @@ function overdue(date: string | null): number {
 
 export default function PendingDispatches() {
   const [orders, setOrders] = useState<Order[] | null>(null)
-  const [sums, setSums] = useState<Map<string, number>>(new Map())
   const [buyers, setBuyers] = useState<Named[]>([])
   const [suppliers, setSuppliers] = useState<Named[]>([])
   const [companies, setCompanies] = useState<Named[]>([])
@@ -44,18 +43,14 @@ export default function PendingDispatches() {
 
   useEffect(() => {
     void (async () => {
-      const [o, d, b, s, c, k] = await Promise.all([
+      const [o, b, s, c, k] = await Promise.all([
         supabase.from('orders').select('*').in('status', ['confirmed', 'open_for_execution']).order('tentative_dispatch_date', { ascending: true, nullsFirst: false }),
-        supabase.from('order_dispatches').select('order_id,quantity'),
         supabase.from('buyer_master').select('id,name').order('name'),
         supabase.from('supplier_master').select('id,name').order('name'),
         supabase.from('companies').select('id,name').order('name'),
         supabase.from('count_master').select('*'),
       ])
       if (o.error) setError(errMessage(o.error, 'Could not load the report'))
-      const m = new Map<string, number>()
-      for (const x of (d.data ?? []) as { order_id: string; quantity: number }[]) m.set(x.order_id, (m.get(x.order_id) ?? 0) + Number(x.quantity))
-      setSums(m)
       setOrders((o.data ?? []) as Order[])
       setBuyers((b.data ?? []) as Named[])
       setSuppliers((s.data ?? []) as Named[])
@@ -70,8 +65,8 @@ export default function PendingDispatches() {
   const rows = useMemo(() => {
     return (orders ?? [])
       .map((x) => {
-        const done = sums.get(x.id) ?? 0
-        return { order: x, done, balance: Number(x.quantity) - done, late: x.status === 'closed' ? 0 : overdue(x.tentative_dispatch_date) }
+        const done = Number(x.dispatched_qty)
+        return { order: x, done, balance: Number(x.returned_qty ?? 0) > 0 ? 0 : Number(x.quantity) - done - Number(x.cancelled_qty ?? 0), late: x.status === 'closed' ? 0 : overdue(x.tentative_dispatch_date) }
       })
       .filter(({ order: x, balance, late }) => {
         if (balance <= 0) return false
@@ -85,7 +80,7 @@ export default function PendingDispatches() {
         return true
       })
       .sort((a, b) => b.late - a.late || (a.order.tentative_dispatch_date ?? '9999').localeCompare(b.order.tentative_dispatch_date ?? '9999'))
-  }, [orders, sums, fBuyer, fSupplier, fCompany, fCount, from, to, onlyOverdue])
+  }, [orders, fBuyer, fSupplier, fCompany, fCount, from, to, onlyOverdue])
 
   function exportCSV() {
     const list = rows.map(({ order: x, done, balance, late }) => ({

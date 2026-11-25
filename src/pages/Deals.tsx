@@ -10,28 +10,23 @@
  *  previewed here with the same rules (lib/deals.ts). Once Approved, the terms
  *  lock and the Sales Confirmation can be created. */
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { COMMISSION_TYPES, type CountRow, type Deal, type DealChange, type PaymentTerm } from '../api/types'
+import type { CountRow, Deal, PaymentTerm } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { Drawer } from '../components/Drawer'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
 import { DealFormModal, mapsUrl } from '../components/DealFormModal'
 import { useSelection } from '../components/ListTools'
-import { useProfileNames } from '../components/PartyExtras'
 import { Avatar, Board, PersonCell, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { MIRROR_PARTY_COLS, cell, type MirrorParty } from '../components/board/mirrors'
 import { BoardTabs } from '../components/board/BoardTabs'
-import { DealDocuments } from '../components/DealDocuments'
-import { PartyLookup } from '../components/PartyLookup'
-import { CountLinesView, toLineForm, type LineForm } from '../components/CountLines'
 import { bulkDelete, deleteSummary } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
-import { formatDateTime, formatShortDate } from '../lib/format'
+import { formatShortDate } from '../lib/format'
 import {
   DEAL_GROUPS, commTerms, dealStatus, inr, rateText, uomLabel,
 } from '../lib/deals'
@@ -179,6 +174,27 @@ export default function Deals() {
     return true
   }
 
+  async function createSc(deal: Deal) {
+    setBanner(null)
+    const chk = await supabase.rpc('deal_confirm_problems', { p_deal: deal.id })
+    const problems = (chk.data ?? []) as string[]
+    if (problems.length > 0) {
+      setBanner({ kind: 'bad', text: `${deal.deal_no}: Fix these first: ${problems.join('; ')}.` })
+      return
+    }
+    const { error } = await supabase.rpc('confirm_deal', { p_deal: deal.id })
+    if (error) { setBanner({ kind: 'bad', text: errMessage(error, 'Could not create the Sales Confirmation') }); return }
+    setBanner({ kind: 'ok', text: `${deal.deal_no}: Sales Confirmation created.` })
+    await load()
+  }
+
+  async function createOrder(deal: Deal) {
+    setBanner(null)
+    const { data, error } = await supabase.rpc('create_order', { p_deal: deal.id })
+    if (error) { setBanner({ kind: 'bad', text: errMessage(error, 'Could not create the Dispatch and Billing item') }); return }
+    navigate(`/orders?open=${data as string}`)
+  }
+
   async function deleteDeal() {
     if (!deleting) return
     setDeleteBusy(true)
@@ -256,6 +272,8 @@ export default function Deals() {
       if (x.status === 'approved' && next.includes('manager_approval')) items.push(statusAction(x, 'manager_approval', 'Move back to Manager Approval'))
       if (next.includes('closed_lost')) items.push(statusAction(x, 'closed_lost', 'Close as lost'))
     }
+    if (x.status === 'approved' && !x.sales_confirmation_id) items.push({ label: 'Create Sales Confirmation', onSelect: () => void createSc(x), disabledReason: !canEdit ? 'You need the "Edit deals" permission.' : null })
+    if (x.sales_confirmation_id) items.push({ label: 'Create Dispatch and Billing', onSelect: () => void createOrder(x), disabledReason: !can('order.manage') ? 'You need the "Manage Dispatch and Billing" permission.' : null })
     if (x.sales_confirmation_id) items.push({ label: 'Go to Sales Confirmation', onSelect: () => navigate(`/sales-confirmations?open=${x.sales_confirmation_id}`) })
     items.push({
       label: 'Delete',
@@ -402,19 +420,26 @@ export default function Deals() {
       )}
 
       {details && (
-        <DealDetails
+        <DealFormModal
+          readOnly
           key={details.id}
-          deal={deals.find((x) => x.id === details.id) ?? details}
-          canEdit={canEdit}
-          canOrder={can('order.manage')}
-          counts={counts}
           buyers={buyers}
           suppliers={suppliers}
-          companies={companies}
+          counts={counts}
           terms={terms}
-          onClose={() => setDetails(null)}
+          companies={companies}
+          people={people}
+          meId={me?.id}
+          deals={deals}
+          lockedIds={lockedIds}
+          initialDeal={deals.find((x) => x.id === details.id) ?? details}
+          buyerName={buyerName}
+          leadNos={leadNos}
+          scNos={scNos}
+          canEdit={canEdit}
           onEdit={(d) => { setDetails(null); setFormFor(d) }}
-          onChanged={async (text) => { if (text) setBanner({ kind: 'ok', text }); await load() }}
+          onClose={() => setDetails(null)}
+          onDone={() => setDetails(null)}
         />
       )}
 
@@ -428,255 +453,6 @@ export default function Deals() {
         <ConfirmDialog title={`Delete ${chosen} selected deal${chosen === 1 ? '' : 's'}?`} busy={busy} onConfirm={() => void deleteSelected()} onClose={() => setConfirmDelete(false)}>
           Only Draft deals without a Sales Confirmation can be deleted; the others are skipped and reported.
         </ConfirmDialog>
-      )}
-    </>
-  )
-}
-
-/** The deal's details, read-only. Changing the deal is Actions > Edit (the pop-up form) and moving
- *  it through the pipeline is in the Actions menu too, so this view carries what the form does not:
- *  the Sales Confirmation step, documents, history and updates. */
-function DealDetails({
-  deal, canEdit, canOrder, counts, buyers, suppliers, companies, terms, onClose, onEdit, onChanged,
-}: {
-  deal: Deal
-  canEdit: boolean
-  canOrder: boolean
-  counts: CountRow[]
-  buyers: Party[]
-  suppliers: Party[]
-  companies: Company[]
-  terms: PaymentTerm[]
-  onClose: () => void
-  onEdit: (deal: Deal) => void
-  onChanged: (message?: string) => void | Promise<void>
-}) {
-  const navigate = useNavigate()
-  const names = useProfileNames()
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const [problems, setProblems] = useState<string[] | null>(null)
-  const [sc, setSc] = useState<{ id: string; sc_no: string | null } | null>(null)
-  const [orderId, setOrderId] = useState<string | null>(null)
-  const [leadNo, setLeadNo] = useState<string | null>(null)
-  const firstLine: LineForm[] = [toLineForm({ count_id: deal.count_id, quantity: deal.quantity, uom: deal.uom, bag_weight: deal.bag_weight, rate: deal.final_rate })]
-  const [lines, setLines] = useState<LineForm[]>(firstLine)
-
-  useEffect(() => {
-    let alive = true
-    void supabase.from('crm_deal_lines').select('count_id,quantity,uom,bag_weight,final_rate').eq('deal_id', deal.id).order('line_no')
-      .then(({ data }) => {
-        const rows = (data ?? []) as { count_id: string; quantity: number; uom: string; bag_weight: number | null; final_rate: number | null }[]
-        if (alive && rows.length > 0) setLines(rows.map((r) => toLineForm({ ...r, rate: r.final_rate })))
-      })
-    return () => { alive = false }
-  }, [deal.id, deal.updated_at])
-  useEffect(() => {
-    if (!deal.lead_id) return
-    void supabase.from('leads').select('lead_no').eq('id', deal.lead_id).maybeSingle()
-      .then(({ data }) => setLeadNo((data as { lead_no: string } | null)?.lead_no ?? null))
-  }, [deal.lead_id])
-  useEffect(() => {
-    let alive = true
-    if (deal.sales_confirmation_id) {
-      void supabase.from('sales_confirmations').select('id, sc_no').eq('id', deal.sales_confirmation_id).maybeSingle()
-        .then(({ data }) => { if (alive) setSc(data as { id: string; sc_no: string | null } | null) })
-      void supabase.from('orders').select('id').eq('sales_confirmation_id', deal.sales_confirmation_id).neq('status', 'cancelled').order('created_at').limit(1).maybeSingle()
-        .then(({ data }) => { if (alive) setOrderId(data?.id ?? null) })
-    } else if (deal.status === 'approved') {
-      void supabase.rpc('deal_confirm_problems', { p_deal: deal.id })
-        .then(({ data }) => { if (alive) setProblems((data ?? []) as string[]) })
-    }
-    return () => { alive = false }
-  }, [deal.id, deal.status, deal.sales_confirmation_id])
-
-  const approved = deal.status === 'approved'
-  const status = dealStatus(deal.status)
-  const buyer = buyers.find((x) => x.id === deal.buyer_id)
-  const supplier = suppliers.find((x) => x.id === deal.supplier_id)
-  const termName = terms.find((t) => t.id === deal.payment_term_id)?.name ?? null
-
-  async function createSc() {
-    setBusy(true)
-    setErr(null)
-    const { error } = await supabase.rpc('confirm_deal', { p_deal: deal.id })
-    setBusy(false)
-    if (error) return setErr(errMessage(error, 'Could not create the Sales Confirmation'))
-    await onChanged(`${deal.deal_no}: Sales Confirmation created.`)
-  }
-
-  async function createOrder() {
-    setBusy(true)
-    const { data, error } = await supabase.rpc('create_order', { p_deal: deal.id })
-    setBusy(false)
-    if (error) return setErr(errMessage(error, 'Could not create the Dispatch and Billing item'))
-    navigate(`/orders?open=${data as string}`)
-  }
-
-  const rows: [string, ReactNode][] = [
-    ['Buyer', buyer?.name ?? null],
-    ['Supplier', supplier?.name ?? null],
-    ['Payment Terms', termName],
-    ['Manager', deal.manager_id ? names[deal.manager_id] ?? null : null],
-    ['Owner', deal.owner_id ? names[deal.owner_id] ?? null : null],
-    ['Mode', deal.price_basis === 'net' ? 'Net' : 'Ex-Mill'],
-    ['Freight', deal.freight === 'included' ? 'Included' : 'Excluded'],
-    ['Buyer Commission', commTerms(deal.buyer_comm_basis, deal.buyer_comm_value)],
-    ['Supplier Commission', commTerms(deal.supplier_comm_basis, deal.supplier_comm_value)],
-    ['Location', deal.location_text || deal.location_lat !== null
-      ? <>{deal.location_text ?? ''}{deal.location_lat !== null && deal.location_lng !== null ? <> <a href={mapsUrl(deal.location_lat, deal.location_lng)} target="_blank" rel="noopener noreferrer">open in Maps</a></> : null}</>
-      : null],
-    ['Lead', deal.lead_id ? <Link className="mono" to="/leads">{leadNo ?? '…'}</Link> : null],
-    ['Remarks', deal.notes],
-    ['Created', formatDateTime(deal.created_at)],
-    ['Approval Date', deal.approved_at ? formatDateTime(deal.approved_at) : null],
-  ]
-
-  return (
-    <Drawer title={deal.deal_no} onClose={onClose} footer={
-        <div className="drawer-actions">
-          <button className="btn" type="button" disabled={!canEdit || approved} title={!canEdit ? 'You need the “Edit deals” permission.' : approved ? 'An Approved deal is locked.' : undefined} onClick={() => onEdit(deal)}>Edit</button>
-          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
-        </div>
-      }>
-      <p className="small">
-        <StatusPill label={status.label} tone={status.tone} />
-      </p>
-      {err && <div className="alert">{err}</div>}
-      {!canEdit && <div className="notice small">You can view this deal; changing it needs the “Edit deals” permission.</div>}
-      {approved && (
-        <div className="notice small">
-          Approved by {deal.approved_by ? names[deal.approved_by] ?? 'a manager' : 'a manager'}. The deal is converted and can no longer be edited.
-        </div>
-      )}
-
-      <dl className="kv">
-        {rows.filter(([, v]) => v !== null && v !== '' && v !== undefined).map(([k, v]) => (
-          <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>
-        ))}
-      </dl>
-
-      <h3 className="section-title">Counts</h3>
-      <CountLinesView lines={lines} counts={counts}
-        buyer={{ basis: deal.buyer_comm_basis, value: deal.buyer_comm_value }} supplier={{ basis: deal.supplier_comm_basis, value: deal.supplier_comm_value }} />
-
-      {(buyer || supplier) && (
-        <div className="lookup-grid">
-          {buyer && <PartyLookup title="Buyer" p={buyer} unit={companies.find((c) => c.id === buyer.company_id)?.name} />}
-          {supplier && <PartyLookup title="Supplier" p={supplier} unit={companies.find((c) => c.id === supplier.company_id)?.name} />}
-        </div>
-      )}
-
-
-      {approved && !deal.sales_confirmation_id && (
-        <div className="notice">
-          <h3 className="section-title" style={{ marginTop: 0 }}>Sales Confirmation</h3>
-          {problems === null ? (
-            <p className="muted small">Checking…</p>
-          ) : problems.length === 0 ? (
-            <p className="small">Everything needed is in place.</p>
-          ) : (
-            <>
-              <p className="small">Fix these first:</p>
-              <ul className="small">{problems.map((x) => (<li key={x}>{x}</li>))}</ul>
-            </>
-          )}
-          {canEdit && (
-            <p>
-              <button className="btn primary" type="button" disabled={busy || problems === null || problems.length > 0} onClick={() => void createSc()}>
-                Create Sales Confirmation
-              </button>
-            </p>
-          )}
-        </div>
-      )}
-      {deal.sales_confirmation_id && (
-        <div className="notice">
-          <h3 className="section-title" style={{ marginTop: 0 }}>Sales Confirmation</h3>
-          <p className="small">
-            <Link className="mono" to={`/sales-confirmations?open=${deal.sales_confirmation_id}`}>{sc?.sc_no ?? '…'}</Link> · send it to the supplier and buyer from there.
-          </p>
-          {orderId ? (
-            <p className="small"><Link to={`/orders?open=${orderId}`}>Open its Dispatch and Billing items</Link></p>
-          ) : (
-            canOrder && <p><button className="btn" type="button" disabled={busy} onClick={() => void createOrder()}>Create Dispatch and Billing</button></p>
-          )}
-        </div>
-      )}
-
-      <DealDocuments dealId={deal.id} canEdit={canEdit && !approved} />
-      <DealHistory dealId={deal.id} refreshKey={deal.updated_at} />
-    </Drawer>
-  )
-}
-
-const CHANGE_LABEL: Record<string, string> = {
-  final_rate: 'Final rate',
-  buyer_commission: 'Buyer commission',
-  supplier_commission: 'Supplier commission',
-  freight: 'Freight',
-  price_basis: 'Mode',
-  location_text: 'Location',
-  status: 'Status',
-  // older entries
-  buyer_rate: 'Buyer rate',
-  supplier_rate: 'Supplier rate',
-  commission_type: 'Commission type',
-}
-
-const OLD_STATUS: Record<string, string> = {
-  draft: 'Draft', rate_discussion: 'Rate Discussion', supplier_confirmed: 'Supplier Confirmed', buyer_confirmed: 'Buyer Confirmed', confirmed: 'Confirmed',
-}
-
-function changeValue(field: string, v: string | null): string {
-  if (v === null || v === '') return '—'
-  if (field === 'status') return OLD_STATUS[v] ?? dealStatus(v).label
-  if (field === 'price_basis') return v === 'ex_mill' ? 'Ex-Mill' : v === 'net' ? 'Net' : v
-  if (field === 'freight') return v === 'included' ? 'Included' : v === 'excluded' ? 'Excluded' : v
-  if (field === 'buyer_commission' || field === 'supplier_commission') {
-    const [num, basis] = v.split(' ')
-    return commTerms(basis ?? null, num ? Number(num) : null)
-  }
-  if (field === 'commission_type') return COMMISSION_TYPES.find((c) => c.value === v)?.label ?? v.replace(/_/g, ' ')
-  return v
-}
-
-const HISTORY_SHOWN = 8
-
-function DealHistory({ dealId, refreshKey }: { dealId: string; refreshKey: string }) {
-  const names = useProfileNames()
-  const [rows, setRows] = useState<DealChange[] | null>(null)
-  const [all, setAll] = useState(false)
-  useEffect(() => {
-    let alive = true
-    void supabase.from('deal_changes').select('*').eq('deal_id', dealId).order('changed_at', { ascending: false })
-      .then(({ data }) => { if (alive) setRows((data ?? []) as DealChange[]) })
-    return () => { alive = false }
-  }, [dealId, refreshKey])
-  return (
-    <>
-      <h3 className="section-title">History</h3>
-      {rows === null ? (
-        <p className="muted small">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="muted small">No changes recorded yet.</p>
-      ) : (
-        <ul className="history">
-          {(all ? rows : rows.slice(0, HISTORY_SHOWN)).map((r) => (
-            <li key={r.id}>
-              <strong>{CHANGE_LABEL[r.field] ?? r.field}</strong>: {changeValue(r.field, r.old_value)} → {changeValue(r.field, r.new_value)}
-              <div className="muted small">
-                {formatDateTime(r.changed_at)}
-                {r.changed_by ? ` · ${names[r.changed_by] ?? 'a user'}` : ''}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      {rows && rows.length > HISTORY_SHOWN && (
-        <button className="btn ghost sm" type="button" onClick={() => setAll(!all)}>
-          {all ? 'Show the latest only' : `Show all ${rows.length} changes`}
-        </button>
       )}
     </>
   )

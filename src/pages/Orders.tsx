@@ -14,18 +14,18 @@
  *  (pending dispatches, mill invoices, transport, collections, commission bills)
  *  keep working off the same records. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { CountRow, JobProcess, Order, PaymentTerm, Transporter } from '../api/types'
+import type { CountRow, JobProcess, Order, OrderAdjustment, OrderDispatch, PaymentTerm, Transporter } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { OrderDetails } from '../components/OrderDetails'
 import { OrderFormModal } from '../components/OrderFormModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { SubitemDialog, SUB_LABEL, type SubKind } from '../components/SubitemDialog'
 import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
 import { BoardTabs } from '../components/board/BoardTabs'
-import { Board, PersonCell, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
+import { Board, PersonCell, DownloadIcon, StatusPicker, ViewSwitch, useStoredState, type BoardColumn } from '../components/board/Board'
 import { cell } from '../components/board/mirrors'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
@@ -51,9 +51,9 @@ export default function DispatchAndBilling() {
   const [rows, setRows] = useState<Order[] | null>(null)
   const [buyers, setBuyers] = useState<Named[]>([])
   const [suppliers, setSuppliers] = useState<Named[]>([])
-  const [companies, setCompanies] = useState<Named[]>([])
+  const [, setCompanies] = useState<Named[]>([])
   const [counts, setCounts] = useState<CountRow[]>([])
-  const [terms, setTerms] = useState<PaymentTerm[]>([])
+  const [, setTerms] = useState<PaymentTerm[]>([])
   const [jobs, setJobs] = useState<JobProcess[]>([])
   const [transporters, setTransporters] = useState<Transporter[]>([])
   const [people, setPeople] = useState<Named[]>([])
@@ -71,8 +71,12 @@ export default function DispatchAndBilling() {
   const [view, setView] = useStoredState<'table' | 'kanban'>('dnb.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
 
+  const [subFor, setSubFor] = useState<{ order: Order; kind: SubKind } | null>(null)
+  const [dispatches, setDispatches] = useState<OrderDispatch[]>([])
+  const [adjustments, setAdjustments] = useState<OrderAdjustment[]>([])
+
   const load = useCallback(async () => {
-    const [o, b, s, c, k, t, j, tr, p, sc] = await Promise.all([
+    const [o, b, s, c, k, t, j, tr, p, sc, dd, aa] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', { ascending: false }),
       supabase.from('buyer_master').select('id,name'),
       supabase.from('supplier_master').select('id,name'),
@@ -83,7 +87,11 @@ export default function DispatchAndBilling() {
       supabase.from('transporters').select('*').order('name'),
       supabase.from('profiles').select('id,name').eq('is_active', true).order('name'),
       supabase.from('sales_confirmations').select('id,sc_no'),
+      supabase.from('order_dispatches').select('*').order('created_at'),
+      supabase.from('order_dispatch_adjustments').select('*').order('created_at'),
     ])
+    setDispatches((dd.data ?? []) as OrderDispatch[])
+    setAdjustments((aa.data ?? []) as OrderAdjustment[])
     if (o.error) setBanner({ kind: 'bad', text: errMessage(o.error, 'Could not load Dispatch and Billing') })
     setRows((o.data ?? []) as Order[])
     setBuyers((b.data ?? []) as Named[])
@@ -116,6 +124,22 @@ export default function DispatchAndBilling() {
     }
   }, [openId, rows, setParams])
 
+  // the sub-items of an item: its dispatch, cancel and return entries in the order they were made
+  const subsByOrder = useMemo(() => {
+    const m = new Map<string, SubEntry[]>()
+    const push = (id: string, e: SubEntry) => m.set(id, [...(m.get(id) ?? []), e])
+    const qtyOf = new Map((rows ?? []).map((o) => [o.id, o.quantity]))
+    const running = new Map<string, number>()
+    for (const d of dispatches) {
+      const total = (running.get(d.order_id) ?? 0) + d.quantity
+      running.set(d.order_id, total)
+      // the entry that brings the dispatched total up to the quantity is the Fully Dispatch one
+      push(d.order_id, { id: d.id, at: d.created_at, no: d.dispatch_no, status: total >= (qtyOf.get(d.order_id) ?? Infinity) ? 'full' : 'partial', qty: d.quantity, date: d.dispatch_date, invoiceNo: d.invoice_no, invoiceDate: d.invoice_date, d })
+    }
+    for (const a of adjustments) push(a.order_id, { id: a.id, at: a.created_at, no: a.entry_no, status: a.kind, qty: a.quantity, date: a.entry_date, invoiceNo: a.invoice_no, invoiceDate: a.invoice_date, d: null })
+    for (const list of m.values()) list.sort((x, y) => x.at.localeCompare(y.at))
+    return m
+  }, [dispatches, adjustments, rows])
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
     return (rows ?? []).filter(
@@ -205,7 +229,20 @@ export default function DispatchAndBilling() {
   // Columns: monday's Dispatch and Billing columns (the document does not cover this board), without the party lookups.
   const columns: BoardColumn<Order>[] = [
     { key: 'no', label: 'Item', width: 130, render: (x) => <span className="mono">{x.order_no}</span> },
-    { key: 'status', label: 'Status', width: 170, render: (x) => <StatusPill label={dispatchStatus(x.dispatch_status).label} tone={dispatchStatus(x.dispatch_status).tone} /> },
+    { key: 'status', label: 'Status', width: 170, interactive: true, render: (x) => {
+      const st = dispatchStatus(x.dispatch_status)
+      const open = x.status === 'open_for_execution'
+      const draft = x.status === 'draft' || x.status === 'confirmed'
+      // as on monday: choosing a status adds a sub-item (a dispatch, cancel or return entry) and moves the item on
+      const left = x.returned_qty > 0 ? 0 : Math.max(x.quantity - x.dispatched_qty - x.cancelled_qty, 0)
+      const options = !canManage ? [] : [
+        ...((open || draft) && left > 0 ? [{ value: 'partial', label: 'Partially Dispatch', tone: 'green' }] : []),
+        ...((open || draft) && left > 0 ? [{ value: 'full', label: 'Fully Dispatch', tone: 'blue' }] : []),
+        ...(open && left > 0 ? [{ value: 'cancel', label: 'Cancel', tone: 'orange' }] : []),
+        ...(open && x.dispatched_qty - x.returned_qty > 0 ? [{ value: 'return', label: 'Return', tone: 'red' }] : []),
+      ]
+      return <StatusPicker current={{ value: st.value, label: st.label, tone: st.tone }} options={options} onPick={(v) => setSubFor({ order: x, kind: v as SubKind })} />
+    } },
     { key: 'inv', label: 'Invoice No.', render: (x) => (x.is_duplicate ? <span className="mono small field-warn" title={x.duplication_error ?? ''}>{x.invoice_no} · duplicate</span> : cell(x.invoice_no, { mono: true })) },
     { key: 'invdate', hidden: true, label: 'Invoice Date', render: (x) => cell(x.invoice_date) },
     { key: 'created', label: 'Created Date', render: (x) => cell(formatShortDate(x.created_at)) },
@@ -236,6 +273,7 @@ export default function DispatchAndBilling() {
     { key: 'total', hidden: true, label: 'Total Amount', align: 'right', render: (x) => money(x.total_amount), total: sum((r) => r.total_amount) },
     { key: 'round', hidden: true, label: 'Round off', align: 'right', render: (x) => cell(x.round_off, { mono: true }) },
     { key: 'dispatched', label: 'Quantity Dispatched', render: (x) => <Progress done={x.dispatched_qty} total={x.quantity} uom={x.uom} /> },
+    { key: 'cancelled', hidden: true, label: 'Quantity Cancelled', align: 'right', render: (x) => cell(x.cancelled_qty > 0 ? x.cancelled_qty : null, { mono: true }) },
     { key: 'remark', hidden: true, label: 'Remark 1', render: (x) => cell(x.special_instructions, { clip: true }) },
     { key: 'dispatch-date', hidden: true, label: 'Dispatch Date', render: (x) => cell(x.tentative_dispatch_date) },
     { key: 'person', label: 'Person', render: (x) => <PersonCell name={x.person_id ? personName.get(x.person_id) : undefined} /> },
@@ -303,6 +341,10 @@ export default function DispatchAndBilling() {
         viewKey="orders"
         onOpen={(x) => setDetails(x)}
         rowOpens={false}
+        expandable={{
+          count: (x) => subsByOrder.get(x.id)?.length ?? 0,
+          subRows: (x) => (subsByOrder.get(x.id) ?? []).map((e) => ({ key: e.id, cell: (col) => subCell(x, e, col.key, { buyer: buyerName.get(x.buyer_id) ?? '—', supplier: supplierName.get(x.supplier_id) ?? '—', count: countName.get(x.count_id) ?? '—', transporter: x.transporter_id ? transporterName.get(x.transporter_id) ?? '—' : '—', people: personName }) })),
+        }}
         view={view}
         emptyText={tab === 'duplicates' ? 'No duplicate invoice numbers.' : rows.length === 0 ? 'Nothing yet. Open a complete Sales Confirmation and choose “Create Dispatch and Billing”.' : 'No item matches.'}
         card={(x) => (
@@ -337,6 +379,7 @@ export default function DispatchAndBilling() {
           transporters={transporters}
           people={people}
           initialOrder={formFor === 'new' ? null : formFor}
+          onRefresh={load}
           onClose={() => setFormFor(null)}
           onDone={async (text) => {
             setBanner({ kind: 'ok', text })
@@ -347,25 +390,34 @@ export default function DispatchAndBilling() {
         />
       )}
 
+      {subFor && (
+        <SubitemDialog
+          order={subFor.order}
+          kind={subFor.kind}
+          onClose={() => setSubFor(null)}
+          onDone={async (text) => { setSubFor(null); setBanner({ kind: 'ok', text }); await load() }}
+        />
+      )}
+
       {details && (
-        <OrderDetails
-          key={details.id}
-          order={rows.find((x) => x.id === details.id) ?? details}
-          canManage={canManage}
-          scNo={scs.get(details.sales_confirmation_id) ?? ''}
-          names={{
-            buyer: buyerName.get(details.buyer_id) ?? '—',
-            supplier: supplierName.get(details.supplier_id) ?? '—',
-            company: companies.find((c) => c.id === details.company_id)?.name ?? '—',
-            term: terms.find((t) => t.id === details.payment_term_id)?.name ?? '—',
-          }}
-          count={counts.find((c) => c.id === details.count_id) ?? null}
+        <OrderFormModal
+          key={`view-${details.id}`}
+          readOnly
+          orders={rows}
+          lockedIds={lockedIds}
+          scNos={scs}
+          buyerName={buyerName}
+          supplierName={supplierName}
+          countName={countName}
+          counts={counts}
           jobs={jobs}
           transporters={transporters}
           people={people}
-          onClose={() => setDetails(null)}
-          onEdit={(x) => { setDetails(null); setFormFor(x) }}
+          initialOrder={rows.find((x) => x.id === details.id) ?? details}
           onRefresh={load}
+          onEdit={(x) => { setDetails(null); setFormFor(x) }}
+          onClose={() => setDetails(null)}
+          onDone={async () => { setDetails(null) }}
         />
       )}
 
@@ -377,6 +429,48 @@ export default function DispatchAndBilling() {
     </>
   )
 }
+
+type SubEntry = { id: string; at: string; no: string | null; status: 'partial' | 'full' | 'cancel' | 'return'; qty: number; date: string | null; invoiceNo: string | null; invoiceDate: string | null; d: OrderDispatch | null }
+
+/** One sub-item (a dispatch, cancel or return entry) under the board's own columns: the entry's figures where it has
+ *  them, the item's buyer, supplier, count and rate in grey, and nothing where a column does not apply to an entry. */
+function subCell(o: Order, e: SubEntry, key: string, ctx: SubCtx): ReactNode {
+  const d = e.d
+  const faint = (v: ReactNode) => <span className="faint">{v}</span>
+  const mono = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? null : <span className="mono">{v}</span>)
+  const num = (v: number | null | undefined, dp = 2) => (v === null || v === undefined ? null : <span className="mono">{inr(v, dp)}</span>)
+  switch (key) {
+    case 'no': return <span className="sub-no mono">{e.no ?? '—'}</span>
+    case 'status': return <span className={`entry-status ${e.status}`}>{SUB_LABEL[e.status]}</span>
+    case 'inv': return mono(e.invoiceNo)
+    case 'invdate': return e.invoiceDate ? formatShortDate(e.invoiceDate) : null
+    case 'created': return e.date ? formatShortDate(e.date) : null
+    case 'buyer': return faint(ctx.buyer)
+    case 'supplier': return faint(ctx.supplier)
+    case 'count': return faint(ctx.count)
+    case 'qty': return <span>{inr(e.qty)} {uomLabel(o.uom)}</span>
+    case 'rate': return o.final_rate === null ? null : faint(`₹${rateText(o.final_rate)}`)
+    case 'bag': return d ? num(o.bag_weight) : null
+    case 'weight': return d ? num(d.total_weight) : null
+    case 'value': return d ? num(d.entry_value, 0) : null
+    case 'bcomm': return d ? num(d.buyer_commission, 0) : null
+    case 'scomm': return d ? num(d.supplier_commission, 0) : null
+    case 'cgst': return d ? num(d.cgst_pct) : null
+    case 'ins': return d ? num(d.insurance_pct) : null
+    case 'add': return d ? num(d.add_amount) : null
+    case 'deduct': return d ? num(d.deduct_amount) : null
+    case 'total': return d ? num(d.total_amount, 0) : null
+    case 'round': return d ? num(d.round_off) : null
+    case 'transporter': return d && o.transporter_id ? faint(ctx.transporter) : null
+    case 'vehicle': return d ? mono(d.vehicle_no) : null
+    case 'remark': return d ? d.remarks : null
+    case 'dispatch-date': return d ? formatShortDate(d.dispatch_date) : null
+    case 'transport': return d?.transport_type ? transportTypeLabel(d.transport_type) : null
+    case 'person': return d?.person_id ? <PersonCell name={ctx.people.get(d.person_id)} /> : null
+    default: return null
+  }
+}
+type SubCtx = { buyer: string; supplier: string; count: string; transporter: string; people: Map<string, string> }
 
 function Progress({ done, total, uom }: { done: number; total: number; uom: string }) {
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0

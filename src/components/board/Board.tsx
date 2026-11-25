@@ -85,7 +85,13 @@ export function Board<T>({
   /** false: a click on a table row or a Kanban card does nothing (the Actions menu is the way in; a card's body then holds its own menu). */
   rowOpens?: boolean
   /** Child rows under an item, like monday's subitems: a chevron opens them below the row. */
-  expandable?: { count: (row: T) => number; render: (row: T) => ReactNode }
+  expandable?: {
+    count: (row: T) => number
+    /** A child table under the row (Leads). */
+    render?: (row: T) => ReactNode
+    /** Or child rows in the same table, under the same columns, so they line up and scroll with it (Dispatch and Billing). */
+    subRows?: (row: T) => { key: string; cell: (col: BoardColumn<T>) => ReactNode }[]
+  }
 }) {
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => readCollapsed())
@@ -257,7 +263,14 @@ export function Board<T>({
                             </td>
                           ))}
                         </tr>
-                        {expandable && isOpen && (
+                        {expandable && isOpen && expandable.subRows && expandable.subRows(row).map((sub) => (
+                          <tr key={sub.key} className="sub-line">
+                            {selection && <td className="bcell-check" />}
+                            {expandable && <td className="bcell-exp" />}
+                            {columns.map((c) => (<td key={c.key} className={cellClass(c)}>{sub.cell(c)}</td>))}
+                          </tr>
+                        ))}
+                        {expandable && isOpen && !expandable.subRows && expandable.render && (
                           <tr className="subrow">
                             <td colSpan={columns.length + (selection ? 1 : 0) + 1}>
                               <div className="subrow-wrap">{expandable.render(row)}</div>

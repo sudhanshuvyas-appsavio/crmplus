@@ -8,16 +8,13 @@
  *    - Qualify is one click: the buyer is added to Buyers & Suppliers under the home
  *      Business Unit (or the existing buyer's own), and a Draft deal is created. */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { LEAD_ROLES, LEAD_STATUSES, LEAD_UOMS } from '../api/types'
-import { uomLabel } from '../lib/deals'
+import { LEAD_STATUSES, LEAD_UOMS } from '../api/types'
 import type { Activity, CountRow, Lead, LeadRole, LeadStatus, Station } from '../api/types'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ActivityPanel } from '../components/PartyExtras'
 import { LeadQuotationPage } from '../components/LeadQuotation'
 import { BoardTabs } from '../components/board/BoardTabs'
-import { LeadDocuments } from '../components/LeadDocuments'
 import { LeadFormModal } from '../components/LeadFormModal'
 import { LeadSubitems, type SubLine } from '../components/LeadSubitems'
 import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
@@ -25,14 +22,13 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { leadPayload, leadProblems, type LeadForm } from '../lib/leadForm'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
-import { Drawer } from '../components/Drawer'
 import { ImportIssues, useSelection } from '../components/ListTools'
 import { Board, PersonCell, DownloadIcon, StatusPill, ViewSwitch, useStoredState, type BoardColumn, type BoardGroup } from '../components/board/Board'
 import { bulkDelete, deleteSummary, importCsvFile, importSummary, pickOne } from '../lib/bulk'
 import type { CsvRowResult } from '../lib/bulk'
 import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage, numOrNull } from '../lib/party'
-import { formatDate, formatDateTime, formatShortDate } from '../lib/format'
+import { formatDate, formatShortDate } from '../lib/format'
 
 const LEAD_CSV_COLUMNS = [
   'lead_no', 'status', 'lead_type', 'lead_source', 'party_role', 'party_name', 'contact_person', 'mobile_cc', 'mobile', 'station', 'office_address',
@@ -54,10 +50,6 @@ const LEAD_GROUPS: BoardGroup[] = [
 
 function statusLabel(status: LeadStatus): string {
   return LEAD_STATUSES.find((s) => s.value === status)?.label ?? status
-}
-
-function roleLabel(role: LeadRole): string {
-  return LEAD_ROLES.find((r) => r.value === role)?.label ?? role
 }
 
 export default function Leads() {
@@ -83,7 +75,22 @@ export default function Leads() {
   const [qualifyBusy, setQualifyBusy] = useState(false)
   const [dealPrompt, setDealPrompt] = useState<{ id: string; lead_no: string } | null>(null)
   const [dealBusy, setDealBusy] = useState(false)
+  const [convertPrompt, setConvertPrompt] = useState<{ id: string; lead_no: string } | null>(null)
+  const [convertBusy, setConvertBusy] = useState(false)
+  const [convertError, setConvertError] = useState<string | null>(null)
   const navigate = useNavigate()
+
+  async function convertToDeal() {
+    if (!convertPrompt) return
+    setConvertBusy(true)
+    setConvertError(null)
+    const { data, error } = await supabase.rpc('convert_lead_to_deal', { p_lead: convertPrompt.id })
+    setConvertBusy(false)
+    if (error) { setConvertError(errMessage(error, 'Could not convert this lead')); return }
+    setConvertPrompt(null)
+    await load()
+    navigate(`/deals?open=${data as string}`)
+  }
 
   /** Qualify in one click, like monday's status change: the lead becomes a buyer in Buyers & Suppliers
    *  and its deal is created. The buyer keeps its own Business Unit if it already has one; a new buyer
@@ -376,6 +383,7 @@ export default function Leads() {
     items.push({ label: 'Quotation', onSelect: () => openQuotation(l) })
     if (converted && can('deal.read')) items.push({ label: 'Go to deal', onSelect: () => navigate(`/deals?open=${l.converted_deal_id}`) })
     if (canQualify && open) items.push({ label: 'Qualify', onSelect: () => void qualify(l) })
+    if (can('deal.create') && l.status === 'qualified' && !converted) items.push({ label: 'Convert to deal…', onSelect: () => { setConvertError(null); setConvertPrompt({ id: l.id, lead_no: l.lead_no }) } })
     items.push({
       label: 'Delete', tone: 'danger',
       onSelect: () => { setDeleteError(null); setDeleting(l) },
@@ -561,6 +569,7 @@ export default function Leads() {
           leads={leads}
           lockedIds={lockedIds}
           initialLead={editLead}
+          onRefresh={load}
           onClose={() => { setEditing(null); setEditLead(null) }}
           onDone={async (text) => {
             setBanner({ kind: 'ok', text })
@@ -586,25 +595,33 @@ export default function Leads() {
       )}
 
       {editing?.mode === 'edit' && (
-        <LeadDetails
-          key={editing.lead.id}
-          lead={editing.lead}
+        <LeadFormModal
+          key={`view-${editing.lead.id}`}
+          readOnly
           counts={counts}
-          staff={staff}
-          locked={lockedIds.has(editing.lead.id)}
-          canQualify={canQualify}
+          stations={stations}
+          ensureStation={ensureStation}
+          defaultStaffId={me?.id ?? null}
+          leads={leads}
+          lockedIds={lockedIds}
+          initialLead={editing.lead}
+          onEdit={(l) => { setEditing(null); setEditLead(l) }}
           onClose={() => setEditing(null)}
-          onQualify={(lead) => {
-            setEditing(null)
-            void qualify(lead)
-          }}
-          onEdit={(lead) => {
-            setEditing(null)
-            setEditLead(lead)
-          }}
-          onQuote={openQuotation}
-          onRefresh={load}
+          onDone={() => setEditing(null)}
         />
+      )}
+
+      {convertPrompt && (
+        <ConfirmDialog
+          title={`Convert ${convertPrompt.lead_no} to a deal?`}
+          confirmLabel="Create the deal"
+          busy={convertBusy}
+          error={convertError}
+          onConfirm={() => void convertToDeal()}
+          onClose={() => setConvertPrompt(null)}
+        >
+          The deal is created from this lead, and the lead becomes read-only.
+        </ConfirmDialog>
       )}
 
       {dealPrompt && (
@@ -628,224 +645,9 @@ export default function Leads() {
   )
 }
 
-const CYCLE_LABEL: Record<string, string> = { '7_days': '7 days', '30_days': '30 days', '60_days': '60 days', advance: 'Advance' }
-
-/** The lead's details, read-only. Changing the lead is Actions > Edit (the pop-up form), so this
- *  view carries what the form does not: documents, quotation, discussion and history. */
-function LeadDetails({
-  lead: initial,
-  counts,
-  staff,
-  locked,
-  canQualify,
-  onClose,
-  onQualify,
-  onEdit,
-  onQuote,
-  onRefresh,
-}: {
-  lead: Lead
-  counts: CountRow[]
-  staff: StaffOption[]
-  locked: boolean
-  canQualify: boolean
-  onClose: () => void
-  onQualify: (lead: Lead) => void
-  onEdit: (lead: Lead) => void
-  onQuote: (lead: Lead) => void
-  onRefresh: () => Promise<void>
-}) {
-  const { can } = useAuth()
-  const navigate = useNavigate()
-  const [lead, setLead] = useState<Lead>(initial)
-  const [dealNo, setDealNo] = useState<string | null>(null)
-  const [historyKey, setHistoryKey] = useState(0)
-  const [convertOpen, setConvertOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [convertError, setConvertError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const id = lead.converted_deal_id
-    if (!id) return
-    void supabase.from('crm_deals').select('deal_no').eq('id', id).maybeSingle()
-      .then(({ data }) => setDealNo((data as { deal_no: string } | null)?.deal_no ?? null))
-  }, [lead.converted_deal_id])
-
-  /** Re-reads the lead after a change made by the database (discussion log, conversion). */
-  async function reloadLead() {
-    const { data } = await supabase.from('leads').select('*').eq('id', lead.id).maybeSingle()
-    if (data) setLead(data as Lead)
-    setHistoryKey((k) => k + 1)
-    await onRefresh()
-  }
-
-  async function convert() {
-    setBusy(true)
-    setConvertError(null)
-    const { data, error } = await supabase.rpc('convert_lead_to_deal', { p_lead: lead.id })
-    setBusy(false)
-    if (error) {
-      setConvertError(errMessage(error, 'Could not convert this lead'))
-      return
-    }
-    await onRefresh()
-    navigate(`/deals?open=${data as string}`)
-  }
-
-  const count = counts.find((c) => c.id === lead.count_id)
-  const owner = staff.find((x) => x.id === lead.sales_staff_id)
-  const qualified = lead.status === 'qualified'
-  const open = (lead.status === 'new' || lead.status === 'contacted') && !lead.converted_deal_id
-  const canConvert = can('deal.create') && qualified && !lead.converted_deal_id
-  const rows: [string, string | null][] = [
-    ['Type', lead.lead_type === 'existing' ? 'Existing' : 'New'],
-    ['Lead source', lead.lead_source],
-    ['Party role', roleLabel(lead.party_role)],
-    ['Contact person', lead.contact_person],
-    ['Phone', lead.mobile ? `${lead.mobile_cc ?? '+91'} ${lead.mobile}` : null],
-    ['Station', lead.station],
-    ['GST', lead.gst],
-    ['Office address', lead.office_address],
-    ['Count', count?.display_name ?? null],
-    ['Quantity', lead.quantity !== null ? `${lead.quantity} ${uomLabel(lead.uom ?? '')}`.trim() : null],
-    ['Expected rate', lead.expected_rate !== null ? String(lead.expected_rate) : null],
-    ['Timeline', lead.timeline_from || lead.timeline_to ? `${formatDate(lead.timeline_from)} → ${formatDate(lead.timeline_to)}` : lead.timeline],
-    ['Follow-up', lead.follow_up_at ? formatDateTime(lead.follow_up_at) : null],
-    ['Lead owner', owner?.name ?? null],
-    ['Weaving yarn buyer', lead.entry_weaves_yarn === 'yes' ? 'Yes' : lead.entry_weaves_yarn === 'no' ? 'No' : null],
-    ['Payment cycle', lead.entry_payment_cycle ? CYCLE_LABEL[lead.entry_payment_cycle] ?? lead.entry_payment_cycle : null],
-    ['Currently buying from', lead.entry_current_supplier],
-    ['Purchase price range', lead.entry_price_range],
-    ['Next purchase', lead.entry_next_purchase ? formatDate(lead.entry_next_purchase) : null],
-    ['Remarks', lead.remarks],
-    ['Created', formatDateTime(lead.created_at)],
-    ['Qualified', qualified && lead.qualified_at ? formatDateTime(lead.qualified_at) : null],
-    ['Converted to', lead.converted_deal_id ? dealNo ?? 'a deal' : null],
-  ]
-
-  return (
-    <Drawer title={`${lead.lead_no} · ${lead.party_name}`} onClose={onClose} footer={
-        <div className="drawer-actions">
-          <button className="btn" type="button" disabled={locked} title={locked ? 'This lead has been converted to a deal, so it is read-only.' : undefined} onClick={() => onEdit(lead)}>Edit</button>
-          {canQualify && open && <button className="btn" type="button" onClick={() => onQualify(lead)}>Qualify</button>}
-          <button className="btn" type="button" onClick={() => onQuote(lead)}>Quotation</button>
-          {canConvert && <button className="btn" type="button" onClick={() => { setConvertError(null); setConvertOpen(true) }}>Convert to deal…</button>}
-          {lead.converted_deal_id && can('deal.read') && <button className="btn" type="button" onClick={() => navigate(`/deals?open=${lead.converted_deal_id}`)}>Go to deal</button>}
-          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
-        </div>
-      }>
-      <p className="small">
-        <StatusPill label={statusLabel(lead.status)} tone={LEAD_GROUPS.find((g) => g.value === lead.status)?.tone ?? 'grey'} />
-      </p>
-      {locked && (
-        <div className="notice small">This lead has been converted to a deal and is read-only. Change the deal instead.</div>
-      )}
-      <dl className="kv">
-        {rows.filter(([, v]) => v !== null && v !== '').map(([k, v]) => (
-          <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>
-        ))}
-      </dl>
-      <LeadDocuments leadId={lead.id} canEdit={!locked} />
-      {!locked && <DiscussionPanel lead={lead} onLogged={reloadLead} />}
-      {!locked && <ActivityPanel entityType="lead" entityId={lead.id} canWrite showEntryForm={false} title="Discussion history and follow-ups" refreshKey={historyKey} />}
-      {convertOpen && (
-        <ConfirmDialog
-          title={`Convert ${lead.lead_no} to a deal?`}
-          confirmLabel="Create the deal"
-          busy={busy}
-          error={convertError}
-          onConfirm={() => void convert()}
-          onClose={() => setConvertOpen(false)}
-        >
-          The deal is created from this lead, and the lead becomes read-only.
-        </ConfirmDialog>
-      )}
-    </Drawer>
-  )
-}
-
 /* ---- qualify a lead (T-011) ------------------------------------------------- */
 
 /* ---- station picker, discussion log, follow-ups ------------------------------ */
-
-/** T-010: record what was discussed with the party. One database function
- *  stores the note with the user and time, applies any new quantity / rate /
- *  timeline, moves a New lead to Contacted and can create a follow-up task. */
-function DiscussionPanel({ lead, onLogged }: { lead: Lead; onLogged: () => Promise<void> }) {
-  const [note, setNote] = useState('')
-  const [qty, setQty] = useState('')
-  const [rate, setRate] = useState('')
-  const [timeline, setTimeline] = useState('')
-  const [task, setTask] = useState('')
-  const [due, setDue] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-
-  async function log() {
-    setMsg(null)
-    if (!note.trim()) return setMsg('Write what was discussed.')
-    if (qty && (numOrNull(qty) === null || Number(qty) <= 0)) return setMsg('Quantity must be a number above zero.')
-    if (rate && (numOrNull(rate) === null || Number(rate) < 0)) return setMsg('Rate must be a number.')
-    if (task.trim() && !due) return setMsg('Pick a due date for the follow-up task.')
-    setBusy(true)
-    const { error } = await supabase.rpc('log_lead_discussion', {
-      p_lead: lead.id,
-      p_note: note.trim(),
-      p_quantity: numOrNull(qty),
-      p_rate: numOrNull(rate),
-      p_timeline: timeline.trim() || null,
-      p_task_note: task.trim() || null,
-      p_task_due: task.trim() ? due : null,
-    })
-    setBusy(false)
-    if (error) return setMsg(errMessage(error, 'Could not save the discussion'))
-    setNote(''); setQty(''); setRate(''); setTimeline(''); setTask(''); setDue('')
-    await onLogged()
-  }
-
-  return (
-    <section className="fs-card" style={{ marginTop: 16 }}>
-      <header className="fs-head"><div><h3>Log a discussion</h3></div></header>
-      <div className="fs-body">
-        <p className="muted small" style={{ marginTop: 0 }}>
-          Saving moves a New lead to Contacted. Fill in quantity, rate or timeline only if they changed.
-        </p>
-        <div className="field">
-          <label htmlFor="ld-note">What was discussed</label>
-          <textarea id="ld-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-          <div className="field">
-            <label htmlFor="ld-qty">New quantity</label>
-            <input id="ld-qty" inputMode="decimal" className="mono" placeholder={`now ${lead.quantity ?? '—'}`} value={qty} onChange={(e) => setQty(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="ld-rate">New rate</label>
-            <input id="ld-rate" inputMode="decimal" className="mono" placeholder={`now ${lead.expected_rate ?? '—'}`} value={rate} onChange={(e) => setRate(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="ld-timeline">New timeline</label>
-            <input id="ld-timeline" placeholder={`now ${lead.timeline || '—'}`} value={timeline} onChange={(e) => setTimeline(e.target.value)} />
-          </div>
-        </div>
-        <div className="form-grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
-          <div className="field">
-            <label htmlFor="ld-task">Follow-up task (optional)</label>
-            <input id="ld-task" value={task} onChange={(e) => setTask(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="ld-due">Due date</label>
-            <input id="ld-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
-          </div>
-        </div>
-        <button className="btn primary" type="button" disabled={busy} onClick={() => void log()}>
-          {busy ? 'Saving…' : 'Save discussion'}
-        </button>
-        {msg && <p className="field-warn">{msg}</p>}
-      </div>
-    </section>
-  )
-}
 
 /** T-010 follow-up reminders: open tasks that are overdue or due within a
  *  week, and open leads nobody has touched for 14 days. */

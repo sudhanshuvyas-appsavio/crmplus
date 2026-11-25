@@ -80,11 +80,11 @@ export const saleTypeLabel = (v: string | null | undefined) => (v === 'export' ?
 /* ---- Dispatch and Billing (monday "Dispatch and Billing" board) ---- */
 export const DISPATCH_STATUSES: { value: string; label: string; tone: string }[] = [
   { value: 'draft', label: 'Draft', tone: 'grey' },
-  { value: 'in_progress', label: 'In Progress', tone: 'blue' },
-  { value: 'partially_dispatched', label: 'Partially Dispatch', tone: 'orange' },
-  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'green' },
-  { value: 'returned', label: 'Return', tone: 'purple' },
-  { value: 'cancelled', label: 'Cancel', tone: 'red' },
+  { value: 'in_progress', label: 'In Progress', tone: 'purple' },
+  { value: 'partially_dispatched', label: 'Partially Dispatch', tone: 'green' },
+  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'blue' },
+  { value: 'returned', label: 'Return', tone: 'red' },
+  { value: 'cancelled', label: 'Cancel', tone: 'orange' },
 ]
 /* Board groups, named as on the monday boards. A row's status decides its group. */
 export const DEAL_GROUPS = DEAL_STATUSES.map((g) => (g.value === 'new_deal' ? { ...g, label: 'Draft' } : g))
@@ -96,10 +96,10 @@ export const SC_GROUPS = [
 ]
 export const DNB_GROUPS = [
   { value: 'draft', label: 'Draft', tone: 'grey' },
-  { value: 'in_progress', label: 'In Progress', tone: 'blue' },
-  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'green' },
-  { value: 'returned', label: 'Return', tone: 'purple', optional: true },
-  { value: 'cancelled', label: 'Cancel', tone: 'red', optional: true },
+  { value: 'in_progress', label: 'In Progress', tone: 'purple' },
+  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'blue' },
+  { value: 'returned', label: 'Return', tone: 'red', optional: true },
+  { value: 'cancelled', label: 'Cancel', tone: 'orange', optional: true },
 ]
 /** monday keeps partly dispatched items in its In Progress group. */
 export const dnbGroup = (o: { dispatch_status: string }) => (o.dispatch_status === 'partially_dispatched' ? 'in_progress' : o.dispatch_status)

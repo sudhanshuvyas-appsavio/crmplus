@@ -25,6 +25,7 @@ import { ErrorBanner, FormSection, FullWidth } from './FormKit'
 import { OrderDocuments, uploadOrderFiles } from './OrderDocuments'
 import { ComboInput } from './ComboInput'
 import { PendingFilesCard } from './DocumentsCard'
+import { OrderExecution } from './OrderExecution'
 
 type Named = { id: string; name: string }
 type Sc = { id: string; sc_no: string; confirmed_at: string; buyer_id: string | null; supplier_id: string | null }
@@ -90,7 +91,7 @@ function errorsOf(f: Form): Record<string, string> {
 }
 
 export function OrderFormModal({
-  orders, lockedIds, scNos, buyerName, supplierName, countName, counts, jobs, transporters, people, initialOrder, onClose, onDone,
+  orders, lockedIds, scNos, buyerName, supplierName, countName, counts, jobs, transporters, people, initialOrder, onClose, onDone, onRefresh, readOnly = false, onEdit,
 }: {
   orders: Order[]
   /** Items that can no longer be changed (closed or cancelled): not offered for update. */
@@ -105,6 +106,12 @@ export function OrderFormModal({
   people: Named[]
   /** Opened from a row's Actions > Edit. Absent for a new item. */
   initialOrder?: Order | null
+  /** Reloads the board after an entry, payment or transport record is added here. */
+  onRefresh?: () => Promise<void>
+  /** View details: the same form, locked. */
+  readOnly?: boolean
+  /** From the locked view: open the item for editing. */
+  onEdit?: (order: Order) => void
   onClose: () => void
   onDone: (message: string, openId?: string) => void | Promise<void>
 }) {
@@ -262,14 +269,30 @@ export function OrderFormModal({
   const buyerVal = updating ? buyerName.get(cr?.buyer_id ?? '') ?? '' : chosenSc ? buyerName.get(chosenSc.buyer_id ?? '') ?? '' : ''
   const supplierVal = updating ? supplierName.get(cr?.supplier_id ?? '') ?? '' : chosenSc ? supplierName.get(chosenSc.supplier_id ?? '') ?? '' : ''
   const perCount = !updating && todo.length > 1 ? 'Per count (see the list above)' : ''
+  const canEditIt = !cr || (cr.status !== 'closed' && cr.status !== 'cancelled')
+
+  async function startDispatch() {
+    if (!current) return
+    setBusy(true)
+    setError(null)
+    const { data, error: e } = await supabase.from('orders').update({ status: 'open_for_execution' }).eq('id', current.id).select('id')
+    setBusy(false)
+    if (e || !data || data.length === 0) return setError(e ? errMessage(e, 'Could not start dispatch') : 'Your account cannot change this item.')
+    if (onRefresh) await onRefresh()
+  }
 
   return (
     <Modal
-      title={updating ? 'Update Dispatch and Billing' : 'New Dispatch and Billing'}
-      description={updating ? 'Choose the item, then change what you need. It keeps its number and creation date.' : 'Required fields are marked.'}
+      title={readOnly ? 'View Dispatch and Billing' : updating ? 'Update Dispatch and Billing' : 'New Dispatch and Billing'}
+      description={readOnly ? undefined : updating ? 'Choose the item, then change what you need. It keeps its number and creation date.' : 'Required fields are marked.'}
       size="lg"
       onClose={onClose}
-      footer={
+      footer={readOnly ? (
+        <>
+          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
+          <button className="btn primary" type="button" disabled={!cr || !canEditIt} title={!canEditIt ? 'This item can no longer be changed.' : undefined} onClick={() => cr && onEdit?.(cr)}>Edit</button>
+        </>
+      ) : (
         <>
           <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>Close</button>
           <span style={{ display: 'flex', gap: 10 }}>
@@ -281,11 +304,12 @@ export function OrderFormModal({
             </button>
           </span>
         </>
+      )
       }
     >
       <ErrorBanner message={error} />
 
-      {updating && (
+      {updating && !readOnly && (
         <FieldErrorsProvider value={visible}>
           <section className="fs-card" aria-label="Select Item to Update">
             <header className="fs-head"><div><h3>Select Item to Update:</h3></div></header>
@@ -300,12 +324,19 @@ export function OrderFormModal({
 
       {show && (
         <FieldErrorsProvider value={visible}>
+          <fieldset className="ro-fieldset" disabled={readOnly}>
           {updating ? (
-            <FormSection title="Dispatch and Billing Details" collapsible columns={3}>
+            <FormSection title="Item Details" collapsible columns={3}>
               <Field id="o-no" label="Item"><input id="o-no" readOnly value={cr?.order_no ?? ''} /></Field>
               <Field id="o-status" label="Status"><input id="o-status" readOnly value={cr ? dispatchStatus(cr.dispatch_status).label : ''} title="Starting dispatch and cancelling are in the row's Actions menu." /></Field>
               <Field id="o-created" label="Created Date"><input id="o-created" readOnly value={cr ? formatDateTime(cr.created_at) : ''} /></Field>
               <Field id="o-scno" label="Sales Confirmation"><input id="o-scno" readOnly value={cr ? scNos.get(cr.sales_confirmation_id) ?? '' : ''} /></Field>
+              <Field id="o-person" label="Person">
+                <select id="o-person" value={f.person_id} onChange={(e) => set('person_id', e.target.value)}>
+                  <option value="">--None--</option>
+                  {people.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                </select>
+              </Field>
             </FormSection>
           ) : (
             <FormSection title="Sales Confirmation Details" collapsible columns={3}>
@@ -345,14 +376,12 @@ export function OrderFormModal({
             </FormSection>
           )}
 
-          <FormSection title="Buyer & Supplier Details" collapsible columns={3}>
+          <FormSection title="Parties" collapsible columns={3}>
             <Field id="o-buyer" label="Buyer"><input id="o-buyer" readOnly value={buyerVal} placeholder="From the Sales Confirmation" /></Field>
             <Field id="o-supplier" label="Supplier"><input id="o-supplier" readOnly value={supplierVal} placeholder="From the Sales Confirmation" /></Field>
-            <Field id="o-bag" label="Bags Weight"><input id="o-bag" readOnly value={perCount || bagText} placeholder="From the Sales Confirmation" /></Field>
-            <Field id="o-rate" label="Final Rate"><input id="o-rate" readOnly value={perCount || rateTextVal} placeholder="From the Sales Confirmation" /></Field>
           </FormSection>
 
-          <FormSection title="Product Configurations" collapsible columns={3}>
+          <FormSection title="Goods" collapsible columns={3}>
             {updating && (
               <div className="fs-span-2">
                 <Field id="o-count" label="Counts"><input id="o-count" readOnly value={countName.get(cr?.count_id ?? '') ?? counts.find((c) => c.id === cr?.count_id)?.display_name ?? ''} /></Field>
@@ -360,17 +389,29 @@ export function OrderFormModal({
             )}
             <Field id="o-uom" label="UOM"><input id="o-uom" readOnly value={perCount || uomVal} placeholder="From the Sales Confirmation" /></Field>
             <Field id="o-qty" label="Quantity"><input id="o-qty" readOnly value={perCount || qtyVal} placeholder="From the Sales Confirmation" /></Field>
+            <Field id="o-bag" label="Bags Weight"><input id="o-bag" readOnly value={perCount || bagText} placeholder="From the Sales Confirmation" /></Field>
+            <Field id="o-rate" label="Final Rate"><input id="o-rate" readOnly value={perCount || rateTextVal} placeholder="From the Sales Confirmation" /></Field>
           </FormSection>
 
-          <FormSection title="Cost Details" collapsible columns={3}>
+          {updating && (
+            <FormSection title="Invoice" collapsible columns={3}>
+              <Field id="o-inv" label="Invoice No."><input id="o-inv" className="mono" placeholder="Enter Invoice No." value={f.invoice_no} onChange={(e) => set('invoice_no', e.target.value)} /></Field>
+              <Field id="o-invd" label="Invoice Date"><input id="o-invd" type="date" value={f.invoice_date} onChange={(e) => set('invoice_date', e.target.value)} /></Field>
+            </FormSection>
+          )}
+
+          <FormSection title="Charges and Tax" collapsible columns={3}>
+            {updating && (
+              <Field id="o-cgst" label="CGST"><input id="o-cgst" className="mono" inputMode="decimal" placeholder="Enter CGST" value={f.cgst_pct} onChange={(e) => set('cgst_pct', e.target.value)} /></Field>
+            )}
+            <Field id="o-ins" label="Insurance Tax">
+              <input id="o-ins" className="mono" inputMode="decimal" placeholder="Enter Insurance Tax" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.insurance_pct} onChange={(e) => set('insurance_pct', e.target.value)} />
+            </Field>
             <Field id="o-add" label="Add">
               <input id="o-add" className="mono" inputMode="decimal" placeholder="Enter Add" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.add_amount} onChange={(e) => set('add_amount', e.target.value)} />
             </Field>
             <Field id="o-ded" label="Deduct">
               <input id="o-ded" className="mono" inputMode="decimal" placeholder="Enter Deduct" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.deduct_amount} onChange={(e) => set('deduct_amount', e.target.value)} />
-            </Field>
-            <Field id="o-ins" label="Insurance Tax">
-              <input id="o-ins" className="mono" inputMode="decimal" placeholder="Enter Insurance Tax" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.insurance_pct} onChange={(e) => set('insurance_pct', e.target.value)} />
             </Field>
             <Field id="o-round" label="Round off">
               <input id="o-round" className="mono" inputMode="decimal" placeholder="Enter Round off" disabled={costsLocked} title={costsLocked ? 'With several counts, add these per item from Actions > Edit.' : undefined} value={f.round_off} onChange={(e) => set('round_off', e.target.value)} />
@@ -382,25 +423,15 @@ export function OrderFormModal({
             )}
           </FormSection>
 
-          {updating && (
-            <FormSection title="Billing" collapsible columns={3}>
-              <Field id="o-inv" label="Invoice No."><input id="o-inv" className="mono" placeholder="Enter Invoice No." value={f.invoice_no} onChange={(e) => set('invoice_no', e.target.value)} /></Field>
-              <Field id="o-invd" label="Invoice Date"><input id="o-invd" type="date" value={f.invoice_date} onChange={(e) => set('invoice_date', e.target.value)} /></Field>
-              <Field id="o-cgst" label="CGST"><input id="o-cgst" className="mono" inputMode="decimal" placeholder="Enter CGST" value={f.cgst_pct} onChange={(e) => set('cgst_pct', e.target.value)} /></Field>
-            </FormSection>
-          )}
-
-          <FormSection title="Transporter Type Details" collapsible columns={3}>
+          <FormSection title="Transport" collapsible columns={3}>
             <Field id="o-tt" label="Transporter Type Details" hideLabel>
               <select id="o-tt" value={f.transport_type} onChange={(e) => set('transport_type', e.target.value)}>
                 <option value="">--None--</option>
                 {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
               </select>
             </Field>
-          </FormSection>
-
-          {updating && (
-            <FormSection title="Transport and Delivery" collapsible columns={3}>
+            {updating && (
+              <>
               <Field id="o-tr" label="Transporter Name">
                 <select id="o-tr" value={f.transporter_id} onChange={(e) => set('transporter_id', e.target.value)}>
                   <option value="">--None--</option>
@@ -409,12 +440,12 @@ export function OrderFormModal({
               </Field>
               <Field id="o-veh" label="Vehicle Number"><input id="o-veh" className="mono" placeholder="Enter Vehicle Number" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} /></Field>
               <Field id="o-drv" label="Driver Contact Phone"><input id="o-drv" inputMode="tel" placeholder="Driver Contact Phone number" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} /></Field>
-              <Field id="o-person" label="Person">
-                <select id="o-person" value={f.person_id} onChange={(e) => set('person_id', e.target.value)}>
-                  <option value="">--None--</option>
-                  {people.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                </select>
-              </Field>
+              </>
+            )}
+          </FormSection>
+
+          {updating && (
+            <FormSection title="Delivery" collapsible columns={3}>
               <Field id="o-date" label="Dispatch Date"><input id="o-date" type="date" value={f.tentative_dispatch_date} onChange={(e) => set('tentative_dispatch_date', e.target.value)} /></Field>
               <Field id="o-job" label="Sizing/Delivery Address">
                 <select id="o-job" value={f.job_process_id} title="--None-- means the buyer's own address." onChange={(e) => pickJob(e.target.value)}>
@@ -429,11 +460,30 @@ export function OrderFormModal({
             </FormSection>
           )}
 
+          </fieldset>
+
+          {updating && !readOnly && current && (current.status === 'draft' || current.status === 'confirmed') && (
+            <FormSection title="Dispatch" collapsible columns={3}>
+              <FullWidth>
+                <p className="muted small">Start dispatch to move the item to In Progress. Then its entries (partial dispatch, cancel, return), transport, job process and payments can be added here.</p>
+                <button className="btn" type="button" disabled={busy} onClick={() => void startDispatch()}>Start dispatch</button>
+              </FullWidth>
+            </FormSection>
+          )}
+
+          {updating && current && (current.status === 'open_for_execution' || current.status === 'closed') && (
+            <FormSection title="Entries, transport and payments" collapsible columns={3}>
+              <FullWidth>
+                <OrderExecution order={current} canManage={!readOnly} jobs={jobs} onChanged={async () => { if (onRefresh) await onRefresh() }} />
+              </FullWidth>
+            </FormSection>
+          )}
+
           <FormSection title="Documents" collapsible columns={3}>
             <FullWidth>
               <Field id="o-docs" label="Documents" hideLabel>
                 {updating ? (
-                  recordId ? <div><OrderDocuments orderId={recordId} canEdit hideTitle /></div> : null
+                  recordId ? <div><OrderDocuments orderId={recordId} canEdit={!readOnly} hideTitle /></div> : null
                 ) : (
                   <PendingFilesCard files={pendingFiles} onChange={setPendingFiles} id="o-docs" note="The files are attached when the item is created (to the first item if there are several)." />
                 )}

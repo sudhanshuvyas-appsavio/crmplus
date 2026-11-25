@@ -603,7 +603,12 @@ export interface Order {
   updated_at: string
   // monday-model fields (migration 20261117170000)
   dispatch_status: 'draft' | 'in_progress' | 'partially_dispatched' | 'fully_dispatched' | 'cancelled' | 'returned'
+  /** Net dispatched: dispatched minus returned. */
   dispatched_qty: number
+  /** Quantity cancelled by the item's cancel entries (migration 20261125100000). */
+  cancelled_qty: number
+  /** Quantity of the item's Return entries; a return makes the item Fully Dispatch. */
+  returned_qty: number
   invoice_no: string | null
   invoice_date: string | null
   sale_type: 'local' | 'export'
@@ -642,6 +647,8 @@ export interface CommissionInvoice {
 
 export interface CloseStatus {
   dispatched: number
+  cancelled?: number
+  returned?: number
   quantity: number
   quantity_done: boolean
   buyer_received: number
@@ -651,6 +658,22 @@ export interface CloseStatus {
   supplier_value: number
   supplier_done: boolean
   invoice_done: boolean
+}
+
+/** A Cancel entry (quantity that will not be delivered) or a Return entry (quantity sent back): sub-items of the item, like the dispatch entries. */
+export interface OrderAdjustment {
+  id: string
+  order_id: string
+  dispatch_id: string | null
+  entry_no: string | null
+  invoice_no: string | null
+  invoice_date: string | null
+  kind: 'cancel' | 'return'
+  quantity: number
+  entry_date: string
+  reason: string | null
+  created_by: string | null
+  created_at: string
 }
 
 export interface OrderTransport {

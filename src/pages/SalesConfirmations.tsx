@@ -26,7 +26,6 @@ import { downloadCSV, toCSV } from '../lib/csv'
 import { errMessage } from '../lib/party'
 import { formatDateTime, formatShortDate } from '../lib/format'
 import { SC_GROUPS, SC_STAGES, dispatchStatus, inr, rateText, saleTypeLabel, scGroup, scStage, uomLabel } from '../lib/deals'
-import { ScDetails } from '../components/sc/ScDetails'
 import { ScFormModal } from '../components/sc/ScFormModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
@@ -260,10 +259,14 @@ export default function SalesConfirmations() {
         if (o.value === 'cancelled') continue
         list.push({ label: `Move to ${o.label}`, onSelect: () => void setStage(x, o.value) })
       }
-      if (x.status === 'confirmed' && !cancelled && !hasItems) list.push({ label: 'Send to supplier / buyer…', onSelect: () => setDetails(x) })
+      if (x.status === 'confirmed' && !cancelled && !hasItems) list.push({ label: 'Send to supplier / buyer…', onSelect: () => setFormFor(x) })
     }
+    const liveItems = items.get(x.id)?.length ?? 0
+    const countRows = Math.max(scLines.get(x.id)?.length ?? 0, 1)
     if (hasItems) list.push({ label: 'Go to Dispatch and Billing', onSelect: () => navigate(`/orders?open=${items.get(x.id)![0]!.id}`) })
-    else if (canOrder && x.status === 'confirmed' && !cancelled) list.push({ label: 'Create Dispatch and Billing', onSelect: () => void createItem(x) })
+    if (canOrder && x.status === 'confirmed' && !cancelled && liveItems < countRows) {
+      list.push({ label: hasItems ? 'Create items for the other counts' : 'Create Dispatch and Billing', onSelect: () => void createItem(x) })
+    }
     if (stageOptions(x).some((o) => o.value === 'cancelled')) list.push({ label: 'Cancel confirmation', tone: 'danger', onSelect: () => { setRowError(null); setCancelling(x) } })
     list.push({
       label: 'Delete',
@@ -414,8 +417,15 @@ export default function SalesConfirmations() {
           scs={rows}
           lockedIds={lockedIds}
           dealNos={dealNos}
+          companies={companies}
+          itemsBySc={items}
+          canManage={canManage}
           initialSc={formFor === 'new' ? null : formFor}
           onClose={() => setFormFor(null)}
+          onChanged={async (text) => {
+            setBanner({ kind: 'ok', text })
+            await load()
+          }}
           onDone={async (text) => {
             setBanner({ kind: 'ok', text })
             setFormFor(null)
@@ -425,25 +435,25 @@ export default function SalesConfirmations() {
       )}
 
       {details && (
-        <ScDetails
+        <ScFormModal
           key={details.id}
-          sc={rows.find((x) => x.id === details.id) ?? details}
-          canManage={canManage}
-          canOrder={canOrder}
-          items={items.get(details.id) ?? []}
+          readOnly
           suppliers={suppliers}
           buyers={buyers}
-          companies={companies}
           counts={counts}
           terms={terms}
           transporters={transporters}
           jobs={jobs}
+          scs={rows}
+          lockedIds={lockedIds}
+          dealNos={dealNos}
+          companies={companies}
+          itemsBySc={items}
+          canManage={canManage}
+          initialSc={rows.find((x) => x.id === details.id) ?? details}
           onClose={() => setDetails(null)}
           onEdit={(x) => { setDetails(null); setFormFor(x) }}
-          onChanged={async (text) => {
-            setBanner({ kind: 'ok', text })
-            await load()
-          }}
+          onDone={() => setDetails(null)}
         />
       )}
 

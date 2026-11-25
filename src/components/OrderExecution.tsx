@@ -6,12 +6,13 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import type { CloseStatus, CommissionInvoice, JobProcess, Order, OrderDispatch, OrderJobProcess, OrderPayment, OrderTransport, Transporter } from '../api/types'
+import type { CloseStatus, CommissionInvoice, JobProcess, Order, OrderAdjustment, OrderDispatch, OrderJobProcess, OrderPayment, OrderTransport, Transporter } from '../api/types'
 import { Field } from './PartyForms'
 import { errMessage, numOrNull } from '../lib/party'
 import { formatDateTime } from '../lib/format'
-import { TRANSPORT_TYPES, transportTypeLabel, uomLabel } from '../lib/deals'
+import { transportTypeLabel, uomLabel } from '../lib/deals'
 import { useProfileNames } from './PartyExtras'
+import { SubitemDialog, type SubKind } from './SubitemDialog'
 
 const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toLocaleString('en-IN', { maximumFractionDigits: 2 }))
 
@@ -22,6 +23,7 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
   const [ojs, setOjs] = useState<OrderJobProcess[]>([])
   const [dsp, setDsp] = useState<OrderDispatch[]>([])
   const [pays, setPays] = useState<OrderPayment[]>([])
+  const [adj, setAdj] = useState<OrderAdjustment[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [inv, setInv] = useState<CommissionInvoice | null>(null)
   const [cs, setCs] = useState<CloseStatus | null>(null)
@@ -29,7 +31,7 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
   const manage = canManage && !isClosed
 
   const load = useCallback(async () => {
-    const [a, b, c, d, e, f, g] = await Promise.all([
+    const [a, b, c, d, e, f, g, h] = await Promise.all([
       supabase.from('transporters').select('*').order('name'),
       supabase.from('order_transports').select('*').eq('order_id', order.id).order('created_at'),
       supabase.from('order_job_processes').select('*').eq('order_id', order.id).order('created_at'),
@@ -37,7 +39,9 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
       supabase.from('order_payments').select('*').eq('order_id', order.id).order('paid_on'),
       supabase.from('commission_invoices').select('*').eq('order_id', order.id).maybeSingle(),
       supabase.rpc('order_close_status', { p_order: order.id }),
+      supabase.from('order_dispatch_adjustments').select('*').eq('order_id', order.id).order('created_at'),
     ])
+    setAdj((h.data ?? []) as OrderAdjustment[])
     setInv((f.data ?? null) as CommissionInvoice | null)
     setCs((g.data ?? null) as CloseStatus | null)
     setTransporters((a.data ?? []) as Transporter[])
@@ -109,6 +113,8 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
   }
 
   const trName = (id: string | null) => (id ? transporters.find((t) => t.id === id)?.name ?? '—' : '—')
+  const returned = adj.filter((a) => a.kind === 'return').reduce((n, x) => n + x.quantity, 0)
+  const cancelled = adj.filter((a) => a.kind === 'cancel').reduce((n, x) => n + x.quantity, 0)
   const dispatched = dsp.reduce((n, x) => n + x.quantity, 0)
   const received = pays.filter((p) => p.kind === 'buyer_receipt').reduce((n, x) => n + x.amount, 0)
   const paidOut = pays.filter((p) => p.kind === 'supplier_payment').reduce((n, x) => n + x.amount, 0)
@@ -118,8 +124,16 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
   const del = (table: string, id: string) =>
     manage ? <button className="btn ghost sm" type="button" onClick={() => void remove(table, id)}>Remove</button> : null
 
-  const left = order.quantity - dispatched
+  // a Return makes the item Fully Dispatch, so nothing is left to send after one
+  const left = returned > 0 ? 0 : Math.max(order.quantity - dispatched - cancelled, 0)
   const pct = order.quantity > 0 ? Math.min(100, Math.round((dispatched / order.quantity) * 100)) : 0
+  const cancelPct = order.quantity > 0 ? Math.min(100 - pct, Math.round((cancelled / order.quantity) * 100)) : 0
+  const [adding, setAdding] = useState<SubKind | null>(null)
+  // every entry (dispatch, cancel, return) in the order it was made, as the sub-items of a monday item
+  const entries = [
+    ...dsp.map((x, i) => ({ at: x.created_at, kind: 'partial' as const, d: x, full: dsp.slice(0, i + 1).reduce((n, y) => n + y.quantity, 0) >= order.quantity })),
+    ...adj.map((x) => ({ at: x.created_at, kind: x.kind, a: x })),
+  ].sort((p, q) => p.at.localeCompare(q.at))
   const entryFacts = (x: OrderDispatch, tr: OrderTransport | undefined): [string, string | null][] => [
     ['Owner', x.person_id ? people[x.person_id] ?? null : null],
     ['Invoice', x.invoice_no ? `${x.invoice_no}${x.invoice_date ? ` · ${x.invoice_date}` : ''}` : null],
@@ -145,11 +159,72 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
   return (
     <div className="exec">
       {err && <div className="alert">{err}</div>}
+      {adding && <SubitemDialog order={order} kind={adding} onClose={() => setAdding(null)} onDone={async () => { setAdding(null); await load(); if (onChanged) await onChanged() }} />}
+
+      <ExecCard title="Entries" count={entries.length} hint="One row for each partial dispatch, cancel and return of this item.">
+        <div className="exec-sum">
+          <div><span>Quantity</span><strong className="mono">{money(order.quantity)} {uomLabel(order.uom)}</strong></div>
+          <div><span>Dispatched</span><strong className="mono">{money(dispatched)}</strong></div>
+          <div><span>Cancelled</span><strong className="mono">{money(cancelled)}</strong></div>
+          <div><span>Returned</span><strong className="mono">{money(returned)}</strong></div>
+          <div><span>Left</span><strong className="mono">{money(left)}</strong></div>
+        </div>
+        <div className="exec-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /><b style={{ width: `${cancelPct}%` }} /></div>
+        {entries.length === 0 && <p className="muted small">No entries yet.</p>}
+        <div className="entry-list">
+          {entries.map((e) => {
+            if (e.kind === 'partial') {
+              const x = e.d
+              const tr = x.transport_id ? trs.find((t) => t.id === x.transport_id) : undefined
+              const facts = entryFacts(x, tr).filter(([k, v]) => v !== null && v !== '—' && !['Invoice', 'Owner'].includes(k))
+              return (
+                <details className="entry-row" key={x.id}>
+                  <summary>
+                    <span className="mono">{x.dispatch_no}</span>
+                    <span className={`entry-status ${e.full ? 'full' : 'partial'}`}>{e.full ? 'Fully Dispatch' : 'Partially Dispatch'}</span>
+                    <span className="mono">{money(x.quantity)} {uomLabel(order.uom)}</span>
+                    <span className="muted small">{x.dispatch_date}{x.invoice_no ? ` · Inv ${x.invoice_no}` : ''}</span>
+                  </summary>
+                  <div className="exec-facts">
+                    {facts.map(([k, v]) => (<div key={k}><span>{k}</span><strong>{v}</strong></div>))}
+                  </div>
+                  {del('order_dispatches', x.id)}
+                </details>
+              )
+            }
+            const x = e.a
+            return (
+              <details className="entry-row" key={x.id}>
+                <summary>
+                  <span className="mono">{x.entry_no ?? '—'}</span>
+                  <span className={`entry-status ${x.kind}`}>{x.kind === 'cancel' ? 'Cancel' : 'Return'}</span>
+                  <span className="mono">{money(x.quantity)} {uomLabel(order.uom)}</span>
+                  <span className="muted small">{x.entry_date}{x.invoice_no ? ` · Inv ${x.invoice_no}` : ''}</span>
+                </summary>
+                <div className="exec-facts">
+                  {x.invoice_no && <div><span>Invoice No.</span><strong>{x.invoice_no}</strong></div>}
+                  {x.invoice_date && <div><span>Invoice Date</span><strong>{x.invoice_date}</strong></div>}
+                  {x.reason && <div><span>Reason</span><strong>{x.reason}</strong></div>}
+                </div>
+                {del('order_dispatch_adjustments', x.id)}
+              </details>
+            )
+          })}
+        </div>
+        {manage && (
+          <div className="status-pick" role="group" aria-label="Add an entry">
+            <button type="button" className="status-opt partial" disabled={left <= 0} title={left <= 0 ? 'Nothing is left to dispatch.' : undefined} onClick={() => setAdding('partial')}>Partially Dispatch</button>
+            <button type="button" className="status-opt full" disabled={left <= 0} title={left <= 0 ? 'Nothing is left to dispatch.' : undefined} onClick={() => setAdding('full')}>Fully Dispatch</button>
+            <button type="button" className="status-opt cancel" disabled={left <= 0} title={left <= 0 ? 'Nothing is left to cancel.' : undefined} onClick={() => setAdding('cancel')}>Cancel</button>
+            <button type="button" className="status-opt return" disabled={dispatched - returned <= 0} title={dispatched - returned <= 0 ? 'Nothing has been dispatched, so there is nothing to return.' : undefined} onClick={() => setAdding('return')}>Return</button>
+          </div>
+        )}
+      </ExecCard>
 
       <ExecCard title="Closing checklist" hint={`Opened ${order.execution_opened_at ? formatDateTime(order.execution_opened_at) : ''}.${isClosed && order.closed_at ? ` Closed automatically ${formatDateTime(order.closed_at)}.` : ' It closes by itself once all four are done.'}`}>
         {cs && (
           <ul className="exec-check">
-            <li className={cs.quantity_done ? 'done' : ''}><i aria-hidden="true">{cs.quantity_done ? '✓' : ''}</i>100% quantity dispatched <span>{money(cs.dispatched)} of {money(cs.quantity)} {order.uom}</span></li>
+            <li className={cs.quantity_done ? 'done' : ''}><i aria-hidden="true">{cs.quantity_done ? '✓' : ''}</i>All quantity dispatched or cancelled <span>{money(cs.dispatched)}{cs.cancelled ? ` + ${money(cs.cancelled)} cancelled` : ''} of {money(cs.quantity)} {order.uom}</span></li>
             <li className={cs.buyer_done ? 'done' : ''}><i aria-hidden="true">{cs.buyer_done ? '✓' : ''}</i>Buyer payment completed <span>{money(cs.buyer_received)} of {money(cs.buyer_value)}</span></li>
             <li className={cs.supplier_done ? 'done' : ''}><i aria-hidden="true">{cs.supplier_done ? '✓' : ''}</i>Supplier payment completed <span>{money(cs.supplier_paid)} of {money(cs.supplier_value)}</span></li>
             <li className={cs.invoice_done ? 'done' : ''}><i aria-hidden="true">{cs.invoice_done ? '✓' : ''}</i>Commission invoice generated <span>{inv ? `${inv.invoice_no}, ${money(inv.amount)}` : ''}</span></li>
@@ -159,7 +234,7 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
         {manage && !inv && <div><button className="btn" type="button" onClick={() => void generateInvoice()}>Generate commission invoice</button></div>}
       </ExecCard>
 
-      <ExecCard title="Transportation" count={trs.length}>
+      <ExecCard fold title="Transportation" count={trs.length}>
         {trs.length === 0 ? <p className="muted small">None yet.</p> : (
           <ul className="exec-list">
             {trs.map((t) => (
@@ -175,7 +250,7 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
         {manage && <div className="exec-add"><h4>Add transportation</h4><TransportForm transporters={transporters} onAdd={(r) => add('order_transports', r)} /></div>}
       </ExecCard>
 
-      <ExecCard title="Job process" count={ojs.length}>
+      <ExecCard fold title="Job process" count={ojs.length}>
         {ojs.length === 0 ? <p className="muted small">None yet.</p> : (
           <ul className="exec-list">
             {ojs.map((j) => (
@@ -189,27 +264,7 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
         {manage && <div className="exec-add"><h4>Add job process</h4><JobForm jobs={jobs.filter((j) => j.is_active)} onAdd={(r) => add('order_job_processes', r)} /></div>}
       </ExecCard>
 
-      <ExecCard title="Dispatch entries" count={dsp.length} hint={`Dispatched ${money(dispatched)} of ${money(order.quantity)} ${uomLabel(order.uom)}; ${money(left)} left.`}>
-        <div className="exec-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /></div>
-        {dsp.map((x) => {
-          const tr = x.transport_id ? trs.find((t) => t.id === x.transport_id) : undefined
-          return (
-            <div className="exec-entry" key={x.id}>
-              <div className="exec-entry-head">
-                <span><strong className="mono">{x.dispatch_no}</strong> <span className="muted small">· {x.dispatch_date}</span></span>
-                <span className="exec-entry-qty mono">{money(x.quantity)} {uomLabel(order.uom)}</span>
-                {del('order_dispatches', x.id)}
-              </div>
-              <div className="exec-facts">
-                {entryFacts(x, tr).filter(([, v]) => v !== null && v !== '—').map(([k, v]) => (<div key={k}><span>{k}</span><strong>{v}</strong></div>))}
-              </div>
-            </div>
-          )
-        })}
-        {manage && left > 0 && <div className="exec-add"><h4>Add dispatch entry</h4><DispatchForm people={people} trs={trs} trName={trName} left={left} defaults={order} onAdd={(r) => add('order_dispatches', r)} /></div>}
-      </ExecCard>
-
-      <ExecCard title="Payment tracking">
+      <ExecCard fold title="Payment tracking">
         {!order.payment_tracking_enabled ? <p className="muted small">Not enabled.</p> : (
           <>
             <div className="exec-facts">
@@ -235,7 +290,18 @@ export function OrderExecution({ order, canManage, jobs, onChanged }: { order: O
   )
 }
 
-function ExecCard({ title, hint, count, children }: { title: string; hint?: string; count?: number; children: ReactNode }) {
+function ExecCard({ title, hint, count, fold, children }: { title: string; hint?: string; count?: number; fold?: boolean; children: ReactNode }) {
+  if (fold) {
+    return (
+      <details className="fs-card exec-card exec-fold">
+        <summary className="fs-head">
+          <div><h3>{title}</h3>{hint && <p>{hint}</p>}</div>
+          {count !== undefined && <span className="fs-count">{count}</span>}
+        </summary>
+        <div className="exec-body">{children}</div>
+      </details>
+    )
+  }
   return (
     <section className="fs-card exec-card">
       <div className="fs-head">
@@ -299,81 +365,6 @@ function JobForm({ jobs, onAdd }: { jobs: JobProcess[]; onAdd: (r: Record<string
 
 /** One dispatch entry (a monday subitem). Weight, value, commissions and total
  *  are worked out by the database from the item's rate and commission terms. */
-function DispatchForm({ people, trs, trName, left, defaults, onAdd }: {
-  people: Record<string, string>
-  trs: OrderTransport[]
-  trName: (id: string | null) => string
-  left: number
-  defaults: Order
-  onAdd: (r: Record<string, unknown>) => Promise<boolean>
-}) {
-  const today = new Date().toISOString().slice(0, 10)
-  const [date, setDate] = useState(today)
-  const [qty, setQty] = useState('')
-  const [tid, setTid] = useState('')
-  const [veh, setVeh] = useState(defaults.vehicle_no ?? '')
-  const [lr, setLr] = useState('')
-  const [inv, setInv] = useState('')
-  const [invDate, setInvDate] = useState(today)
-  const [dc, setDc] = useState('')
-  const [delDate, setDelDate] = useState('')
-  const [tt, setTt] = useState(defaults.transport_type ?? '')
-  const [cgst, setCgst] = useState(defaults.cgst_pct === null ? '' : String(defaults.cgst_pct))
-  const [ins, setIns] = useState(defaults.insurance_pct === null ? '' : String(defaults.insurance_pct))
-  const [addA, setAddA] = useState('')
-  const [ded, setDed] = useState('')
-  const [round, setRound] = useState('')
-  const [person, setPerson] = useState(defaults.person_id ?? '')
-  const q = numOrNull(qty)
-  const tooMuch = q !== null && q > left
-  return (
-    <div className="dispatch-form">
-      <div className="form-grid">
-        <Field id="x-dq" label={`Quantity Dispatched (${uomLabel(defaults.uom)})`} required hint={`Up to ${money(left)}.`}><input id="x-dq" className="mono" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
-        <Field id="x-dd" label="Dispatch Date" required><input id="x-dd" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <Field id="x-di" label="Invoice No."><input id="x-di" value={inv} onChange={(e) => setInv(e.target.value)} /></Field>
-        <Field id="x-did" label="Invoice Date"><input id="x-did" type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} /></Field>
-        <Field id="x-dc" label="DC No."><input id="x-dc" value={dc} onChange={(e) => setDc(e.target.value)} /></Field>
-        <Field id="x-ddel" label="Del Date"><input id="x-ddel" type="date" value={delDate} onChange={(e) => setDelDate(e.target.value)} /></Field>
-        <Field id="x-dtt" label="Transport Type">
-          <select id="x-dtt" value={tt} onChange={(e) => setTt(e.target.value)}>
-            <option value="">—</option>
-            {TRANSPORT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
-          </select>
-        </Field>
-        <Field id="x-dt" label="Transport Company">
-          <select id="x-dt" value={tid} onChange={(e) => setTid(e.target.value)}>
-            <option value="">—</option>
-            {trs.map((t) => (<option key={t.id} value={t.id}>{t.kind === 'our' ? 'Our' : trName(t.transporter_id)}{t.vehicle_no ? ` · ${t.vehicle_no}` : ''}</option>))}
-          </select>
-        </Field>
-        <Field id="x-dv" label="Vehicle Number"><input id="x-dv" value={veh} onChange={(e) => setVeh(e.target.value.toUpperCase())} /></Field>
-        <Field id="x-dl" label="LR No."><input id="x-dl" value={lr} onChange={(e) => setLr(e.target.value)} /></Field>
-        <Field id="x-dcg" label="CGST"><input id="x-dcg" className="mono" inputMode="decimal" value={cgst} onChange={(e) => setCgst(e.target.value)} /></Field>
-        <Field id="x-dins" label="Insurance Tax"><input id="x-dins" className="mono" inputMode="decimal" value={ins} onChange={(e) => setIns(e.target.value)} /></Field>
-        <Field id="x-dadd" label="Add"><input id="x-dadd" className="mono" inputMode="decimal" value={addA} onChange={(e) => setAddA(e.target.value)} /></Field>
-        <Field id="x-dded" label="Deduct"><input id="x-dded" className="mono" inputMode="decimal" value={ded} onChange={(e) => setDed(e.target.value)} /></Field>
-        <Field id="x-dro" label="Round off"><input id="x-dro" className="mono" inputMode="decimal" value={round} onChange={(e) => setRound(e.target.value)} /></Field>
-        <Field id="x-dpe" label="Person">
-          <select id="x-dpe" value={person} onChange={(e) => setPerson(e.target.value)}>
-            <option value="">—</option>
-            {Object.entries(people).sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => (<option key={id} value={id}>{name}</option>))}
-          </select>
-        </Field>
-      </div>
-      {tooMuch && <p className="field-warn">That is more than the {money(left)} left to dispatch.</p>}
-      <button className="btn" type="button" disabled={!date || q === null || q <= 0 || tooMuch} onClick={() => void onAdd({
-        dispatch_date: date, quantity: q, transport_id: tid || null, vehicle_no: veh.trim() || null, lr_no: lr.trim() || null,
-        invoice_no: inv.trim() || null, invoice_date: inv.trim() ? invDate || null : null, dc_no: dc.trim() || null, delivery_date: delDate || null,
-        transport_type: tt || null, cgst_pct: numOrNull(cgst), insurance_pct: numOrNull(ins), add_amount: numOrNull(addA), deduct_amount: numOrNull(ded),
-        round_off: numOrNull(round), person_id: person || null,
-      }).then((d) => { if (d) { setQty(''); setLr(''); setInv(''); setDc(''); setDelDate(''); setTid(''); setAddA(''); setDed(''); setRound('') } })}>
-        Add dispatch entry
-      </button>
-    </div>
-  )
-}
-
 function PaymentForm({ onAdd }: { onAdd: (r: Record<string, unknown>) => Promise<boolean> }) {
   const [kind, setKind] = useState<'buyer_receipt' | 'supplier_payment'>('buyer_receipt')
   const [amt, setAmt] = useState('')
