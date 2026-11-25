@@ -712,6 +712,26 @@ drop trigger if exists trg_task_payment_commission on public.task_payments;
 create trigger trg_task_payment_commission after insert on public.task_payments
   for each row execute function public.commission_task_payment_mirror();
 
+-- Change the free-text details of a live invoice (monday lets these columns be edited): Document No, Text (printed under the
+-- party's address) and Remarks. Amounts, dates, party and lines stay as generated: to change those, cancel and re-issue.
+create or replace function public.update_commission_invoice_details(p_id uuid, p_document_no text, p_party_note text, p_remarks text) returns void
+language plpgsql security definer set search_path = public as $$
+declare ci commission_invoices;
+begin
+  if not has_permission('order.manage') then raise exception 'You need the "Create and manage orders" permission'; end if;
+  select * into ci from commission_invoices where id = p_id for update;
+  if not found then raise exception 'Commission invoice not found'; end if;
+  if ci.status = 'cancelled' then raise exception 'A cancelled invoice cannot be changed'; end if;
+  if ci.is_legacy then raise exception 'This is an old one-per-order invoice and cannot be edited here'; end if;
+  update commission_invoices
+     set document_no = nullif(btrim(coalesce(p_document_no, '')), ''),
+         party_note  = nullif(btrim(coalesce(p_party_note, '')), ''),
+         remarks     = nullif(btrim(coalesce(p_remarks, '')), '')
+   where id = p_id;
+end $$;
+revoke all on function public.update_commission_invoice_details(uuid, text, text, text) from public, anon;
+grant execute on function public.update_commission_invoice_details(uuid, text, text, text) to authenticated;
+
 -- Generated -> Sent (done) / Pending, as on monday's Status column. Cancelling has its own function.
 create or replace function public.set_commission_invoice_status(p_id uuid, p_status text) returns void
 language plpgsql security definer set search_path = public as $$

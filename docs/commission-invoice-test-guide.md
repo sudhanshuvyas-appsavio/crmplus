@@ -65,6 +65,8 @@ Sample data in the local copy: Business Unit "Kaarthika Commission Agencies"; bu
 
 **7d. One ledger.** With a follow-up open (7c): record 300 Cash on the follow-up task (Tasks > Payment Collection): the invoice gets a receipt of 300 and shows 300 collected. Then Record payment 200 UPI on the invoice: the follow-up gets a line of 200 (note "Recorded on commission invoice N") and shows 500 collected. Record more on the follow-up than is pending on the invoice: only what fits is added to the invoice (its note says so) and the invoice becomes Paid.
 
+**7e. Edit details and export.** Actions > Edit details on a live invoice: change Document No, Text and Remarks and save. The register shows the new Document No; when you changed the Text, the downloaded PDF shows it under the party's address. Cancelled and old invoices cannot be edited. Then click "Export N as CSV" in the toolbar and check that the file has one row per invoice shown (search and filters apply) and the columns listed in `commission-invoice-register.md`.
+
 **8. Status.** Actions > **Mark as sent**: status chip Sent. Actions > **Mark as pending**: chip Pending. Open the invoice: Status shows "Sent on <date>" after marking sent.
 
 **9. Open and remove a payment.** Actions > Open. The Payments section lists the receipts. Click **Remove** on one: collected and pending update.
@@ -84,7 +86,7 @@ Sample data in the local copy: Business Unit "Kaarthika Commission Agencies"; bu
 cd C:\crmplus\crmplus\supabase\tests\local-harness
 node commission-invoice.mjs
 ```
-Expect `107 passed, 0 failed`. Also `cd C:\crmplus\crmplus; npx tsc -b; npm run build`.
+Expect `112 passed, 0 failed`. Also `cd C:\crmplus\crmplus; npx tsc -b; npm run build`.
 
 ## D. Test on production (after you apply the migration)
 1. Back up the database.

@@ -22,6 +22,7 @@ import { GridPager, GridToolbar, usePaging, type FilterDef } from '../components
 import { errMessage } from '../lib/party'
 import { searchKey } from '../lib/validate'
 import { formatDate } from '../lib/format'
+import { downloadCSV, toCSV } from '../lib/csv'
 import { todayIST } from '../lib/tasks'
 import { useProfileNames } from '../components/PartyExtras'
 import { COMM_BASES, commTerms } from '../lib/deals'
@@ -52,6 +53,10 @@ function partyName(inv: CommissionInvoiceRow, refs: Refs): string {
   if (inv.party_type === 'buyer') return refs.buyers.find((b) => b.id === inv.buyer_id)?.name ?? '—'
   return refs.buyers.find((b) => b.id === inv.buyer_id)?.name ?? '—'
 }
+
+const CSV_COLUMNS = ['invoice_no', 'date', 'party_type', 'party', 'business_unit', 'invoice_from_date', 'invoice_to_date', 'commission_type', 'commission_value',
+  'total_bags', 'total', 'add', 'deduct', 'tds', 'net_amount', 'round_off', 'payment_collected', 'payment_pending', 'payment_status', 'mode_of_payment',
+  'document_no', 'person', 'status', 'text', 'remarks', 'cancel_reason'] as const
 
 /** Everything the PDF needs for a saved invoice. */
 async function billInputs(inv: CommissionInvoiceRow, refs: Refs): Promise<{ lines: CommissionLineRow[]; unit: BillUnit; party: BillParty }> {
@@ -111,6 +116,7 @@ export default function CommissionInvoices() {
   const [fPayment, setFPayment] = useState('')
   const [creating, setCreating] = useState(false)
   const [paying, setPaying] = useState<CommissionInvoiceRow | null>(null)
+  const [editing, setEditing] = useState<CommissionInvoiceRow | null>(null)
   const [viewing, setViewing] = useState<CommissionInvoiceRow | null>(null)
   const [cancelling, setCancelling] = useState<CommissionInvoiceRow | null>(null)
   const [reason, setReason] = useState('')
@@ -217,6 +223,19 @@ export default function CommissionInvoices() {
     await load()
   }
 
+  function exportCsv() {
+    const list = filtered.map((x) => ({
+      invoice_no: x.invoice_no ?? '', date: x.invoice_date, party_type: x.is_legacy ? 'Old (one per order)' : partyLabel(x.party_type), party: partyName(x, refs),
+      business_unit: refs.companies.find((c) => c.id === x.company_id)?.name ?? '', invoice_from_date: x.period_from ?? '', invoice_to_date: x.period_to ?? '',
+      commission_type: x.commission_basis ? COMM_BASES.find((b) => b.value === x.commission_basis)?.label ?? x.commission_basis : '', commission_value: x.commission_value ?? '',
+      total_bags: x.total_bags ?? '', total: x.commission_total ?? x.amount, add: x.is_legacy ? '' : x.add_amount, deduct: x.is_legacy ? '' : x.deduct_amount, tds: x.is_legacy ? '' : x.tds_amount,
+      net_amount: x.net_amount ?? x.amount, round_off: x.is_legacy ? '' : x.round_off, payment_collected: x.paid_amount, payment_pending: x.status === 'cancelled' ? '' : x.payment_pending,
+      payment_status: paymentState(x) === 'none' ? '' : PAYMENT_STATES[paymentState(x)].label, mode_of_payment: modeLabel(x.payment_mode), document_no: x.document_no ?? '',
+      person: x.created_by ? people[x.created_by] ?? '' : '', status: statusInfo(x.status).label, text: x.party_note ?? '', remarks: x.remarks ?? '', cancel_reason: x.cancel_reason ?? '',
+    }))
+    downloadCSV(`commission-invoices-${todayIST()}.csv`, toCSV(CSV_COLUMNS, list))
+  }
+
   if (!rows) return <Loading label="Loading commission invoices" />
 
   return (
@@ -234,6 +253,7 @@ export default function CommissionInvoices() {
         onFilter={(name, value) => { if (name === 'party') setFParty(value); else if (name === 'status') setFStatus(value); else if (name === 'payment') setFPayment(value); else setFCompany(value) }}
         onClear={() => { setFParty(''); setFStatus(''); setFPayment(''); setFCompany('') }}
       >
+        <button className="btn" type="button" disabled={filtered.length === 0} onClick={exportCsv}>Export {filtered.length} as CSV</button>
         {canManage && <button className="btn primary" type="button" onClick={() => setCreating(true)}>New commission invoice</button>}
       </GridToolbar>
 
@@ -309,6 +329,9 @@ export default function CommissionInvoices() {
                       actions={[
                         { label: 'Open', onSelect: () => setViewing(x) },
                         ...(canManage ? [{
+                          label: 'Edit details', onSelect: () => setEditing(x),
+                          disabledReason: x.is_legacy ? 'Old invoices cannot be edited here' : x.status === 'cancelled' ? 'This invoice is cancelled' : null,
+                        }, {
                           label: 'Record payment', onSelect: () => setPaying(x),
                           disabledReason: x.status === 'cancelled' ? 'This invoice is cancelled' : Number(x.payment_pending) <= 0 ? 'Fully paid' : null,
                         }, {
@@ -342,6 +365,14 @@ export default function CommissionInvoices() {
           onCreated={async (text, ok) => { setCreating(false); setBanner({ kind: ok ? 'ok' : 'bad', text }); await load() }}
         />
       )}
+      {editing && (
+        <EditDetails
+          inv={editing}
+          refs={refs}
+          onClose={() => setEditing(null)}
+          onSaved={async (text, ok) => { setEditing(null); setBanner({ kind: ok ? 'ok' : 'bad', text }); await load() }}
+        />
+      )}
       {paying && (
         <RecordPayment
           inv={paying}
@@ -358,6 +389,7 @@ export default function CommissionInvoices() {
           onClose={() => setViewing(null)}
           onDownload={() => void download(viewing)}
           onPay={() => { const v = viewing; setViewing(null); setPaying(v) }}
+          onEdit={() => { const v = viewing; setViewing(null); setEditing(v) }}
           onChanged={load}
           onCancel={() => { setCancelErr(null); setReason(''); setCancelling(viewing) }}
         />
@@ -383,9 +415,9 @@ export default function CommissionInvoices() {
 
 /* ------------------------------------------------------------------ view */
 
-function InvoiceView({ inv, refs, canManage, busy, onClose, onDownload, onCancel, onPay, onChanged }: {
+function InvoiceView({ inv, refs, canManage, busy, onClose, onDownload, onCancel, onPay, onEdit, onChanged }: {
   inv: CommissionInvoiceRow; refs: Refs; canManage: boolean; busy: boolean
-  onClose: () => void; onDownload: () => void; onCancel: () => void; onPay: () => void; onChanged: () => Promise<void>
+  onClose: () => void; onDownload: () => void; onCancel: () => void; onPay: () => void; onEdit: () => void; onChanged: () => Promise<void>
 }) {
   const [lines, setLines] = useState<CommissionLineRow[] | null>(null)
   const [pays, setPays] = useState<CommissionPaymentRow[] | null>(null)
@@ -419,6 +451,7 @@ function InvoiceView({ inv, refs, canManage, busy, onClose, onDownload, onCancel
         <>
           <button className="btn ghost" type="button" onClick={onClose}>Close</button>
           {!inv.is_legacy && <button className="btn" type="button" onClick={onDownload} disabled={busy}>Download PDF</button>}
+          {canManage && !inv.is_legacy && inv.status !== 'cancelled' && <button className="btn" type="button" onClick={onEdit} disabled={busy}>Edit details</button>}
           {canManage && inv.status !== 'cancelled' && Number(inv.payment_pending) > 0 && <button className="btn" type="button" onClick={onPay} disabled={busy}>Record payment</button>}
           {canManage && !inv.is_legacy && inv.status !== 'cancelled' && <button className="btn danger" type="button" onClick={onCancel} disabled={busy}>Cancel invoice</button>}
         </>
@@ -503,6 +536,67 @@ function ReadOnly({ label, value }: { label: string; value: string }) {
       <label>{label}</label>
       <input readOnly value={value} style={{ background: 'var(--surface-3)' }} />
     </div>
+  )
+}
+
+/* ---------------------------------------------------------------- details */
+
+function EditDetails({ inv, refs, onClose, onSaved }: {
+  inv: CommissionInvoiceRow
+  refs: Refs
+  onClose: () => void
+  onSaved: (text: string, ok: boolean) => Promise<void> | void
+}) {
+  const [docNo, setDocNo] = useState(inv.document_no ?? '')
+  const [note, setNote] = useState(inv.party_note ?? '')
+  const [remarks, setRemarks] = useState(inv.remarks ?? '')
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function save() {
+    setErr(null)
+    setBusy(true)
+    const { error } = await supabase.rpc('update_commission_invoice_details', { p_id: inv.id, p_document_no: docNo, p_party_note: note, p_remarks: remarks })
+    if (error) { setBusy(false); setErr(errMessage(error, 'Could not save the details')); return }
+    if (note.trim() === (inv.party_note ?? '').trim()) {
+      setBusy(false)
+      await onSaved(`Details of invoice ${inv.invoice_no} saved.`, true)
+      return
+    }
+    // the Text is printed on the bill, so the stored PDF is drawn again
+    try {
+      const { data: row } = await supabase.from('commission_invoices').select('*').eq('id', inv.id).single()
+      const made = await storePdf(row as CommissionInvoiceRow, refs)
+      setBusy(false)
+      await onSaved(made.stored ? `Details of invoice ${inv.invoice_no} saved and its PDF updated.` : `Details saved. The PDF could not be refreshed (${made.problem}); use Download PDF.`, made.stored)
+    } catch (e) {
+      setBusy(false)
+      await onSaved(`Details saved, but the PDF could not be refreshed (${errMessage(e, 'unknown error')}). Use Download PDF.`, false)
+    }
+  }
+
+  return (
+    <Modal
+      title={`Edit details · invoice ${inv.invoice_no}`}
+      size="md"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : '✓ Save details'}</button>
+        </>
+      }
+    >
+      <ErrorBanner message={err} />
+      <p className="muted small">Amounts, dates, party and lines stay as generated. To change those, cancel the invoice and make a new one.</p>
+      <div className="form-grid">
+        <Field id="ed-doc" label="Document No"><input id="ed-doc" value={docNo} placeholder="Enter Document No" onChange={(e) => setDocNo(e.target.value)} /></Field>
+        <Field id="ed-note" label="Text" hint="Printed under the party's address; the PDF is drawn again when it changes.">
+          <textarea id="ed-note" rows={2} value={note} placeholder="Enter Text" onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        <Field id="ed-remarks" label="Remarks"><textarea id="ed-remarks" rows={2} value={remarks} placeholder="Enter Remarks" onChange={(e) => setRemarks(e.target.value)} /></Field>
+      </div>
+    </Modal>
   )
 }
 

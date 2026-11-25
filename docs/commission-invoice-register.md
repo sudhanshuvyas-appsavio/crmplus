@@ -8,7 +8,7 @@ One **commission invoice** per Business Unit and **party** (Buyer or Supplier) f
 Screen: **Commission Invoices** (menu CRM > Commission Invoices, route `/commission-invoices`).
 - Create: Business Unit, Party Type, party, Invoice From / To dates; the dispatch lines of that party that are not yet billed to that party are listed and ticked; optional manual Commission Type + Value (replaces each line's own commission, like monday); Add, Deduct, TDS, Round Off, Text, Remarks; Total, Net Amount, Total Bags and the amount in words update live.
 - On Generate: the database checks everything again, numbers the invoice and saves the lines; the browser draws the "BROKERAGE BILL" PDF, stores it in the private `commission-invoices` bucket and downloads it.
-- Register actions: Open (lines, totals and payments), Download PDF (the stored copy, or drawn again), Record payment, Mark as sent, Mark as pending, Cancel invoice (reason required; frees the lines; its delivery task is cancelled; refused when payment is already recorded).
+- Register actions: Open (lines, totals and payments), **Edit details**, Download PDF (the stored copy, or drawn again), Record payment, Mark as sent, Mark as pending, Cancel invoice (reason required; frees the lines; its delivery task is cancelled; refused when payment is already recorded).
 - Columns follow monday's board: Invoice No, Date, Party Type, Party, Business Unit, Invoice From/To, Commission, Total Bags, Total, Add, Deduct, TDS, Net Amount, Round Off, **Payment Collected, Payment Pending, Mode of Payment, Status**. Filters: party type, status, payment (nothing collected / part paid / fully paid), business unit.
 
 ## Status and payments (monday: Status, Mode of Payment, Partial Payment, Payment Pending)
@@ -46,6 +46,10 @@ Differences:
 - **Orders under the old fixed commission codes** (pct_0_5, pct_1, ...) carry one total with no buyer/supplier split, so the register cannot bill them per party. In the live data (checked 2026-11-25) all four such orders already have their old-style invoice, so nothing is waiting; a rule for which party pays would be needed before supporting new ones.
 - Not captured: monday's Person (the creator is recorded instead), Sr. No / CI Number (CRM+ has one invoice number), the e-mail / WhatsApp fields, subitems on the invoice and the buyer mirror columns.
 
+## Editing and exporting
+- **Edit details** changes the free-text fields of a live invoice: Document No, Text (printed under the party's address) and Remarks. When the Text changes the stored PDF is drawn again. Amounts, dates, party and lines never change after generation: cancel the invoice and make a new one. Cancelled and old per-order invoices cannot be edited; it needs `order.manage`.
+- **Export N as CSV** (toolbar) downloads the rows currently shown (after search and filters) with: invoice no., date, party type, party, business unit, from / to dates, commission type and value, total bags, total, add, deduct, TDS, net amount, round off, payment collected, payment pending, payment status, mode of payment, document no., person, status, text, remarks, cancel reason.
+
 ## Rules
 - Commission per line: Percentage = line value x rate / 100; BAG = rate x quantity; KG = rate x total weight (database function `trade_commission`). The line's own commission is used unless a manual type and value are given. Each line is rounded to 2 decimals.
 - Net Amount = Total + Add - Deduct (must not be negative). Round Off and TDS are stored and printed, not applied (as in monday).
@@ -79,7 +83,7 @@ Differences:
 3. Optional: set the starting number (above).
 
 ## Tests
-`supabase/tests/local-harness/commission-invoice.mjs` (in-memory PostgreSQL, stand-in tables shaped like the live schema): 107 checks pass: numbering, eligibility, double billing refused, override rate, totals, delivery task for buyer and supplier, cancel (and freeing the lines), order-close picture, pending list, payments (part and full, every refusal, delete, last mode, old invoices), status changes, permissions, row-level security, migration re-run. Run: `cd supabase/tests/local-harness && node commission-invoice.mjs`.
+`supabase/tests/local-harness/commission-invoice.mjs` (in-memory PostgreSQL, stand-in tables shaped like the live schema): 112 checks pass: numbering, eligibility, double billing refused, override rate, totals, delivery task for buyer and supplier, cancel (and freeing the lines), order-close picture, pending list, payments (part and full, every refusal, delete, last mode, old invoices), status changes, permissions, row-level security, migration re-run. Run: `cd supabase/tests/local-harness && node commission-invoice.mjs`.
 
 Also tried in the browser against a local Docker copy of the schema (all 42 migrations loaded): create (buyer and supplier), stored PDF, record payment (with the validation messages), mark as sent, open, remove payment, cancel.
 

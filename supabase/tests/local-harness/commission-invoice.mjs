@@ -377,6 +377,20 @@ const D10 = await id(`insert into order_dispatches(order_id, quantity, invoice_d
 err = await fails(create({ dispatch_ids: [D10] }))
 ok('an invoice whose net amount is 0 is refused', err && err.includes('nothing to invoice'), err)
 
+// edit the details of a live invoice
+const edit = (invId, doc, note, rem) => `select update_commission_invoice_details('${invId}', ${doc === null ? 'null' : `'${doc}'`}, ${note === null ? 'null' : `'${note}'`}, ${rem === null ? 'null' : `'${rem}'`})`
+await db.exec(edit(inv8, '  DOC-EDIT  ', 'Kind attention: Accounts', 'Edited remark'))
+const ed = (await q(`select document_no, party_note, remarks, net_amount, status from commission_invoices where id='${inv8}'`))[0]
+ok('Document No, Text and Remarks can be changed (trimmed), the amounts stay', ed.document_no === 'DOC-EDIT' && ed.party_note === 'Kind attention: Accounts' && ed.remarks === 'Edited remark' && Number(ed.net_amount) === 1000, JSON.stringify(ed))
+await db.exec(edit(inv8, '', null, '   '))
+const ed2 = (await q(`select document_no, party_note, remarks from commission_invoices where id='${inv8}'`))[0]
+ok('empty values clear the fields', ed2.document_no === null && ed2.party_note === null && ed2.remarks === null, JSON.stringify(ed2))
+err = await fails(edit(inv10, 'X', null, null)); ok('a cancelled invoice cannot be edited', err && err.includes('cancelled'), err)
+err = await fails(edit(legacy, 'X', null, null)); ok('an old per-order invoice cannot be edited here', err && err.includes('old one-per-order'), err)
+await as(clerk)
+err = await fails(edit(inv8, 'X', null, null)); ok('editing needs order.manage', err && err.includes('permission'), err)
+await as(admin)
+
 // RLS: a user without permission sees no lines
 await as(clerk)
 await db.exec(`grant select on all tables in schema public to authenticated; grant usage on schema public to authenticated; set role authenticated`)
