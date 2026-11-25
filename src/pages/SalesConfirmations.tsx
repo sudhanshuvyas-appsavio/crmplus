@@ -259,6 +259,10 @@ export default function SalesConfirmations() {
         if (o.value === 'cancelled') continue
         list.push({ label: `Move to ${o.label}`, onSelect: () => void setStage(x, o.value) })
       }
+      // Send with Delivery Info needs the delivery details: say so instead of hiding the move
+      if (!cancelled && x.status === 'confirmed' && x.stage !== 'send_delivery' && !(x.transporter_id || x.vehicle_no)) {
+        list.push({ label: 'Move to Send with Delivery Info', onSelect: () => {}, disabledReason: 'Add the transporter or the vehicle number first (Edit > Transportation Company Details).' })
+      }
       if (x.status === 'confirmed' && !cancelled && !hasItems) list.push({ label: 'Send to supplier / buyer…', onSelect: () => setFormFor(x) })
     }
     const liveItems = items.get(x.id)?.length ?? 0

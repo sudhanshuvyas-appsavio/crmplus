@@ -56,6 +56,8 @@ export function SubitemDialog({ order, kind, onClose, onDone }: { order: Order; 
     }
     const row: Record<string, unknown> = isDispatch
       ? { order_id: order.id, quantity: q, dispatch_date: date, invoice_no: invNo.trim() || null, invoice_date: invNo.trim() ? invDate : null, vehicle_no: vehicle.trim() || null,
+          // the entry's Invoice No. is the mill's invoice: it fills the item's Mill Invoice Delivery task (automation)
+          mill_invoice_no: invNo.trim() || null, mill_invoice_date: invNo.trim() ? invDate : null,
           dc_no: dc.trim() || null, delivery_date: delDate || null, transport_type: tt || null, lr_no: lr.trim() || null,
           cgst_pct: num(cgst), insurance_pct: num(ins), add_amount: num(addA), deduct_amount: num(ded), round_off: num(round), person_id: order.person_id }
       : { order_id: order.id, kind: which, quantity: q, entry_date: date, invoice_no: invNo.trim() || null, invoice_date: invNo.trim() ? invDate : null, reason: reason.trim() || null }

@@ -94,9 +94,11 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
   const pct = order.quantity > 0 ? Math.min(100, Math.round((dispatched / order.quantity) * 100)) : 0
   const cancelPct = order.quantity > 0 ? Math.min(100 - pct, Math.round((cancelled / order.quantity) * 100)) : 0
   const [adding, setAdding] = useState<SubKind | null>(null)
+  // cancelled quantity recorded up to a moment: dispatched + cancelled reaching the quantity makes that entry the Fully Dispatch one
+  const cancelledBy = (at: string) => adj.filter((a) => a.kind === 'cancel' && a.created_at <= at).reduce((n, a) => n + a.quantity, 0)
   // every entry (dispatch, cancel, return) in the order it was made, as the sub-items of a monday item
   const entries = [
-    ...dsp.map((x, i) => ({ at: x.created_at, kind: 'partial' as const, d: x, full: dsp.slice(0, i + 1).reduce((n, y) => n + y.quantity, 0) >= order.quantity })),
+    ...dsp.map((x, i) => ({ at: x.created_at, kind: 'partial' as const, d: x, full: dsp.slice(0, i + 1).reduce((n, y) => n + y.quantity, 0) + cancelledBy(x.created_at) >= order.quantity })),
     ...adj.map((x) => ({ at: x.created_at, kind: x.kind, a: x })),
   ].sort((p, q) => p.at.localeCompare(q.at))
   const entryFacts = (x: OrderDispatch): [string, string | null][] => [

@@ -42,21 +42,26 @@ export const commTerms = (basis: string | null, value: number | null) => {
   return `₹${value}${basis === 'per_kg' ? '/kg' : '/bag'}`
 }
 
-/** monday: Total Weight = Bags Weight x Quantity. With no bag weight, KGs and Tons use the quantity (Tons x 1000). */
+/** Total Weight in kg. KG and Tons are weights already (Tons x 1000), so their bag weight is information only;
+ *  other units (Bags, Hanks, Cartons ...) are Quantity x Bag Weight. Same rule as the database's trade_total_weight. */
 export function totalWeight(uom: string, qty: number | null, unitWeight: number | null): number | null {
   if (qty === null) return null
-  if (unitWeight !== null) return qty * unitWeight
   if (uom === 'KG') return qty
   if (uom === 'TONS') return qty * 1000
+  if (unitWeight !== null) return qty * unitWeight
   return null
 }
 
-export function commission(basis: string | null, value: number | null, amount: number | null, _uom: string,
-  qty: number | null, weight: number | null, _unitWeight: number | null): number | null {
+export function commission(basis: string | null, value: number | null, amount: number | null, uom: string,
+  qty: number | null, weight: number | null, unitWeight: number | null): number | null {
   if (!basis || value === null) return null
   if (basis === 'pct') return amount === null ? null : (amount * value) / 100
   if (basis === 'per_kg') return weight === null ? null : value * weight
-  if (basis === 'per_bag') return qty === null ? null : value * qty
+  if (basis === 'per_bag') {
+    // KG / Tons rows count the bags (weight / bag weight); other units are already counted per unit
+    if (uom === 'KG' || uom === 'TONS') return weight === null || !unitWeight || unitWeight <= 0 ? null : (value * weight) / unitWeight
+    return qty === null ? null : value * qty
+  }
   return null
 }
 

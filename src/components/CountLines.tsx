@@ -173,5 +173,5 @@ export function CountLinesView({ lines, counts, buyer, supplier }: { lines: Line
 
 /** Read-only text of the rows, one per line, for tables and messages. */
 export function linesText(rows: LineRow[], countName: (id: string) => string) {
-  return rows.map((r) => `${r.count_id ? countName(r.count_id) : '—'}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${rateText(r.rate)}/kg` : ''}`)
+  return rows.map((r) => `${r.count_id ? countName(r.count_id) : '—'}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight && needsUnitWeight(r.uom) ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${rateText(r.rate)}/kg` : ''}`)
 }

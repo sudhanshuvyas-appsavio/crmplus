@@ -133,8 +133,9 @@ export default function DispatchAndBilling() {
     for (const d of dispatches) {
       const total = (running.get(d.order_id) ?? 0) + d.quantity
       running.set(d.order_id, total)
-      // the entry that brings the dispatched total up to the quantity is the Fully Dispatch one
-      push(d.order_id, { id: d.id, at: d.created_at, no: d.dispatch_no, status: total >= (qtyOf.get(d.order_id) ?? Infinity) ? 'full' : 'partial', qty: d.quantity, date: d.dispatch_date, invoiceNo: d.invoice_no, invoiceDate: d.invoice_date, d })
+      // the entry that brings dispatched + cancelled up to the quantity is the Fully Dispatch one
+      const cancelledBy = adjustments.filter((a) => a.order_id === d.order_id && a.kind === 'cancel' && a.created_at <= d.created_at).reduce((n, a) => n + a.quantity, 0)
+      push(d.order_id, { id: d.id, at: d.created_at, no: d.dispatch_no, status: total + cancelledBy >= (qtyOf.get(d.order_id) ?? Infinity) ? 'full' : 'partial', qty: d.quantity, date: d.dispatch_date, invoiceNo: d.invoice_no, invoiceDate: d.invoice_date, d })
     }
     for (const a of adjustments) push(a.order_id, { id: a.id, at: a.created_at, no: a.entry_no, status: a.kind, qty: a.quantity, date: a.entry_date, invoiceNo: a.invoice_no, invoiceDate: a.invoice_date, d: null })
     for (const list of m.values()) list.sort((x, y) => x.at.localeCompare(y.at))
