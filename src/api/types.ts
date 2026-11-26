@@ -708,6 +708,9 @@ export interface OrderJobProcess {
 export interface OrderDispatch {
   id: string
   dispatch_no: string
+  merge_id?: string | null
+  /** the merged dispatch (Merge to Dispatch) this entry belongs to */
+  merge?: { merge_no: string | null } | null
   order_id: string
   dispatch_date: string
   quantity: number

@@ -25,7 +25,7 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
 
   const load = useCallback(async () => {
     const [d, f, h, i] = await Promise.all([
-      supabase.from('order_dispatches').select('*').eq('order_id', order.id).order('created_at'),
+      supabase.from('order_dispatches').select('*, merge:dispatch_merges(merge_no)').eq('order_id', order.id).order('created_at'),
       supabase.from('commission_invoices').select('*').eq('order_id', order.id).eq('is_legacy', true).maybeSingle(),
       supabase.from('order_dispatch_adjustments').select('*').eq('order_id', order.id).order('created_at'),
       supabase.from('commission_invoice_lines').select('party_type, invoice:commission_invoices(invoice_no)').eq('order_id', order.id).eq('active', true),
@@ -151,6 +151,7 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
                     <span className={`entry-status ${e.full ? 'full' : 'partial'}`}>{e.full ? 'Fully Dispatch' : 'Partially Dispatch'}</span>
                     <span className="mono">{money(x.quantity)} {uomLabel(order.uom)}</span>
                     <span className="muted small">{x.dispatch_date}{x.invoice_no ? ` · Inv ${x.invoice_no}` : ''}</span>
+                    {x.merge?.merge_no && <span className="chip merge-tag" title="Sent in one merged dispatch with other confirmations">Merged · {x.merge.merge_no}</span>}
                   </summary>
                   <div className="exec-facts">
                     {facts.map(([k, v]) => (<div key={k}><span>{k}</span><strong>{v}</strong></div>))}

@@ -3,7 +3,8 @@
  *  Generate PDF in the toolbar (or a row's Actions for one confirmation): their Buyer / Supplier Sale Confirmation Letters (saved to the confirmation's Buyer
  *  Document / Supplier Document), or one Supplier letter per supplier for all of them. Confirmations that already
  *  have both documents are hidden until "Show uploaded" is on. Only confirmations in Send with Delivery Info are listed:
- *  letters and merging start from that stage. Merge to Dispatch waits for its rules. */
+ *  letters and merging start from that stage. Merge to Dispatch records one dispatch (one truck, one mill invoice) across
+ *  the items of ticked confirmations that have the same buyer and the same supplier. */
 import { useMemo, useState } from 'react'
 import type { ScRow } from './scShared'
 import { ScDocIcons, type ScDocLite } from './ScDocIcons'
@@ -13,6 +14,7 @@ import { RowActionMenu } from '../RowActionMenu'
 import { SC_GROUPS, scGroup, scStage, uomLabel, inr } from '../../lib/deals'
 import { formatShortDate } from '../../lib/format'
 import { makeLetters, type LetterKind } from '../../lib/scLetters'
+import { MergeDispatchDialog } from './MergeDispatchDialog'
 
 type Line = { sc_id: string; count_id: string; quantity: number; uom: string }
 
@@ -39,7 +41,7 @@ export function ScPdfTab({
   const [search, setSearch] = useState('')
   const [showUploaded, setShowUploaded] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
-  const [result, setResult] = useState<{ done: string[]; problems: string[] } | null>(null)
+  const [result, setResult] = useState<{ done: string[]; problems: string[]; merge?: boolean } | null>(null)
 
   const docsOf = (id: string, kind: 'buyer' | 'supplier') => (docs.get(id) ?? []).filter((d) => d.kind === kind)
   const uploaded = (x: ScRow) => docsOf(x.id, 'buyer').length > 0 && docsOf(x.id, 'supplier').length > 0
@@ -57,6 +59,14 @@ export function ScPdfTab({
   }, [live, search, showUploaded, docs, buyerName, supplierName, lines, countName])
   const selection = useSelection(useMemo(() => shown.map((x) => x.id), [shown]))
   const chosen = selection.chosen.length
+  const [merging, setMerging] = useState(false)
+  const picked = rows.filter((x) => selection.chosen.includes(x.id))
+  const sameParties = picked.length > 0 && picked.every((x) => x.buyer_id === picked[0]!.buyer_id && x.supplier_id === picked[0]!.supplier_id)
+  const mergeBlock = busy ? 'Wait for the letters to finish.'
+    : chosen < 2 ? 'Tick two or more confirmations with the same buyer and supplier.'
+    : picked.some((x) => !x.buyer_id || !x.supplier_id) ? 'Every ticked confirmation needs a buyer and a supplier.'
+    : !sameParties ? 'Ticked confirmations must have the same buyer and the same supplier.'
+    : null
 
   async function run(kind: LetterKind | 'both', label: string, only?: string[]) {
     const ids = only ?? selection.chosen
@@ -136,7 +146,7 @@ export function ScPdfTab({
           />
         )}
         {canManage && (
-          <button className="btn" type="button" disabled title="Merge to Dispatch: its rules are still to be confirmed.">Merge to Dispatch</button>
+          <button className="btn" type="button" disabled={mergeBlock !== null} title={mergeBlock ?? 'One dispatch for the items of the ticked confirmations'} onClick={() => setMerging(true)}>Merge to Dispatch</button>
         )}
         <div className="board-cols-slot" />
       </div>
@@ -144,10 +154,23 @@ export function ScPdfTab({
       {busy && <div className="notice" role="status"><span className="spinner-inline" aria-hidden="true" />{busy}…</div>}
       {result && (
         <div className={result.problems.length ? 'alert' : 'notice'} role="status">
-          {result.done.length > 0 && <div>{result.done.length} letter{result.done.length === 1 ? '' : 's'} saved: {result.done.join('; ')}.</div>}
+          {result.done.length > 0 && (result.merge
+            ? <div>{result.done[0]}</div>
+            : <div>{result.done.length} letter{result.done.length === 1 ? '' : 's'} saved: {result.done.join('; ')}.</div>)}
           {result.problems.length > 0 && <div>Not made: {result.problems.join('; ')}.</div>}
           <button className="btn ghost sm" type="button" onClick={() => setResult(null)}>Dismiss</button>
         </div>
+      )}
+
+      {merging && picked.length > 0 && (
+        <MergeDispatchDialog
+          scs={picked}
+          countName={countName}
+          buyer={buyerName.get(picked[0]!.buyer_id ?? '') ?? 'the buyer'}
+          supplier={supplierName.get(picked[0]!.supplier_id ?? '') ?? 'the supplier'}
+          onClose={() => setMerging(false)}
+          onDone={async (text) => { setMerging(false); selection.clear(); setResult({ done: [text], problems: [], merge: true }); await onDone() }}
+        />
       )}
 
       <Board

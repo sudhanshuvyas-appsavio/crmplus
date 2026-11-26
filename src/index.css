@@ -1971,3 +1971,14 @@ input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); 
 .row-menu.below { width: 220px; }
 .row-menu.below .row-menu-item { text-align: left; padding: 9px 12px; font-size: 13px; }
 .row-menu-item small.hint { color: var(--ink-3); font-size: 11px; margin-top: 3px; }
+
+/* Merge to Dispatch dialog */
+.merge-sub { margin: 18px 0 8px; font: 600 13px/1.3 var(--body); color: var(--ink); }
+.lines-table tr.muted td { color: var(--ink-3); }
+.merge-table td, .merge-table th { white-space: nowrap; }
+.entry-row > summary .merge-tag { grid-column: 2 / -1; justify-self: start; }
+/* dispatch entry rows on a phone: wrap instead of fixed columns, so nothing runs off the screen */
+@media (max-width: 600px) {
+  .entry-row > summary { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+  .entry-row > summary > .muted { flex-basis: 100%; }
+}
