@@ -136,7 +136,7 @@ export function OrderFormModal({
     let alive = true
     void (async () => {
       const [a, b, c] = await Promise.all([
-        supabase.from('sales_confirmations').select('id,sc_no,confirmed_at,buyer_id,supplier_id').eq('status', 'confirmed').order('confirmed_at', { ascending: false }),
+        supabase.from('sales_confirmations').select('id,sc_no,confirmed_at,buyer_id,supplier_id').eq('status', 'confirmed').eq('stage', 'send_delivery').order('confirmed_at', { ascending: false }),
         supabase.from('sc_lines').select('id,sc_id,line_no,count_id,quantity,uom,bag_weight,rate').order('line_no'),
         supabase.from('orders').select('sc_line_id').neq('status', 'cancelled').not('sc_line_id', 'is', null),
       ])
@@ -273,6 +273,8 @@ export function OrderFormModal({
   const supplierVal = updating ? supplierName.get(cr?.supplier_id ?? '') ?? '' : chosenSc ? supplierName.get(chosenSc.supplier_id ?? '') ?? '' : ''
   const perCount = !updating && todo.length > 1 ? 'Per count (see the list above)' : ''
   const canEditIt = !cr || (cr.status !== 'closed' && cr.status !== 'cancelled')
+  /** Fully Dispatch is the end of an item: it is locked, and only a Return entry can be added or removed. */
+  const fdLocked = updating && !!cr && cr.status !== 'cancelled' && (cr.dispatch_status === 'fully_dispatched' || cr.dispatch_status === 'returned')
 
   async function startDispatch() {
     if (!current) return
@@ -302,7 +304,7 @@ export function OrderFormModal({
             {!updating && (
               <button className="btn ghost" type="button" disabled={busy} onClick={() => { setF(toForm(null)); setPick(''); setPendingFiles([]); setSubmitted(false); setError(null) }}>Clear Form</button>
             )}
-            <button className="btn primary" type="button" onClick={() => void save()} disabled={busy}>
+            <button className="btn primary" type="button" onClick={() => void save()} disabled={busy || fdLocked} title={fdLocked ? 'Fully Dispatch: the item is locked. Only a Return entry can be added.' : undefined}>
               {busy ? 'Saving…' : updating ? 'Update Item' : `Create ${todo.length > 1 ? `${todo.length} Items` : 'Item'}`}
             </button>
           </span>
@@ -311,6 +313,11 @@ export function OrderFormModal({
       }
     >
       <ErrorBanner message={error} />
+      {fdLocked && !readOnly && (
+        <div className="notice small" role="status" style={{ marginBottom: 12 }}>
+          This item is Fully Dispatch, so it is locked. Only a Return entry can be added (or removed) under Dispatch entries below.
+        </div>
+      )}
 
       {updating && !readOnly && (
         <FieldErrorsProvider value={visible}>
@@ -327,7 +334,7 @@ export function OrderFormModal({
 
       {show && (
         <FieldErrorsProvider value={visible}>
-          <fieldset className="ro-fieldset" disabled={readOnly}>
+          <fieldset className="ro-fieldset" disabled={readOnly || fdLocked}>
           {!updating && (
             <FormSection title="Sales Confirmation Details" collapsible columns={3}>
               <div className="fs-span-2">
@@ -340,9 +347,13 @@ export function OrderFormModal({
                   </select>
                 </Field>
               </div>
-              {open.length === 0 && (
-                <FullWidth><p className="muted small">Every complete Sales Confirmation already has its Dispatch and Billing items.</p></FullWidth>
-              )}
+              <FullWidth>
+                <p className="muted small" style={{ marginTop: 0 }}>
+                  {open.length === 0
+                    ? 'No Sales Confirmation is waiting: one in Send with Delivery Info gets its items automatically, and every other one has them already.'
+                    : 'Only Sales Confirmations in Send with Delivery Info are listed: a confirmation goes to Dispatch and Billing only from that stage.'}
+                </p>
+              </FullWidth>
               {chosenSc && (
                 <FullWidth>
                   <div className="table-wrap lines-wrap">

@@ -257,6 +257,8 @@ export default function SalesConfirmations() {
     if (canManage) {
       for (const o of stageOptions(x)) {
         if (o.value === 'cancelled') continue
+        // with a Dispatch and Billing item it stays in Send with Delivery Info
+        if (hasItems && x.stage === 'send_delivery') continue
         list.push({ label: `Move to ${o.label}`, onSelect: () => void setStage(x, o.value) })
       }
       // Send with Delivery Info needs the delivery details: say so instead of hiding the move
@@ -269,7 +271,9 @@ export default function SalesConfirmations() {
     const countRows = Math.max(scLines.get(x.id)?.length ?? 0, 1)
     if (hasItems) list.push({ label: 'Go to Dispatch and Billing', onSelect: () => navigate(`/orders?open=${items.get(x.id)![0]!.id}`) })
     if (canOrder && x.status === 'confirmed' && !cancelled && liveItems < countRows) {
-      list.push({ label: hasItems ? 'Create items for the other counts' : 'Create Dispatch and Billing', onSelect: () => void createItem(x) })
+      // a confirmation goes to Dispatch and Billing only once it is in Send with Delivery Info
+      list.push({ label: hasItems ? 'Create items for the other counts' : 'Create Dispatch and Billing', onSelect: () => void createItem(x),
+        disabledReason: x.stage !== 'send_delivery' ? 'Move it to Send with Delivery Info first: only then does it go to Dispatch and Billing.' : null })
     }
     if (stageOptions(x).some((o) => o.value === 'cancelled')) list.push({ label: 'Cancel confirmation', tone: 'danger', onSelect: () => { setRowError(null); setCancelling(x) } })
     list.push({

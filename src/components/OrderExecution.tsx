@@ -86,8 +86,10 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
   const cancelled = adj.filter((a) => a.kind === 'cancel').reduce((n, x) => n + x.quantity, 0)
   const dispatched = dsp.reduce((n, x) => n + x.quantity, 0)
 
-  const del = (table: string, id: string) =>
-    manage ? <button className="btn ghost sm" type="button" onClick={() => void remove(table, id)}>Remove</button> : null
+  // Fully Dispatch is the end of an item: only Return entries can be added or removed after it
+  const fully = dispatched > 0 && (dispatched + cancelled >= order.quantity || returned > 0)
+  const del = (table: string, id: string, isReturn = false) =>
+    manage && (!fully || isReturn) ? <button className="btn ghost sm" type="button" onClick={() => void remove(table, id)}>Remove</button> : null
 
   // a Return makes the item Fully Dispatch, so nothing is left to send after one
   const left = returned > 0 ? 0 : Math.max(order.quantity - dispatched - cancelled, 0)
@@ -171,7 +173,7 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
                   {x.invoice_date && <div><span>Invoice Date</span><strong>{x.invoice_date}</strong></div>}
                   {x.reason && <div><span>Reason</span><strong>{x.reason}</strong></div>}
                 </div>
-                {del('order_dispatch_adjustments', x.id)}
+                {del('order_dispatch_adjustments', x.id, x.kind === 'return')}
               </details>
             )
           })}

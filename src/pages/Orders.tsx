@@ -348,7 +348,7 @@ export default function DispatchAndBilling() {
           subRows: (x) => (subsByOrder.get(x.id) ?? []).map((e) => ({ key: e.id, cell: (col) => subCell(x, e, col.key, { buyer: buyerName.get(x.buyer_id) ?? '—', supplier: supplierName.get(x.supplier_id) ?? '—', count: countName.get(x.count_id) ?? '—', transporter: x.transporter_id ? transporterName.get(x.transporter_id) ?? '—' : '—', people: personName }) })),
         }}
         view={view}
-        emptyText={tab === 'duplicates' ? 'No duplicate invoice numbers.' : rows.length === 0 ? 'Nothing yet. Open a complete Sales Confirmation and choose “Create Dispatch and Billing”.' : 'No item matches.'}
+        emptyText={tab === 'duplicates' ? 'No duplicate invoice numbers.' : rows.length === 0 ? 'Nothing yet. An item is made when a Sales Confirmation moves to Send with Delivery Info.' : 'No item matches.'}
         card={(x) => (
           <>
             <span className="kcard-top">

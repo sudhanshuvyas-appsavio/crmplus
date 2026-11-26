@@ -523,7 +523,7 @@ export function ScFormModal({
                       ))}
                     </ul>
                   ) : (
-                    <p className="small muted" style={{ margin: 0 }}>{complete ? 'Not created yet. Use Actions > Create Dispatch and Billing on the board.' : 'Available once the confirmation is complete.'}</p>
+                    <p className="small muted" style={{ margin: 0 }}>{!complete ? 'Available once the confirmation is complete.' : current.stage === 'send_delivery' ? 'Not created yet. Use Actions > Create Dispatch and Billing on the board.' : 'Created when the confirmation moves to Send with Delivery Info.'}</p>
                   )}
                 </div>
               )}

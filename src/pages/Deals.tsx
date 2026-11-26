@@ -78,6 +78,7 @@ export default function Deals() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [people, setPeople] = useState<Person[]>([])
   const [scNos, setScNos] = useState<Map<string, string>>(new Map())
+  const [scStages, setScStages] = useState<Map<string, string>>(new Map())
   const [leadNos, setLeadNos] = useState<Map<string, string>>(new Map())
   const [dealLines, setDealLines] = useState<Map<string, DealLineRow[]>>(new Map())
   const [details, setDetails] = useState<Deal | null>(null)
@@ -103,7 +104,7 @@ export default function Deals() {
       supabase.from('payment_terms').select('*').order('name'),
       supabase.from('companies').select('id,name,is_home,is_active,phone_1,mobile').order('name'),
       supabase.from('profiles').select('id,name').eq('is_active', true).order('name'),
-      supabase.from('sales_confirmations').select('id,sc_no'),
+      supabase.from('sales_confirmations').select('id,sc_no,stage'),
       supabase.from('leads').select('id,lead_no'),
       supabase.from('crm_deal_lines').select('deal_id,line_no,count_id,quantity,uom,bag_weight,final_rate').order('line_no'),
     ])
@@ -116,6 +117,7 @@ export default function Deals() {
     setCompanies((co.data ?? []) as Company[])
     setPeople((p.data ?? []) as Person[])
     setScNos(new Map(((sc.data ?? []) as { id: string; sc_no: string }[]).map((x) => [x.id, x.sc_no])))
+    setScStages(new Map(((sc.data ?? []) as { id: string; stage: string }[]).map((x) => [x.id, x.stage])))
     const byDeal = new Map<string, DealLineRow[]>()
     for (const r of (dl.data ?? []) as DealLineRow[]) byDeal.set(r.deal_id, [...(byDeal.get(r.deal_id) ?? []), r])
     setDealLines(byDeal)
@@ -273,7 +275,7 @@ export default function Deals() {
       if (next.includes('closed_lost')) items.push(statusAction(x, 'closed_lost', 'Close as lost'))
     }
     if (x.status === 'approved' && !x.sales_confirmation_id) items.push({ label: 'Create Sales Confirmation', onSelect: () => void createSc(x), disabledReason: !canEdit ? 'You need the "Edit deals" permission.' : null })
-    if (x.sales_confirmation_id) items.push({ label: 'Create Dispatch and Billing', onSelect: () => void createOrder(x), disabledReason: !can('order.manage') ? 'You need the "Manage Dispatch and Billing" permission.' : null })
+    if (x.sales_confirmation_id) items.push({ label: 'Create Dispatch and Billing', onSelect: () => void createOrder(x), disabledReason: !can('order.manage') ? 'You need the "Manage Dispatch and Billing" permission.' : scStages.get(x.sales_confirmation_id) !== 'send_delivery' ? 'Its Sales Confirmation goes to Dispatch and Billing only once it is in Send with Delivery Info.' : null })
     if (x.sales_confirmation_id) items.push({ label: 'Go to Sales Confirmation', onSelect: () => navigate(`/sales-confirmations?open=${x.sales_confirmation_id}`) })
     items.push({
       label: 'Delete',
