@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { tripsLinkedToRecords } from '../lib/boards'
 import type { CountRow, JobProcess, Order, OrderAdjustment, OrderDispatch, PaymentTerm, Transporter } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
@@ -58,6 +59,8 @@ export default function DispatchAndBilling() {
   const [transporters, setTransporters] = useState<Transporter[]>([])
   const [people, setPeople] = useState<Named[]>([])
   const [scs, setScs] = useState<Map<string, string>>(new Map())
+  // Transporter Type Details rows linked to each item (the other end of the trip's link)
+  const [trips, setTrips] = useState<Map<string, string[]>>(new Map())
   const navigate = useNavigate()
   const [details, setDetails] = useState<Order | null>(null)
   const [formFor, setFormFor] = useState<Order | 'new' | null>(null)
@@ -103,6 +106,11 @@ export default function DispatchAndBilling() {
     setTransporters((tr.data ?? []) as Transporter[])
     setPeople((p.data ?? []) as Named[])
     setScs(new Map(((sc.data ?? []) as ScRef[]).map((x) => [x.id, x.sc_no])))
+    try {
+      setTrips((await tripsLinkedToRecords()).byOrder)
+    } catch {
+      setTrips(new Map())
+    }
   }, [])
   useEffect(() => {
     void load()
@@ -280,6 +288,12 @@ export default function DispatchAndBilling() {
     { key: 'dispatch-date', hidden: true, label: 'Dispatch Date', render: (x) => cell(x.tentative_dispatch_date) },
     { key: 'person', label: 'Person', render: (x) => <PersonCell name={x.person_id ? personName.get(x.person_id) : undefined} /> },
     { key: 'transport', hidden: true, label: 'Transport Type', render: (x) => cell(x.transport_type ? transportTypeLabel(x.transport_type) : null) },
+    {
+      key: 'ttd',
+      label: 'Transporter Type Details',
+      interactive: true,
+      render: (x) => (trips.get(x.id)?.length ? <Link className="mono small" to="/transporter-type-details">{trips.get(x.id)!.join(', ')}</Link> : cell(null)),
+    },
     { key: 'action', label: 'Actions', interactive: true, pinRight: true, render: (x) => <RowActionMenu label={`Actions for ${x.order_no}`} actions={actionsFor(x)} /> },
   ]
 

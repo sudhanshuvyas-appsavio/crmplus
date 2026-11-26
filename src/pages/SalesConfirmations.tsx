@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { tripsLinkedToRecords } from '../lib/boards'
 import type { CountRow, JobProcess, PaymentTerm, Transporter } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from '../components/Loading'
@@ -50,6 +51,8 @@ export default function SalesConfirmations() {
   const canOrder = can('order.manage')
   const [params, setParams] = useSearchParams()
   const [rows, setRows] = useState<ScRow[] | null>(null)
+  // Transporter Type Details rows linked to each confirmation (monday's "link to Transporter Type Details")
+  const [trips, setTrips] = useState<Map<string, string[]>>(new Map())
   const [suppliers, setSuppliers] = useState<Party[]>([])
   const [buyers, setBuyers] = useState<Party[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
@@ -105,6 +108,11 @@ export default function SalesConfirmations() {
     setExec(new Map(((ex.data ?? []) as { sc_id: string; exec_status: string; dispatched_qty: number }[]).map((x) => [x.sc_id, x])))
     if (r.error) setBanner({ kind: 'bad', text: errMessage(r.error, 'Could not load sales confirmations') })
     setRows((r.data ?? []) as ScRow[])
+    try {
+      setTrips((await tripsLinkedToRecords()).bySc)
+    } catch {
+      setTrips(new Map())
+    }
     setSuppliers((s.data ?? []) as Party[])
     setBuyers((b.data ?? []) as Party[])
     setCompanies((c.data ?? []) as Company[])
@@ -337,6 +345,12 @@ export default function SalesConfirmations() {
     },
     { key: 'bdoc', label: 'Buyer Document', interactive: true, width: 150, render: (x) => <ScDocIcons docs={(docs.get(x.id) ?? []).filter((d) => d.kind === 'buyer')} /> },
     { key: 'sdoc', label: 'Supplier Document', interactive: true, width: 150, render: (x) => <ScDocIcons docs={(docs.get(x.id) ?? []).filter((d) => d.kind === 'supplier')} /> },
+    {
+      key: 'ttd',
+      label: 'Transporter Type Details',
+      interactive: true,
+      render: (x) => (trips.get(x.id)?.length ? <Link className="mono small" to="/transporter-type-details">{trips.get(x.id)!.join(', ')}</Link> : cell(null)),
+    },
     { key: 'action', label: 'Actions', interactive: true, pinRight: true, render: (x) => <RowActionMenu label={`Actions for ${x.sc_no}`} actions={actionsFor(x)} /> },
   ]
 

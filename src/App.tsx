@@ -27,6 +27,8 @@ import CollectionActivity from './pages/CollectionActivity'
 import OfficeActivity from './pages/OfficeActivity'
 import TransporterPayments from './pages/TransporterPayments'
 import TripSheets from './pages/TripSheets'
+import TransporterTypeDetails from './pages/TransporterTypeDetails'
+import TransportInvoices from './pages/TransportInvoices'
 import StaffExpenses from './pages/StaffExpenses'
 import SalesDashboard from './pages/SalesDashboard'
 import BillingDashboard from './pages/BillingDashboard'
@@ -112,6 +114,8 @@ export default function App() {
           <Route path="/office-activity" element={<OfficeActivity />} />
           <Route path="/transporter-payments" element={<TransporterPayments />} />
           <Route path="/trip-sheets" element={<TripSheets />} />
+          <Route path="/transporter-type-details" element={<TransporterTypeDetails />} />
+          <Route path="/transport-invoices" element={<TransportInvoices />} />
           <Route path="/staff-expenses" element={<StaffExpenses />} />
           <Route path="/sales-dashboard" element={<SalesDashboard />} />
           <Route path="/billing-dashboard" element={<BillingDashboard />} />

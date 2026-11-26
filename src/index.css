@@ -1321,6 +1321,123 @@ a.summary-card:hover { box-shadow: var(--shadow); }
 .rail .bell-panel { position: fixed; top: 64px; left: 12px; right: auto; }
 /* monday-style wide board tables: long text (addresses, remarks) is clipped, full value on hover */
 .cell-clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+
+/* ---------- Transporter Type Details (monday board) ---------- */
+.ttd-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.ttd-tools .toolbar-search { max-width: 320px; }
+.ttd-cell { white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.ttd-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.ttd-wide { grid-column: 1 / -1; }
+.ttd-acc { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; }
+.ttd-acc-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 14px;
+  background: var(--surface-2); border: 0; border-radius: var(--radius); cursor: pointer;
+  font: 600 13px/1.2 var(--display); color: var(--ink); text-align: left;
+}
+.ttd-acc-head[aria-expanded="true"] { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.ttd-acc-head svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; transition: transform 0.15s; }
+.ttd-acc-head svg.closed { transform: rotate(-90deg); }
+.ttd-acc-pick { margin-left: auto; font-weight: 500; font-size: 12px; color: var(--ink-3); }
+.ttd-acc-count { font-weight: 400; font-size: 12px; color: var(--ink-3); }
+/* searchable link picker (Transport Invoice form) */
+.ss { position: relative; }
+.ss-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 6px 12px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-2);
+  color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.ss-btn.open, .ss-btn:focus-visible { border-color: var(--brand); background: var(--surface); outline: none; }
+.ss-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+.ss-placeholder { color: var(--ink-3); }
+.ss-caret { margin-left: auto; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
+.ss-caret.up { transform: rotate(180deg); }
+.ss-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border-radius: 999px;
+  background: var(--brand-soft); border: 1px solid var(--brand-line); color: var(--brand); font-size: 13px;
+}
+.ss-chip button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 4px; }
+.ss-panel {
+  position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; padding: 10px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-lift);
+}
+.ss-search { width: 100%; padding: 8px 10px; border: 1px solid var(--brand); border-radius: var(--radius); font: inherit; font-size: 13px; background: var(--surface); color: var(--ink); }
+.ss-close { width: 100%; margin-top: 8px; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer; }
+.ss-head { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 4px; padding: 6px 4px; font: 600 10.5px/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand); border-bottom: 1px solid var(--border); }
+.ss-count { background: var(--brand); color: var(--brand-ink); border-radius: 999px; padding: 2px 7px; font-size: 10px; }
+.ss-list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.ss-item { display: block; width: 100%; padding: 8px 10px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ss-item:hover, .ss-item.on { background: var(--brand-soft); }
+.ss-empty { padding: 10px; font-size: 13px; color: var(--ink-3); }
+.ttd-acc-empty { margin: 0; padding: 18px 14px; font-size: 13px; color: var(--ink-3); }
+.ttd-files { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ttd-attach {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; cursor: pointer;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2);
+  color: var(--brand); font: inherit; font-size: 13px;
+}
+.ttd-attach:disabled { cursor: not-allowed; opacity: 0.6; }
+.ttd-attach svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
+.ttd-file { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; }
+.ttd-file button { border: 0; background: none; cursor: pointer; color: var(--ink-3); font-size: 15px; line-height: 1; padding: 0 4px; }
+.ttd-acc-head svg.ttd-acc-chev { margin-left: auto; }
+.ttd-acc-head svg.ttd-acc-chev.up { transform: rotate(180deg); }
+.ttd-field > label { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 500; color: var(--ink); }
+.ttd-check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; padding: 8px 0; cursor: pointer; }
+.ttd-check input { width: 16px; height: 16px; }
+.ttd-datetime { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field select.ttd-status.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 600; }
+.field select.ttd-status.on option { background: var(--surface); color: var(--ink); font-weight: 400; }
+.ttd-acc-body { padding: 14px 14px 0; }
+@media (max-width: 640px) { .ttd-grid { grid-template-columns: minmax(0, 1fr); } }
+.ttd-modal .drawer {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  width: min(960px, calc(100vw - 32px));
+  max-height: 88vh;
+  border-radius: 8px;
+}
+
+/* ---------- monday board tabs and the Freight Invoice view ---------- */
+.mb-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: -4px 0 16px; overflow-x: auto; }
+.mb-tab { padding: 9px 14px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-2); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.mb-tab.on { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+.fi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.fi-head { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 14px; }
+.fi-head h2 { font-size: 17px; font-weight: 600; margin: 0; }
+.fi-head .push { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.fi-table td, .fi-table th { white-space: nowrap; }
+.fi-table tr.on td { background: var(--brand-soft); }
+.fi-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.fi-badge.pending { background: var(--warn-soft); color: var(--warn); }
+.fi-badge.uploaded { background: var(--good-soft, #e7f6ec); color: var(--good); }
+/* Freight Invoice Preview pop-up: monday's structure, in the app's blue and white */
+.fi-modal {
+  position: fixed; z-index: 42; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 32px)); background: var(--surface); color: var(--ink);
+  border-radius: 8px; box-shadow: var(--shadow-lift); padding: 20px 20px 16px;
+}
+.fi-modal h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.fi-sub { margin: 0; font-size: 11.5px; color: var(--ink-3); }
+.fi-preview {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 16px; padding: 6px 14px;
+  border: 1px solid var(--brand); border-radius: 4px; background: var(--surface); color: var(--brand);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.fi-preview:hover { background: var(--brand-soft); }
+.fi-preview svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+.fi-modal .fi-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.fi-cancel { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.fi-cancel:hover { background: var(--surface-2); }
+.fi-confirm {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 0; border-radius: 4px;
+  background: var(--brand); color: var(--brand-ink); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.fi-confirm:hover { filter: brightness(1.1); }
+.fi-confirm:disabled, .fi-cancel:disabled { opacity: 0.6; cursor: not-allowed; }
+.fi-tick { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 2px; background: var(--brand-ink); color: var(--brand); font-size: 10px; font-weight: 700; line-height: 1; }
 .bgroup-empty { padding: 12px 14px; }
 /* count lines editor (deal / Sales Confirmation) */
 .lines-wrap { margin-bottom: 12px; }
@@ -1510,6 +1627,27 @@ tr.subrow > td { padding: 0; background: var(--surface-2, var(--surface)); borde
 input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); }
 
 
+
+/* file column cell (Document / Documents), as on monday: one icon per file */
+.file-cell { display: inline-flex; gap: 4px; align-items: center; }
+.file-chip { display: inline-grid; place-items: center; width: 26px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--ink-3); cursor: pointer; }
+.file-chip:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+.file-chip:disabled { opacity: 0.6; cursor: wait; }
+.file-chip svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+
+/* Freight Invoice Preview, large: the PDF inside, Cancel left / Confirm & Save right */
+.fi-modal.big { width: min(1000px, calc(100vw - 32px)); height: calc(100vh - 48px); padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.fi-modal-head { padding: 16px 20px 12px; border-bottom: 1px solid var(--border); }
+.fi-pdf { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: var(--surface-3); }
+.fi-pdf iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.fi-modal .fi-actions.spread { justify-content: space-between; margin: 0; padding: 12px 20px; border-top: 1px solid var(--border); }
+
+/* Freight Invoice Preview: the page alone, framed like a document */
+.fi-modal-head { display: flex; align-items: flex-start; gap: 12px; }
+.fi-modal-head > div { flex: 1; min-width: 0; }
+.fi-x { border: 0; background: none; font-size: 24px; line-height: 1; color: var(--ink-3); cursor: pointer; padding: 0 4px; }
+.fi-x:hover { color: var(--ink); }
+.fi-modal.big .fi-pdf { margin: 16px 20px; border: 1px solid var(--border); border-radius: 6px; background: #fff; overflow: hidden; }
 
 /* Count rows: the number boxes sit outside a .field, so they got the browser's grey boxes. Match the dropdowns. */
 .lines-table input {
