@@ -3,6 +3,7 @@
  *  quantity (or a return is recorded); there is no separate closing step. */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { CommissionInvoice, Order, OrderAdjustment, OrderDispatch } from '../api/types'
 import { errMessage } from '../lib/party'
@@ -18,15 +19,22 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
   const [adj, setAdj] = useState<OrderAdjustment[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [inv, setInv] = useState<CommissionInvoice | null>(null)
+  const [billed, setBilled] = useState<{ party_type: string; invoice_no: string | null }[]>([])
   const isClosed = order.status === 'closed'
   const manage = canManage && !isClosed
 
   const load = useCallback(async () => {
-    const [d, f, h] = await Promise.all([
+    const [d, f, h, i] = await Promise.all([
       supabase.from('order_dispatches').select('*').eq('order_id', order.id).order('created_at'),
-      supabase.from('commission_invoices').select('*').eq('order_id', order.id).maybeSingle(),
+      supabase.from('commission_invoices').select('*').eq('order_id', order.id).eq('is_legacy', true).maybeSingle(),
       supabase.from('order_dispatch_adjustments').select('*').eq('order_id', order.id).order('created_at'),
+      supabase.from('commission_invoice_lines').select('party_type, invoice:commission_invoices(invoice_no)').eq('order_id', order.id).eq('active', true),
     ])
+    const seen = new Map<string, { party_type: string; invoice_no: string | null }>()
+    for (const l of (i.data ?? []) as unknown as { party_type: string; invoice: { invoice_no: string | null } | null }[]) {
+      seen.set(`${l.party_type}|${l.invoice?.invoice_no ?? ''}`, { party_type: l.party_type, invoice_no: l.invoice?.invoice_no ?? null })
+    }
+    setBilled([...seen.values()])
     setAdj((h.data ?? []) as OrderAdjustment[])
     setInv((f.data ?? null) as CommissionInvoice | null)
     setDsp((d.data ?? []) as OrderDispatch[])
@@ -43,14 +51,6 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
       await load()
       if (onChanged) await onChanged()
     }
-  }
-
-  async function generateInvoice() {
-    setErr(null)
-    const { error } = await supabase.rpc('generate_commission_invoice', { p_order: order.id })
-    if (error) return setErr(errMessage(error, 'Could not generate the commission invoice'))
-    await load()
-    if (onChanged) await onChanged()
   }
 
   async function printInvoice() {
@@ -188,10 +188,9 @@ export function OrderExecution({ order, canManage, onChanged }: { order: Order; 
         )}
       </ExecCard>
 
-      <ExecCard title="Commission invoice" hint={inv ? `${inv.invoice_no}, ${money(inv.amount)}` : 'Not generated yet.'}>
-        {inv && <div><button className="btn" type="button" onClick={() => void printInvoice()}>Print commission bill</button></div>}
-        {manage && !inv && <div><button className="btn" type="button" onClick={() => void generateInvoice()}>Generate commission invoice</button></div>}
-        {!inv && !manage && <p className="muted small">No commission invoice has been generated for this item.</p>}
+      <ExecCard title="Commission invoice" hint={[inv ? `old invoice ${inv.invoice_no}, ${money(inv.amount)}` : '', ...billed.map((b) => `${b.party_type === 'supplier' ? 'supplier' : 'buyer'}: invoice ${b.invoice_no}`)].filter(Boolean).join(' · ') || 'Not invoiced yet.'}>
+        {inv && <div><button className="btn" type="button" onClick={() => void printInvoice()}>Print old commission bill</button></div>}
+        <p className="small">Commission invoices are made for a Business Unit and party over a date range: <Link to="/commission-invoices">open Commission Invoices</Link>.</p>
       </ExecCard>
     </div>
   )
