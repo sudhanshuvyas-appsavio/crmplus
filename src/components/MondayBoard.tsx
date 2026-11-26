@@ -1,11 +1,11 @@
-/** A board shown as a table: every column, in monday's order, with search and
- *  refresh. Used by Transporter Type Details and Transport Invoice. The boards are the app's own copy of the monday boards
- *  (src/lib/boards.ts); monday itself is not connected. */
+/** A board shown as a table: every column, with search and refresh. Used by
+ *  Transporter Type Details and Transport Invoice. The data lives in the
+ *  app's own database (src/lib/boards.ts); there is no monday connection. */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { Loading } from './Loading'
-import { supabase, functionsUrl } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { loadBoard } from '../lib/boards'
 
 export interface Cell { text: string; ids?: string[] }
@@ -17,32 +17,14 @@ export interface BoardData { board: string; columns: Column[]; items: Item[]; li
 /** The screen boards. */
 export type BoardKey = 'ttd' | 'transport_invoice'
 
-/** The monday-ttd Edge Function: only used now for the one-time copy of the
- *  boards from monday (action "snapshot", while a monday token is set). */
-export async function mondayCall<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) throw new Error('Not signed in')
-  let res: Response
-  try {
-    res = await fetch(`${functionsUrl}/monday-ttd`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ action, ...payload }),
-    })
-  } catch {
-    throw new Error('Cannot reach the server. Check your connection.')
-  }
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((body as { error?: string }).error ?? `Request failed (${res.status})`)
-  return body as T
-}
-
 export function MondayBoardPage({
   board,
   title,
   subtitle,
   action,
   tabs,
+  headers,
+  arrange,
 }: {
   board: BoardKey
   title: string
@@ -51,8 +33,12 @@ export function MondayBoardPage({
   action?: (data: BoardData | null, reload: () => void) => ReactNode
   /** Extra views beside "Main table", as monday's board tabs. */
   tabs?: { label: string; render: (data: BoardData, reload: () => void) => ReactNode }[]
+  /** Table header labels to show instead of the column titles ("Item" is the name column). */
+  headers?: Record<string, string>
+  /** The main table's columns, rearranged or trimmed (default: the board's own order). */
+  arrange?: (columns: Column[]) => Column[]
 }) {
-  const { canAny, me } = useAuth()
+  const { canAny } = useAuth()
   const allowed = canAny('order.read', 'order.manage')
   const [data, setData] = useState<BoardData | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -60,7 +46,6 @@ export function MondayBoardPage({
   const [loading, setLoading] = useState(false)
   const [loadedAt, setLoadedAt] = useState<Date | null>(null)
   const [tab, setTab] = useState(0)
-  const [copying, setCopying] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -74,19 +59,6 @@ export function MondayBoardPage({
       setLoading(false)
     }
   }, [board])
-
-  /** One-time copy of the boards from monday (administrators, token set). */
-  async function copyFromMonday() {
-    setCopying('Copying the boards from monday… this can take a minute')
-    try {
-      const r = await mondayCall<{ boards: { board: string; items: number }[] }>('snapshot')
-      setCopying(`Copied ${r.boards.length} boards: ${r.boards.map((b) => `${b.board} (${b.items})`).join(', ')}`)
-      void load()
-    } catch (e) {
-      setCopying(e instanceof Error ? e.message : 'Copy failed')
-    }
-  }
-  const notCopied = !!error && error.includes('has not been copied')
 
   useEffect(() => {
     if (allowed) void load()
@@ -130,14 +102,8 @@ export function MondayBoardPage({
         <div className="alert">
           <span>{error}</span>
           <button className="btn ghost sm" type="button" onClick={() => void load()}>Try again</button>
-          {notCopied && me?.is_admin && (
-            <button className="btn primary sm" type="button" disabled={!!copying && copying.startsWith('Copying')} onClick={() => void copyFromMonday()}>
-              Copy from monday
-            </button>
-          )}
         </div>
       )}
-      {copying && <div className="notice small">{copying}</div>}
 
       {!data && !error ? (
         <Loading label="Loading" />
@@ -160,22 +126,74 @@ export function MondayBoardPage({
             </button>
             {loadedAt && !loading && <span className="small muted">Updated {loadedAt.toLocaleTimeString()}</span>}
           </div>
-          <BoardTable columns={data.columns} items={rows} />
+          <BoardTable columns={arrange ? arrange(data.columns) : data.columns} items={rows} boardId={(data as BoardData & { boardId?: string }).boardId} headers={headers} />
         </>
       ) : null}
     </div>
   )
 }
 
+/** A file column cell: one file icon per file; clicking downloads it from
+ *  the app's storage (bucket "board-files"). */
+function FileCell({ cell, boardId, itemId }: { cell: Cell | undefined; boardId?: string; itemId: string }) {
+  const [busy, setBusy] = useState(false)
+  const files = (cell?.text ?? '').split(', ').map((f) => f.trim()).filter(Boolean)
+  if (files.length === 0) return <span className="muted">—</span>
+
+  async function open(entry: string) {
+    setBusy(true)
+    try {
+      // the stored path of an app file: remembered at upload, or found in its folder
+      let path = (cell?.ids ?? []).find((p) => p.endsWith(`-${entry}`))
+      if (!path && boardId) {
+        const folder = `${boardId}/${itemId}`
+        const { data } = await supabase.storage.from('board-files').list(folder)
+        const hit = (data ?? []).find((f) => f.name.endsWith(`-${entry}`) || f.name === entry)
+        if (hit) path = `${folder}/${hit.name}`
+      }
+      if (!path) throw new Error('not found')
+      // a link that downloads the file (Content-Disposition: attachment) under its own name
+      const { data, error } = await supabase.storage.from('board-files').createSignedUrl(path, 300, { download: entry })
+      if (error || !data) throw new Error('no link')
+      const a = document.createElement('a')
+      a.href = data.signedUrl
+      a.download = entry
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch {
+      window.alert(`Could not open ${entry}.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const label = (entry: string) => entry
+
+  return (
+    <span className="file-cell">
+      {files.map((f, i) => (
+        <button key={`${f}-${i}`} type="button" className="file-chip" title={label(f)} aria-label={`Download ${label(f)}`} disabled={busy} onClick={() => void open(f)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4" /><path d="M9.5 12h5M9.5 15h5M9.5 18h3" /></svg>
+        </button>
+      ))}
+    </span>
+  )
+}
+
 /** Board rows as a table: the given columns, in the given order. */
-export function BoardTable({ columns, items }: { columns: Column[]; items: Item[] }) {
+export function BoardTable({ columns, items, boardId, headers }: { columns: Column[]; items: Item[]; boardId?: string; headers?: Record<string, string> }) {
+  const head = (c: Column) => {
+    const t = c.type === 'name' ? 'Item' : c.title
+    return headers?.[t] ?? t
+  }
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.id}>{c.type === 'name' ? 'Item' : c.title}</th>
+              <th key={c.id}>{head(c)}</th>
             ))}
           </tr>
         </thead>
@@ -188,7 +206,9 @@ export function BoardTable({ columns, items }: { columns: Column[]; items: Item[
             items.map((it) => (
               <tr key={it.id}>
                 {columns.map((c) => (
-                  <td key={c.id} className="ttd-cell">{c.type === 'name' ? it.name : it.values[c.id]?.text || '—'}</td>
+                  <td key={c.id} className="ttd-cell">
+                    {c.type === 'name' ? it.name : c.type === 'file' ? <FileCell cell={it.values[c.id]} boardId={boardId} itemId={it.id} /> : it.values[c.id]?.text || '—'}
+                  </td>
                 ))}
               </tr>
             ))

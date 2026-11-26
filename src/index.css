@@ -1616,3 +1616,24 @@ tr.subrow > td { padding: 0; background: var(--surface-2, var(--surface)); borde
 input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); }
 
 
+
+/* file column cell (Document / Documents), as on monday: one icon per file */
+.file-cell { display: inline-flex; gap: 4px; align-items: center; }
+.file-chip { display: inline-grid; place-items: center; width: 26px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--ink-3); cursor: pointer; }
+.file-chip:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+.file-chip:disabled { opacity: 0.6; cursor: wait; }
+.file-chip svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+
+/* Freight Invoice Preview, large: the PDF inside, Cancel left / Confirm & Save right */
+.fi-modal.big { width: min(1000px, calc(100vw - 32px)); height: calc(100vh - 48px); padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.fi-modal-head { padding: 16px 20px 12px; border-bottom: 1px solid var(--border); }
+.fi-pdf { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: var(--surface-3); }
+.fi-pdf iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.fi-modal .fi-actions.spread { justify-content: space-between; margin: 0; padding: 12px 20px; border-top: 1px solid var(--border); }
+
+/* Freight Invoice Preview: the page alone, framed like a document */
+.fi-modal-head { display: flex; align-items: flex-start; gap: 12px; }
+.fi-modal-head > div { flex: 1; min-width: 0; }
+.fi-x { border: 0; background: none; font-size: 24px; line-height: 1; color: var(--ink-3); cursor: pointer; padding: 0 4px; }
+.fi-x:hover { color: var(--ink); }
+.fi-modal.big .fi-pdf { margin: 16px 20px; border: 1px solid var(--border); border-radius: 6px; background: #fff; overflow: hidden; }

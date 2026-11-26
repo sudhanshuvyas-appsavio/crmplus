@@ -7,7 +7,7 @@
  *  asked for (demo, 23 Mar 2026): "Bill To" (the buyer, name only) and
  *  "Delivered to" (the sizing / delivery address, name only). */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { useAuth } from '../auth/AuthProvider'
 import { type BoardData, type Column, type Item } from './MondayBoard'
@@ -208,11 +208,17 @@ export function FreightInvoiceView({ data, reload }: { data: BoardData; reload: 
   const rows = showUploaded ? list.filter((i) => i.uploaded) : list.filter((i) => !i.uploaded)
   const inv = list.find((i) => i.id === picked)
 
-  function preview() {
-    if (!inv) return
-    const url = buildFreightPdf(inv).output('bloburl')
-    window.open(String(url), '_blank', 'noopener')
-  }
+  // the PDF shown inside the pop-up (made when it opens, released when it closes)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!dialog || !inv) return
+    const url = URL.createObjectURL(buildFreightPdf(inv).output('blob'))
+    setPdfUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setPdfUrl(null)
+    }
+  }, [dialog, inv])
 
   async function upload() {
     if (!inv || !docCol) return
@@ -303,15 +309,19 @@ export function FreightInvoiceView({ data, reload }: { data: BoardData; reload: 
       {dialog && inv && (
         <>
           <button className="scrim" type="button" aria-label="Close" onClick={() => !busy && setDialog(false)} />
-          <div className="fi-modal" role="dialog" aria-label="Freight Invoice Preview">
-            <h3>Freight Invoice Preview</h3>
-            <p className="fi-sub">Review the PDF before saving it to the invoice.</p>
-            {error && <div className="alert" style={{ marginTop: 10 }}><span>{error}</span></div>}
-            <button className="fi-preview" type="button" onClick={preview}>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5" /></svg>
-              Open PDF Preview
-            </button>
-            <div className="fi-actions">
+          <div className="fi-modal big" role="dialog" aria-label="Freight Invoice Preview">
+            <header className="fi-modal-head">
+              <div>
+                <h3>{inv.name} Freight Invoice Preview</h3>
+                <p className="fi-sub">{[inv.f.buName, inv.f.to].filter(Boolean).join(' · ') || 'Review the PDF before saving it to the invoice.'}</p>
+              </div>
+              <button type="button" className="fi-x" aria-label="Close" disabled={busy} onClick={() => setDialog(false)}>×</button>
+            </header>
+            {error && <div className="alert" style={{ margin: '0 20px 10px' }}><span>{error}</span></div>}
+            <div className="fi-pdf">
+              {pdfUrl ? <iframe src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`} title={`Freight invoice ${inv.name}`} /> : <p className="muted">Preparing the PDF…</p>}
+            </div>
+            <div className="fi-actions spread">
               <button className="fi-cancel" type="button" disabled={busy} onClick={() => setDialog(false)}>Cancel</button>
               {can('order.manage') && (
                 <button className="fi-confirm" type="button" disabled={busy || !docCol} onClick={() => void upload()}>

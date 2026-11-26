@@ -131,6 +131,13 @@ export default function TransporterTypeDetails() {
       board="ttd"
       title="Transporter Type Details"
       subtitle="One row per trip: transport type, vehicle and trip costing."
+      arrange={(cols) => {
+        // no Item column (it repeats Serial No); Serial No first, then Person, then the rest
+        const isSerial = (c: Column) => ['serialno', 'serialnumber'].includes(c.title.toLowerCase().replace(/[^a-z0-9]/g, ''))
+        const isPerson = (c: Column) => c.type === 'people' && c.title.toLowerCase().trim() === 'person'
+        const rest = cols.filter((c) => c.type !== 'name' && !isSerial(c) && !isPerson(c))
+        return [...cols.filter(isSerial), ...cols.filter(isPerson), ...rest]
+      }}
       action={(data, reload) => (
         <>
           {can('order.manage') && (
@@ -165,7 +172,17 @@ function CreationForm({ data, onClose, onSaved }: { data: BoardData; onClose: ()
     () => SECTIONS.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, col: findColumn(columns, f.titles, f.prefer) })) })),
     [columns],
   )
-  const blank = (): Record<string, Value> => ({ Name: { text: nextSerial(data, serialCol) } })
+  // KT Invoice No: one more than the highest on the board, allocated automatically
+  const ktCol = useMemo(() => findColumn(columns, ['KT Invoice No', 'KT Invoice No.'], ['numbers', 'text']), [columns])
+  const nextKt = useMemo(() => {
+    let max = 0
+    if (ktCol) for (const it of data.items) {
+      const n = parseInt((it.values[ktCol.id]?.text ?? '').replace(/[^\d]/g, ''), 10)
+      if (Number.isFinite(n) && n > max) max = n
+    }
+    return String(max + 1)
+  }, [data.items, ktCol])
+  const blank = (): Record<string, Value> => ({ Name: { text: nextSerial(data, serialCol) }, 'KT Invoice No': { text: nextKt } })
   const [values, setValues] = useState<Record<string, Value>>(blank)
   const [files, setFiles] = useState<File[]>([])
   const [open, setOpen] = useState<Record<string, boolean>>(() => Object.fromEntries(SECTIONS.map((s) => [s.title, !!s.startOpen])))
@@ -229,7 +246,7 @@ function CreationForm({ data, onClose, onSaved }: { data: BoardData; onClose: ()
       case 'date': return v.text ? { date: v.text, ...(v.time ? { time: `${v.time}:00` } : {}) } : undefined
       case 'status': return v.text ? { label: v.text } : undefined
       case 'checkbox': return v.checked ? { checked: 'true' } : undefined
-      case 'board_relation': return v.id ? { item_ids: [Number(v.id)] } : undefined
+      case 'board_relation': return v.id ? { item_ids: [v.id] } : undefined
       case 'long_text': return v.text?.trim() ? { text: v.text } : undefined
       case 'phone': {
         let phone = (v.text ?? '').replace(/[^\d+]/g, '')
@@ -259,6 +276,13 @@ function CreationForm({ data, onClose, onSaved }: { data: BoardData; onClose: ()
         if (v !== undefined) cv[f.col.id] = v
       }
     }
+    // a trip's Sales Confirmation is its dispatch's: picking a Dispatch and
+    // Billing record links the trip to that record's Sales Confirmation too
+    const dnbCol = columns.find((c) => c.type === 'board_relation' && norm(c.title) === norm(DB_KEY))
+    const scCol = columns.find((c) => c.type === 'board_relation' && norm(c.title) === 'salesconfirmation')
+    const dnbPick = dnbCol && values[DB_KEY]?.id ? (linked[dnbCol.id] ?? []).find((l) => l.id === values[DB_KEY]?.id) : undefined
+    const scIds = dnbPick?.values['Sales Confirmation']?.ids ?? []
+    if (scCol && scIds.length && !cv[scCol.id]) cv[scCol.id] = { item_ids: scIds }
     // monday's rows carry the item number in Serial No as well
     if (serialCol && !cv[serialCol.id]) cv[serialCol.id] = name
 
@@ -348,13 +372,13 @@ function CreationForm({ data, onClose, onSaved }: { data: BoardData; onClose: ()
                               fieldKey={f.label ?? f.key}
                               col={f.col}
                               value={valueOf(f.key)}
-                              readOnly={!!automatic[f.key] || f.key === 'Name'}
+                              readOnly={!!automatic[f.key] || f.key === 'Name' || f.key === 'KT Invoice No'}
                               options={f.col ? linked[f.col.id] ?? [] : []}
                               onChange={(nv) => set(f.key, nv)}
                             />
                           )}
                           <p className="field-hint">
-                            {!f.col ? 'Not on the board, not saved' : automatic[f.key] ? `${automatic[f.key]} · Type: ${f.col.type}` : `Type: ${f.col.type}`}
+                            {!f.col ? 'Not on the board, not saved' : f.key === 'KT Invoice No' ? `Allocated automatically · Type: ${f.col.type}` : automatic[f.key] ? `${automatic[f.key]} · Type: ${f.col.type}` : `Type: ${f.col.type}`}
                           </p>
                         </div>
                       )

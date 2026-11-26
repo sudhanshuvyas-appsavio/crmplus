@@ -31,7 +31,8 @@ const SECTIONS: SectionDef[] = [
     title: 'Transport Invoice Details',
     startOpen: true,
     fields: [
-      fd('Name', ['name']),
+      // the invoice's name is its KT INV. NO., allocated automatically
+      { ...fd('Name', ['name']), label: 'KT INV. NO.' },
       fd(TRIP_KEY, ['board_relation']),
       fd('Date', ['date']),
       fd('Business Units', ['board_relation']),
@@ -56,6 +57,23 @@ const num = (t: string | undefined) => {
 }
 const show = (n: number) => (Number.isFinite(n) ? String(Math.round(n * 100) / 100) : '')
 
+const KT_TITLES = ['KT INV. NO.', 'KT INV NO', 'KT Invoice No']
+
+/** The next KT INV. NO.: one more than the highest number in use (in the
+ *  KT INV. NO. column or the invoice names, e.g. "TI - 020"), as "TI - 021". */
+function nextKt(data: BoardData): string {
+  const kt = findColumn(data.columns, KT_TITLES, ['text', 'numbers'])
+  let max = 0
+  for (const it of data.items) {
+    for (const t of [kt ? it.values[kt.id]?.text : '', it.name]) {
+      const m = /(\d+)\s*$/.exec((t ?? '').trim())
+      const n = m ? parseInt(m[1]!, 10) : NaN
+      if (Number.isFinite(n) && n > max && n < 100000) max = n
+    }
+  }
+  return `TI - ${String(max + 1).padStart(3, '0')}`
+}
+
 /* ---- screen ---- */
 
 export default function TransportInvoices() {
@@ -67,6 +85,7 @@ export default function TransportInvoices() {
       board="transport_invoice"
       title="Transport Invoice"
       subtitle="Freight invoices raised for trips."
+      headers={{ Item: 'KT INV. NO.', Date: 'Created Date' }}
       tabs={[
         { label: 'Freight Invoice', render: (data, reload) => <FreightInvoiceView data={data} reload={reload} /> },
       ]}
@@ -113,7 +132,9 @@ function FormBody({ data, onSaved }: { data: BoardData; onSaved: (name: string, 
     () => SECTIONS.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, col: findColumn(columns, f.titles, f.prefer) })) })),
     [columns],
   )
-  const [values, setValues] = useState<Record<string, Value>>({})
+  const kt = useMemo(() => nextKt(data), [data])
+  const ktCol = useMemo(() => findColumn(columns, KT_TITLES, ['text', 'numbers']), [columns])
+  const [values, setValues] = useState<Record<string, Value>>(() => ({ Name: { text: kt } }))
   const [open, setOpen] = useState<Record<string, boolean>>(() => Object.fromEntries(SECTIONS.map((s) => [s.title, !!s.startOpen])))
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -143,7 +164,7 @@ function FormBody({ data, onSaved }: { data: BoardData; onSaved: (name: string, 
   }
 
   async function save() {
-    const name = values.Name?.text?.trim() ?? ''
+    const name = values.Name?.text?.trim() || kt
     if (!name) {
       setError('Name is required.')
       return
@@ -157,18 +178,26 @@ function FormBody({ data, onSaved }: { data: BoardData; onSaved: (name: string, 
         if (v !== undefined) cv[f.col.id] = v
       }
     }
+    // the KT INV. NO. column holds the same number as the name
+    if (ktCol && ktCol.type !== 'name') cv[ktCol.id] = ktCol.type === 'numbers' ? name.replace(/\D/g, '') : name
     // the trip's side of the link: "link to Transporter Type Details" is the
     // two-way partner of the trip's "Transport Invoice" column, so the trip
     // gets this invoice too (and its Transport Invoice checkbox ticks on monday)
     const tripId = values[TRIP_KEY]?.id
     const backLink = columns.find((c) => c.type === 'board_relation' && norm(c.title) === 'linktotransportertypedetails')
     if (tripId && backLink) cv[backLink.id] = { item_ids: [tripId] }
+    // the invoice's Sales Confirmation is its trip's (which is the trip's
+    // dispatch's), so Driver Contact Phone, Vehicle Number and Transporter
+    // Name read the app's own Sales Confirmation
+    const scCol = columns.find((c) => c.type === 'board_relation' && norm(c.title) === 'salesconfirmation')
+    const tripScIds = trip?.values['Sales Confirmation']?.ids ?? []
+    if (scCol && tripScIds.length && !cv[scCol.id]) cv[scCol.id] = { item_ids: tripScIds }
     setBusy('Submitting…')
     setError(null)
     try {
       const { id } = await createItem(BOARD_IDS.transport_invoice, name, cv, data as Loaded)
       // monday's automation: the invoice's "Kaarthika Transport Freight Invoice" task
-      setBusy('Linking the Kaarthika Transport Freight Invoice task…')
+      setBusy('Submitting…')
       let note = ''
       try {
         note = (await createInvoiceTask(id, name)) ? ' Kaarthika Transport Freight Invoice task created.' : ''
@@ -210,12 +239,13 @@ function FormBody({ data, onSaved }: { data: BoardData; onSaved: (name: string, 
                             fieldKey={label}
                             col={f.col}
                             value={values[f.key] ?? {}}
+                            readOnly={f.key === 'Name'}
                             options={f.col ? linked[f.col.id] ?? [] : []}
                             onChange={(nv) => set(f.key, nv)}
                           />
                         )}
                         <p className="field-hint">
-                          {f.calc ? calcHint(f.calc) : f.col ? `Type: ${f.col.type}` : 'Not on the board, not saved'}
+                          {f.calc ? calcHint(f.calc) : f.key === 'Name' ? 'Allocated automatically' : f.col ? `Type: ${f.col.type}` : 'Not on the board, not saved'}
                         </p>
                       </div>
                     )
@@ -234,7 +264,7 @@ function FormBody({ data, onSaved }: { data: BoardData; onSaved: (name: string, 
             className="btn ghost"
             type="button"
             onClick={() => {
-              setValues({})
+              setValues({ Name: { text: kt } })
               setError(null)
             }}
             disabled={!!busy}

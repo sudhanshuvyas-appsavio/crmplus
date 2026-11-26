@@ -155,7 +155,7 @@ export function columnValue(col: Column, v: Value | undefined): unknown {
     case 'date': return v.text ? { date: v.text, ...(v.time ? { time: `${v.time}:00` } : {}) } : undefined
     case 'status': return v.text ? { label: v.text } : undefined
     case 'checkbox': return v.checked ? { checked: 'true' } : undefined
-    case 'board_relation': return v.id ? { item_ids: [Number(v.id)] } : undefined
+    case 'board_relation': return v.id ? { item_ids: [v.id] } : undefined
     case 'long_text': return v.text?.trim() ? { text: v.text } : undefined
     case 'phone': {
       let phone = (v.text ?? '').replace(/[^\d+]/g, '')
