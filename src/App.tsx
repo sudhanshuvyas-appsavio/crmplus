@@ -19,6 +19,7 @@ import SalesConfirmations from './pages/SalesConfirmations'
 import Deals from './pages/Deals'
 import MailingList from './pages/MailingList'
 import PendingCommissionBills from './pages/PendingCommissionBills'
+import CommissionInvoices from './pages/CommissionInvoices'
 import PendingTransporterInvoices from './pages/PendingTransporterInvoices'
 import StaffEfficiency from './pages/StaffEfficiency'
 import StaffPerformance from './pages/StaffPerformance'
@@ -103,6 +104,7 @@ export default function App() {
           <Route path="/pending-dispatches" element={<PendingDispatches />} />
           <Route path="/pending-documents" element={<PendingDocuments />} />
           <Route path="/pending-commission-bills" element={<PendingCommissionBills />} />
+          <Route path="/commission-invoices" element={<CommissionInvoices />} />
           <Route element={<RequirePermission permission="report.view" />}>
             <Route path="/staff-performance" element={<StaffPerformance />} />
           </Route>

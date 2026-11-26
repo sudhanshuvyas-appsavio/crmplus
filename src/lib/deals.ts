@@ -7,7 +7,7 @@ export type DealStatus = 'new_deal' | 'manager_approval' | 'approved' | 'reconsi
 
 /** `tone` picks the status colour token (see .status-pill in index.css). */
 export const DEAL_STATUSES: { value: DealStatus; label: string; tone: string }[] = [
-  { value: 'new_deal', label: 'New Deal', tone: 'blue' },
+  { value: 'new_deal', label: 'Draft', tone: 'blue' },
   { value: 'manager_approval', label: 'Manager Approval', tone: 'orange' },
   { value: 'approved', label: 'Approved', tone: 'green' },
   { value: 'reconsider', label: 'Reconsider', tone: 'purple' },
@@ -42,21 +42,26 @@ export const commTerms = (basis: string | null, value: number | null) => {
   return `₹${value}${basis === 'per_kg' ? '/kg' : '/bag'}`
 }
 
-/** monday: Total Weight = Bags Weight x Quantity. With no bag weight, KGs and Tons use the quantity (Tons x 1000). */
+/** Total Weight in kg. KG and Tons are weights already (Tons x 1000), so their bag weight is information only;
+ *  other units (Bags, Hanks, Cartons ...) are Quantity x Bag Weight. Same rule as the database's trade_total_weight. */
 export function totalWeight(uom: string, qty: number | null, unitWeight: number | null): number | null {
   if (qty === null) return null
-  if (unitWeight !== null) return qty * unitWeight
   if (uom === 'KG') return qty
   if (uom === 'TONS') return qty * 1000
+  if (unitWeight !== null) return qty * unitWeight
   return null
 }
 
-export function commission(basis: string | null, value: number | null, amount: number | null, _uom: string,
-  qty: number | null, weight: number | null, _unitWeight: number | null): number | null {
+export function commission(basis: string | null, value: number | null, amount: number | null, uom: string,
+  qty: number | null, weight: number | null, unitWeight: number | null): number | null {
   if (!basis || value === null) return null
   if (basis === 'pct') return amount === null ? null : (amount * value) / 100
   if (basis === 'per_kg') return weight === null ? null : value * weight
-  if (basis === 'per_bag') return qty === null ? null : value * qty
+  if (basis === 'per_bag') {
+    // KG / Tons rows count the bags (weight / bag weight); other units are already counted per unit
+    if (uom === 'KG' || uom === 'TONS') return weight === null || !unitWeight || unitWeight <= 0 ? null : (value * weight) / unitWeight
+    return qty === null ? null : value * qty
+  }
   return null
 }
 
@@ -80,14 +85,14 @@ export const saleTypeLabel = (v: string | null | undefined) => (v === 'export' ?
 /* ---- Dispatch and Billing (monday "Dispatch and Billing" board) ---- */
 export const DISPATCH_STATUSES: { value: string; label: string; tone: string }[] = [
   { value: 'draft', label: 'Draft', tone: 'grey' },
-  { value: 'in_progress', label: 'In Progress', tone: 'blue' },
-  { value: 'partially_dispatched', label: 'Partially Dispatch', tone: 'orange' },
-  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'green' },
-  { value: 'returned', label: 'Return', tone: 'purple' },
-  { value: 'cancelled', label: 'Cancel', tone: 'red' },
+  { value: 'in_progress', label: 'In Progress', tone: 'purple' },
+  { value: 'partially_dispatched', label: 'Partially Dispatch', tone: 'green' },
+  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'blue' },
+  { value: 'returned', label: 'Return', tone: 'red' },
+  { value: 'cancelled', label: 'Cancel', tone: 'orange' },
 ]
 /* Board groups, named as on the monday boards. A row's status decides its group. */
-export const DEAL_GROUPS = DEAL_STATUSES.map((g) => (g.value === 'new_deal' ? { ...g, label: 'New' } : g))
+export const DEAL_GROUPS = DEAL_STATUSES.map((g) => (g.value === 'new_deal' ? { ...g, label: 'Draft' } : g))
 export const SC_GROUPS = [
   { value: 'draft', label: 'New', tone: 'grey' },
   { value: 'send', label: 'Send', tone: 'blue' },
@@ -96,10 +101,10 @@ export const SC_GROUPS = [
 ]
 export const DNB_GROUPS = [
   { value: 'draft', label: 'Draft', tone: 'grey' },
-  { value: 'in_progress', label: 'In Progress', tone: 'blue' },
-  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'green' },
-  { value: 'returned', label: 'Return', tone: 'purple', optional: true },
-  { value: 'cancelled', label: 'Cancel', tone: 'red', optional: true },
+  { value: 'in_progress', label: 'In Progress', tone: 'purple' },
+  { value: 'fully_dispatched', label: 'Fully Dispatch', tone: 'blue' },
+  { value: 'returned', label: 'Return', tone: 'red', optional: true },
+  { value: 'cancelled', label: 'Cancel', tone: 'orange', optional: true },
 ]
 /** monday keeps partly dispatched items in its In Progress group. */
 export const dnbGroup = (o: { dispatch_status: string }) => (o.dispatch_status === 'partially_dispatched' ? 'in_progress' : o.dispatch_status)

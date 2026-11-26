@@ -119,6 +119,7 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
             </tr>
           ))}
         </tbody>
+        {(!disabled || total((f) => f.buyer) !== null || total((f) => f.supplier) !== null) && (
         <tfoot>
           <tr>
             <td colSpan={6} className="small muted">
@@ -129,6 +130,7 @@ export function CountLinesEditor({ lines, onChange, counts, disabled, buyer, sup
             {!disabled && <td />}
           </tr>
         </tfoot>
+        )}
       </table>
     </div>
   )
@@ -139,13 +141,16 @@ export function CountLinesView({ lines, counts, buyer, supplier }: { lines: Line
   const rows = lines.filter((l) => l.count_id || l.quantity)
   if (rows.length === 0) return <p className="muted small">No counts yet.</p>
   const figs = rows.map((l) => lineFigures(l, buyer, supplier))
+  // commission columns only when at least one row has an amount: all dashes tell nothing
+  const showComm = figs.some((f) => f?.buyer || f?.supplier)
   return (
     <div className="table-wrap lines-wrap">
-      <table className="lines-table">
+      <table className="lines-table lines-view">
         <thead>
           <tr>
             <th>#</th><th>Count</th><th className="right">Quantity</th><th>Unit</th><th className="right">Bag Weight (kg)</th>
-            <th className="right">Final Rate (₹/kg)</th><th className="right">Buyer Commission</th><th className="right">Supplier Commission</th>
+            <th className="right">Final Rate (₹/kg)</th>
+            {showComm && <><th className="right">Buyer Commission</th><th className="right">Supplier Commission</th></>}
           </tr>
         </thead>
         <tbody>
@@ -157,8 +162,7 @@ export function CountLinesView({ lines, counts, buyer, supplier }: { lines: Line
               <td>{uomLabel(l.uom)}</td>
               <td className="right mono">{l.bag_weight || '—'}</td>
               <td className="right mono">{l.rate ? rateText(numOrNull(l.rate)) : '—'}</td>
-              <td className="right mono small">{inr(figs[i]?.buyer, 0)}</td>
-              <td className="right mono small">{inr(figs[i]?.supplier, 0)}</td>
+              {showComm && <><td className="right mono small">{inr(figs[i]?.buyer, 0)}</td><td className="right mono small">{inr(figs[i]?.supplier, 0)}</td></>}
             </tr>
           ))}
         </tbody>
@@ -169,5 +173,5 @@ export function CountLinesView({ lines, counts, buyer, supplier }: { lines: Line
 
 /** Read-only text of the rows, one per line, for tables and messages. */
 export function linesText(rows: LineRow[], countName: (id: string) => string) {
-  return rows.map((r) => `${r.count_id ? countName(r.count_id) : '—'}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${rateText(r.rate)}/kg` : ''}`)
+  return rows.map((r) => `${r.count_id ? countName(r.count_id) : '—'}: ${inr(r.quantity)} ${uomLabel(r.uom)}${r.bag_weight && needsUnitWeight(r.uom) ? ` × ${inr(r.bag_weight)} kg` : ''}${r.rate !== null ? ` @ ₹${rateText(r.rate)}/kg` : ''}`)
 }

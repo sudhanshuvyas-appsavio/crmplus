@@ -42,15 +42,17 @@ export function NotificationLog({ sc, canManage }: { sc: ScRow; canManage: boole
       {err && <div className="alert">{err}</div>}
       <ul className="small" style={{ paddingLeft: 18 }}>
         {rows.map((x) => (
-          <li key={x.id}>
-            {formatDateTime(x.sent_at)} · {x.party === 'supplier' ? 'Supplier' : 'Buyer'} · {x.channel === 'whatsapp' ? 'WhatsApp' : 'Email'} {x.recipient ? `(${x.recipient})` : ''} · by {x.sent_by ? names[x.sent_by] ?? 'a user' : 'system'} ·{' '}
+          <li key={x.id} style={{ marginBottom: 8 }}>
+            <div>{formatDateTime(x.sent_at)} · {x.party === 'supplier' ? 'Supplier' : 'Buyer'} · {x.channel === 'whatsapp' ? 'WhatsApp' : 'Email'} {x.recipient ? `(${x.recipient})` : ''} · by {x.sent_by ? names[x.sent_by] ?? 'a user' : 'system'}</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
             <span className={`chip${x.delivery_status === 'sent' ? ' good' : x.delivery_status === 'failed' ? ' bad' : ' warn'}`}>{x.delivery_status === 'opened' ? 'Opened, not confirmed' : x.delivery_status === 'sent' ? 'Sent' : 'Failed'}</span>
             {canManage && x.delivery_status === 'opened' && (
               <>
-                {' '}<button className="btn ghost sm" type="button" onClick={() => void mark(x.id, 'sent')}>Mark sent</button>
+                <button className="btn ghost sm" type="button" onClick={() => void mark(x.id, 'sent')}>Mark sent</button>
                 <button className="btn ghost sm" type="button" onClick={() => void mark(x.id, 'failed')}>Mark failed</button>
               </>
             )}
+            </div>
           </li>
         ))}
       </ul>

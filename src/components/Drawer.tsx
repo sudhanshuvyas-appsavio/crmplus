@@ -7,10 +7,13 @@ export function Drawer({
   onClose,
   children,
   readOnly = false,
+  footer,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
+  /** Action buttons pinned to the bottom of the panel, outside the scrolling content. */
+  footer?: ReactNode
   /** View mode: every field is disabled and the Save / Delete buttons are hidden. */
   readOnly?: boolean
 }) {
@@ -47,6 +50,7 @@ export function Drawer({
             children
           )}
         </div>
+        {footer && <footer className="drawer-foot">{footer}</footer>}
       </aside>
     </>
   )

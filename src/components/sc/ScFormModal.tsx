@@ -13,14 +13,24 @@
  *  deal keeps its parties, counts and terms locked (the database enforces it). Saving never insists on
  *  a complete form: an incomplete confirmation is a draft that cannot be sent yet. */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import type { CountRow, JobProcess, PaymentTerm, Transporter } from '../../api/types'
-import { SALE_TYPES, scStage, scGroup } from '../../lib/deals'
+import { SALE_TYPES, scStage, scGroup, dispatchStatus } from '../../lib/deals'
 import { errMessage, numOrNull } from '../../lib/party'
+import { NotificationLog } from './NotificationLog'
+import { SendPanel } from './SendPanel'
+import { ScParty, useDealDiff } from './ScInfo'
+import { linesText } from '../CountLines'
+import type { Company, Names } from './scShared'
 import { formatDateTime } from '../../lib/format'
 import { Modal } from '../Modal'
 import { Field, FieldErrorsProvider } from '../PartyForms'
+import { PhoneField } from '../PhoneField'
+import { ComboInput } from '../ComboInput'
+import { PendingFilesCard } from '../DocumentsCard'
+import { phoneProblem } from '../../lib/phone'
 import { ErrorBanner, FormSection, FullWidth } from '../FormKit'
 import { CountLinesEditor, emptyLine, linesPayload, lineProblems, toLineForm, type LineForm } from '../CountLines'
 import { ScDocuments, uploadScFiles } from './ScDocuments'
@@ -85,9 +95,24 @@ async function loadLines(sc: ScRow): Promise<LineForm[]> {
   return [emptyLine()]
 }
 
+/** View mode locks every field in it; Edit leaves them as they are. */
+function Lock({ locked, children }: { locked: boolean; children: ReactNode }) {
+  return locked ? <fieldset className="ro-fieldset" disabled>{children}</fieldset> : <>{children}</>
+}
+
 export function ScFormModal({
   suppliers, buyers, counts, terms, transporters, jobs, scs, lockedIds, dealNos, initialSc, onClose, onDone,
+  readOnly = false, onEdit, onChanged, canManage = false, companies = [], itemsBySc,
 }: {
+  /** View mode: the same form, locked. Anything that changes data is in Edit or a row action. */
+  readOnly?: boolean
+  onEdit?: (sc: ScRow) => void
+  /** After something other than Save changed the confirmation (a send), so the board reloads. */
+  onChanged?: (message: string, id?: string) => void | Promise<void>
+  canManage?: boolean
+  companies?: Company[]
+  /** Dispatch and Billing items by confirmation id. */
+  itemsBySc?: Map<string, { id: string; order_no: string; dispatch_status: string }[]>
   suppliers: Party[]
   buyers: Party[]
   counts: CountRow[]
@@ -186,10 +211,11 @@ export function ScFormModal({
   const noCounts = lines.every((l) => !l.count_id && !l.quantity.trim() && !l.rate.trim() && !l.bag_weight.trim())
   needed.push(...(noCounts ? ['Count and quantity'] : lineProblems(lines, true)))
   const partialRows = noCounts ? [] : lineProblems(lines).filter((x) => !x.startsWith('Final rate'))
-  const phoneBad = f.driver_phone.trim() !== '' && !/^[0-9+ -]{6,20}$/.test(f.driver_phone.trim())
+  const driverPhoneProblem = phoneProblem(f.driver_phone)
+  const phoneBad = driverPhoneProblem !== null
   const errors: Record<string, string> = {}
   if (updating && !recordId) errors['sc-record'] = 'Choose the confirmation to update.'
-  if (phoneBad) errors['sc-drv'] = 'Digits only (6 to 20 characters).'
+  if (driverPhoneProblem) errors['sc-drv'] = driverPhoneProblem
   // monday's required fields: Buyer, Supplier and the count rows. A confirmation made from a deal takes them from the deal.
   const enforce = !dealPick && !locked
   if (enforce && (!updating || recordId)) {
@@ -306,13 +332,38 @@ export function ScFormModal({
     list.filter((x) => x.is_active || x.id === cur).map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))
   const stage = current ? scStage(scGroup(current)).label : 'Draft'
 
+  const items = (current && itemsBySc?.get(current.id)) || []
+  const cancelled = current?.status === 'cancelled'
+  const complete = current?.status === 'confirmed'
+  const { dealNo, dealDiff } = useDealDiff(current)
+  const editBlock = !canManage ? 'You need the “Create, edit and send sales confirmations” permission.' : cancelled ? 'A cancelled confirmation cannot be changed.' : items.length > 0 ? 'It is a Dispatch and Billing item now, so it cannot be changed.' : null
+  const buyerParty = buyers.find((x) => x.id === current?.buyer_id)
+  const supplierParty = suppliers.find((x) => x.id === current?.supplier_id)
+  const sendNames: Names | null = current ? {
+    supplier: supplierParty?.name ?? '',
+    buyer: buyerParty?.name ?? '',
+    supplierCompany: companies.find((x) => x.id === current.supplier_company_id)?.name ?? '',
+    buyerCompany: companies.find((x) => x.id === current.buyer_company_id)?.name ?? '',
+    count: counts.find((x) => x.id === origLines[0]?.count_id)?.display_name ?? '',
+    lines: linesText(origLines.filter((l) => l.count_id).map((l) => ({ count_id: l.count_id, quantity: numOrNull(l.quantity) ?? 0, uom: l.uom, bag_weight: numOrNull(l.bag_weight), rate: numOrNull(l.rate) })),
+      (id) => counts.find((x) => x.id === id)?.display_name ?? ''),
+    term: terms.find((t) => t.id === current.payment_term_id)?.name ?? '',
+    transporter: transporters.find((t) => t.id === current.transporter_id)?.name ?? '',
+    deliveryTo: [jobs.find((j) => j.id === current.job_process_id)?.name, (current.delivery_address ?? '').trim()].filter(Boolean).join(', '),
+  } : null
+
   return (
     <Modal
-      title={updating ? 'Update Sales Confirmation' : 'New Sales Confirmation'}
-      description={updating ? 'Choose the confirmation, then change what you need. It keeps its number and creation date.' : 'Required fields are marked.'}
+      title={readOnly ? 'View Sales Confirmation' : updating ? 'Update Sales Confirmation' : 'New Sales Confirmation'}
+      description={readOnly ? undefined : updating ? 'Choose the confirmation, then change what you need. It keeps its number and creation date.' : 'Required fields are marked.'}
       size="lg"
       onClose={onClose}
-      footer={
+      footer={readOnly ? (
+        <>
+          <button className="btn ghost" type="button" onClick={onClose}>Close</button>
+          <button className="btn primary" type="button" disabled={!!editBlock || !current} title={editBlock ?? undefined} onClick={() => current && onEdit?.(current)}>Edit</button>
+        </>
+      ) : (
         <>
           <button className="btn ghost" type="button" onClick={onClose} disabled={busy}>Close</button>
           <span style={{ display: 'flex', gap: 10 }}>
@@ -322,20 +373,17 @@ export function ScFormModal({
             </button>
           </span>
         </>
-      }
+      )}
     >
       <ErrorBanner message={error} />
 
-      {updating && (
+      {updating && !readOnly && (
         <FieldErrorsProvider value={visible}>
           <section className="fs-card" aria-label="Select Item to Update">
             <header className="fs-head"><div><h3>Select Item to Update:</h3></div></header>
             <div className="fs-body">
               <Field id="sc-record" label="Search for a record">
-                <input id="sc-record" list="sc-record-list" placeholder="-- Search for a record --" value={recordText} onChange={(e) => chooseRecord(e.target.value)} style={{ maxWidth: 520 }} />
-                <datalist id="sc-record-list">
-                  {editable.map((x) => (<option key={x.id} value={x.sc_no} />))}
-                </datalist>
+                <ComboInput id="sc-record" placeholder="-- Search for a record --" value={recordText} onChange={chooseRecord} options={editable.map((x) => x.sc_no)} style={{ maxWidth: 520 }} />
               </Field>
             </div>
           </section>
@@ -349,9 +397,18 @@ export function ScFormModal({
               Created from a deal: parties, counts, payment terms and commission are locked. Freight, delivery, transport and remarks can change.
             </div>
           )}
+          {current && !canManage && <div className="notice small" style={{ marginBottom: 12 }}>You can view this confirmation; changing or sending it needs the “Create, edit and send sales confirmations” permission.</div>}
+          {current && dealDiff.length > 0 && !cancelled && (
+            <div className="alert" style={{ marginBottom: 12 }}>This confirmation no longer matches Deal {dealNo ?? 'its deal'}: {dealDiff.join(', ')}. It keeps its own values; check them before sending.</div>
+          )}
+          {current && current.status === 'draft' && !cancelled && <div className="notice small" style={{ marginBottom: 12 }}>Incomplete: fill in the required fields before it can be sent.</div>}
+          {items.length > 0 && (
+            <div className="notice small" style={{ marginBottom: 12 }}>Converted to Dispatch and Billing ({items.map((i) => i.order_no).join(', ')}); this confirmation can no longer be edited.</div>
+          )}
 
+          <Lock locked={readOnly}>
           <FormSection title="Sales Confirmation Details" collapsible columns={3}>
-            <Field id="sc-name" label="Name">
+            <Field id="sc-name" label="Name" required>
               <input id="sc-name" readOnly value={current?.sc_no ?? ''} placeholder="Assigned on save" title="The confirmation number is its name." />
             </Field>
             <Field id="sc-created" label="Created Date">
@@ -362,7 +419,7 @@ export function ScFormModal({
                 {SALE_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
               </select>
             </Field>
-            <Field id="sc-status" label="Status">
+            <Field id="sc-status" label="Status" required>
               <input id="sc-status" readOnly value={stage} title="Change the status from the row's Actions menu." />
             </Field>
             <Field id="sc-link" label="Link to Deals">
@@ -387,7 +444,6 @@ export function ScFormModal({
               </Field>
             </FullWidth>
           </FormSection>
-
           {!dealPick && (
             <>
               <FormSection title="Buyer & Supplier Details" collapsible columns={3}>
@@ -404,31 +460,33 @@ export function ScFormModal({
                   </select>
                 </Field>
               </FormSection>
-
+              {current && (buyerParty || supplierParty) && (
+                <div className="lookup-grid">
+                  {buyerParty && <ScParty title="Buyer" p={buyerParty} unit={companies.find((c) => c.id === (current.buyer_company_id || buyerParty.company_id))} />}
+                  {supplierParty && <ScParty title="Supplier" p={supplierParty} unit={companies.find((c) => c.id === (current.supplier_company_id || supplierParty.company_id))} />}
+                </div>
+              )}
               <FormSection title="Product Configurations" collapsible columns={3}>
                 <FullWidth>
                   <CountLinesEditor weightRequired lines={lines} onChange={setLines} counts={counts} disabled={locked} buyer={buyerTerms} supplier={supplierTerms} />
                 </FullWidth>
               </FormSection>
-
-              <FormSection title="Business Configuration" collapsible columns={3}>
+          <FormSection title="Business Configuration" collapsible columns={3}>
                 <Field id="sc-term" label="Payment Terms">
                   <select id="sc-term" value={f.payment_term_id} disabled={locked} onChange={(e) => set('payment_term_id', e.target.value)}>
                     <option value="">--None--</option>
                     {terms.filter((t) => t.is_active || t.id === f.payment_term_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
                   </select>
                 </Field>
-              </FormSection>
-
-              <FormSection title="Sizing/Delivery Address Information" collapsible columns={3}>
-                <Field id="sc-job" label="Sizing/Delivery Address">
+          </FormSection>
+          <FormSection title="Sizing/Delivery Address Information" collapsible columns={3}>
+                <Field id="sc-job" label="Sizing/Delivery Address" hideLabel>
                   <select id="sc-job" value={f.job_process_id} title="--None-- means the buyer's own address." onChange={(e) => pickJob(e.target.value)}>
                     <option value="">--None--</option>
                     {jobs.filter((j) => j.is_active || j.id === f.job_process_id).map((j) => (<option key={j.id} value={j.id}>{j.name}</option>))}
                   </select>
                 </Field>
-              </FormSection>
-
+          </FormSection>
               <FormSection title="Transportation Company Details" collapsible columns={3}>
                 <Field id="sc-tr" label="Transporter Name">
                   <select id="sc-tr" value={f.transporter_id} onChange={(e) => set('transporter_id', e.target.value)}>
@@ -436,51 +494,56 @@ export function ScFormModal({
                     {transporters.filter((t) => t.is_active || t.id === f.transporter_id).map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
                   </select>
                 </Field>
-                <Field id="sc-drv" label="Driver Contact Phone">
-                  <input id="sc-drv" inputMode="tel" placeholder="Driver Contact Phone number" value={f.driver_phone} onChange={(e) => set('driver_phone', e.target.value)} />
-                </Field>
+                <PhoneField id="sc-drv" label="Driver Contact Phone" value={f.driver_phone} onChange={(v) => set('driver_phone', v)} />
                 <Field id="sc-veh" label="Vehicle Number">
                   <input id="sc-veh" className="mono" placeholder="Enter Vehicle Number" value={f.vehicle_no} onChange={(e) => set('vehicle_no', e.target.value.toUpperCase())} />
                 </Field>
               </FormSection>
-
               <FormSection title="Remarks" collapsible columns={3}>
                 <FullWidth>
-                  <Field id="sc-remarks" label="Remarks">
+                  <Field id="sc-remarks" label="Remarks" hideLabel>
                     <textarea id="sc-remarks" rows={2} placeholder="Enter Remarks" value={f.remarks} onChange={(e) => set('remarks', e.target.value)} />
                   </Field>
                 </FullWidth>
               </FormSection>
+            </>
+          )}
+          </Lock>
+
+          {!dealPick && (
+            <>
+
+              {current && !cancelled && (
+                <div className="notice">
+                  <h3 className="section-title" style={{ marginTop: 0 }}>Dispatch and Billing</h3>
+                  {items.length > 0 ? (
+                    <ul className="small" style={{ margin: 0 }}>
+                      {items.map((it) => (
+                        <li key={it.id}><Link to={`/orders?open=${it.id}`}><span className="mono">{it.order_no}</span></Link> · {dispatchStatus(it.dispatch_status).label}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="small muted" style={{ margin: 0 }}>{!complete ? 'Available once the confirmation is complete.' : current.stage === 'send_delivery' ? 'Not created yet. Use Actions > Create Dispatch and Billing on the board.' : 'Created when the confirmation moves to Send with Delivery Info.'}</p>
+                  )}
+                </div>
+              )}
 
               <FormSection title="Documents" collapsible columns={3}>
                 <FullWidth>
                   <Field id="sc-docs" label="Buyer Document">
                     {updating ? (
-                      recordId ? <ScDocuments scId={recordId} kind="buyer" canEdit /> : null
+                      current ? <div><ScDocuments scId={current.id} kind="buyer" canEdit={!readOnly && canManage && !cancelled && items.length === 0} hideTitle /></div> : null
                     ) : (
-                      <div>
-                        {pendingFiles.length > 0 && (
-                          <ul className="history">
-                            {pendingFiles.map((file, i) => (
-                              <li key={`${file.name}-${i}`} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                <span>{file.name}</span>
-                                <span className="muted small">{Math.max(1, Math.round(file.size / 1024))} KB</span>
-                                <button className="btn ghost sm push" type="button" onClick={() => setPendingFiles(pendingFiles.filter((_, j) => j !== i))}>Remove</button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {pendingFiles.length < 10 && (
-                          <label className="btn sm" title="The files are attached when the confirmation is created.">
-                            Attach files <span className="muted">({pendingFiles.length}/10)</span>
-                            <input id="sc-docs" type="file" multiple hidden onChange={(e) => { if (e.target.files?.length) setPendingFiles([...pendingFiles, ...Array.from(e.target.files)].slice(0, 10)); e.target.value = '' }} />
-                          </label>
-                        )}
-                      </div>
+                      <PendingFilesCard files={pendingFiles} onChange={setPendingFiles} id="sc-docs" note="The files are attached when the confirmation is created." />
                     )}
                   </Field>
                 </FullWidth>
               </FormSection>
+
+              {current && !readOnly && complete && canManage && !cancelled && sendNames && (
+                <SendPanel sc={current} names={sendNames} supplier={supplierParty ?? null} buyer={buyerParty ?? null} onSent={(text) => onChanged?.(text, current.id)} />
+              )}
+              {current && <NotificationLog sc={current} canManage={canManage && !readOnly} />}
 
               {needed.length > 0 && (
                 <p className="field-hint">Still needed before it can be sent: {needed.join(', ')}.</p>

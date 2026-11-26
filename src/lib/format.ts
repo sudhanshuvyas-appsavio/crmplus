@@ -52,3 +52,11 @@ export function describeDevice(userAgent: string | null): string {
     : 'Unknown'
   return `${browser} on ${platform}`
 }
+/** "24 Nov" (with the year when it is not this year): the compact date for table cells. */
+export function formatShortDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return date.toLocaleDateString('en-GB', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
+}

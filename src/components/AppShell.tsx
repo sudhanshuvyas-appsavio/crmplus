@@ -93,6 +93,7 @@ const NAV: NavSection[] = [
       { to: '/deals', label: 'Deals', icon: I.deals, permission: 'deal.read' },
       { to: '/sales-confirmations', label: 'Sales Confirmation', icon: I.sc, anyOf: ['sc.read', 'sc.manage'] },
       { to: '/orders', label: 'Dispatch and Billing', icon: I.dispatch, anyOf: ORDER },
+      { to: '/commission-invoices', label: 'Commission Invoices', icon: I.bill, anyOf: ORDER },
     ],
   },
   {
@@ -222,7 +223,7 @@ export function AppShell() {
                   aria-expanded={isOpen}
                   onClick={() => setOpen((p) => ({ ...p, [section.id]: !isOpen }))}
                 >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M6 9l6 6 6-6" /></svg>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className={isOpen ? 'chev' : 'chev closed'}><path d="M7 9.5h10L12 16z" /></svg>
                   {section.heading}
                 </button>
                 {isOpen && items.map((item) => renderItem(item))}

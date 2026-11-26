@@ -1,7 +1,7 @@
 /** Pending commission bills report.
  *
- *  Orders (Confirmed or Open for Execution) for which no commission invoice has
- *  been raised yet, so Finance can see revenue that is waiting to be billed.
+ *  Orders whose dispatched commission is not yet on a commission invoice (to the buyer
+ *  or to the supplier), so Finance can see revenue that is waiting to be billed.
  *  Filters: party (buyer), mill (supplier), order date range and our company.
  *  The list comes from the pending_commission_bills() database function. */
 
@@ -97,7 +97,7 @@ export default function PendingCommissionBills() {
       <header className="page-head">
         <div>
           <h1>Pending commission bills</h1>
-          <p className="page-sub">Orders with no commission invoice raised yet, oldest first.{rows.length > 0 ? ` ${rows.length} order${rows.length === 1 ? '' : 's'}, commission ₹${money(total)} yet to be billed.` : ''}</p>
+          <p className="page-sub">Dispatched commission not yet on a commission invoice, oldest first.{rows.length > 0 ? ` ${rows.length} order${rows.length === 1 ? '' : 's'}, commission ₹${money(total)} yet to be billed.` : ''}</p>
         </div>
         <button className="btn" type="button" disabled={rows.length === 0} onClick={exportCSV}>Export {rows.length} as CSV</button>
       </header>

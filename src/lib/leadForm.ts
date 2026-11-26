@@ -20,6 +20,7 @@ export type LeadForm = {
   quantity: string
   uom: string
   expected_rate: string
+  notes: string
   timeline: string
   timeline_from: string
   timeline_to: string
@@ -60,6 +61,7 @@ export function leadToForm(lead: Lead): LeadForm {
     quantity: lead.quantity === null ? '' : String(lead.quantity),
     uom: lead.uom ?? '',
     expected_rate: lead.expected_rate === null ? '' : String(lead.expected_rate),
+    notes: lead.notes ?? '',
     timeline: lead.timeline ?? '',
     timeline_from: lead.timeline_from ?? '',
     timeline_to: lead.timeline_to ?? '',
@@ -116,6 +118,7 @@ export function leadPayload(form: LeadForm) {
     quantity: numOrNull(form.quantity),
     uom: form.uom || null,
     expected_rate: numOrNull(form.expected_rate),
+    notes: form.notes.trim() || null,
     timeline: form.timeline.trim() || null,
     timeline_from: form.timeline_from || null,
     timeline_to: form.timeline_to || null,

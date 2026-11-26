@@ -22,3 +22,6 @@ supabase/.branches/
 .DS_Store
 Thumbs.db
 *.log
+
+# monday.com add-on starter dropped in for reference (not part of this app)
+Sales Confirmation/

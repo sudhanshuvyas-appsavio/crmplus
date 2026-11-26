@@ -16,6 +16,7 @@ import { errMessage, numOrNull } from '../lib/party'
 import { formatDate, formatDateTime } from '../lib/format'
 import type { CountRow, Lead } from '../api/types'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ComboInput } from './ComboInput'
 
 const BUCKET = 'lead-quotations'
 
@@ -208,8 +209,7 @@ export function LeadQuotationPage({ leads, counts, canEdit, initialLeadId }: { l
         <div className="fs-body">
           <div className="field">
             <label htmlFor="lq-lead" className="lq-cap">Lead / Opportunity</label>
-            <input id="lq-lead" list="lq-lead-list" placeholder="Search lead…" value={leadSearch} onChange={(e) => pickLead(e.target.value)} />
-            <datalist id="lq-lead-list">{leads.map((l) => (<option key={l.id} value={leadText(l)} />))}</datalist>
+            <ComboInput id="lq-lead" placeholder="Search lead…" value={leadSearch} onChange={pickLead} options={leads.map((l) => leadText(l))} />
           </div>
         </div>
       </section>
@@ -223,13 +223,13 @@ export function LeadQuotationPage({ leads, counts, canEdit, initialLeadId }: { l
             const options = suppliers.filter((s) => carriers.has(s.id) && (s.is_active || s.id === r.supplier_id))
             return (
               <div className="lq-grid" key={i}>
-                <input
-                  aria-label={`Thread count, row ${i + 1}`}
-                  list="lq-count-list"
+                <ComboInput
+                  ariaLabel={`Thread count, row ${i + 1}`}
                   placeholder="Search count…"
                   value={r.countText}
                   disabled={rowsOff}
-                  onChange={(e) => { const id = countByText.get(e.target.value) ?? ''; set(i, { countText: e.target.value, count_id: id, supplier_id: id === r.count_id ? r.supplier_id : '' }) }}
+                  options={counts.filter((c) => c.is_active).map((c) => c.display_name)}
+                  onChange={(text) => { const id = countByText.get(text) ?? ''; set(i, { countText: text, count_id: id, supplier_id: id === r.count_id ? r.supplier_id : '' }) }}
                 />
                 <select aria-label={`Supplier, row ${i + 1}`} value={r.supplier_id} disabled={rowsOff || !r.count_id} onChange={(e) => set(i, { supplier_id: e.target.value })}>
                   <option value="">{r.count_id ? (options.length ? 'Choose a supplier…' : 'No supplier carries this count') : 'Select count first…'}</option>
@@ -240,7 +240,6 @@ export function LeadQuotationPage({ leads, counts, canEdit, initialLeadId }: { l
               </div>
             )
           })}
-          <datalist id="lq-count-list">{counts.filter((c) => c.is_active).map((c) => (<option key={c.id} value={c.display_name} />))}</datalist>
           <div className="lq-add">
             <button className="lq-add-btn" type="button" disabled={rowsOff} onClick={() => setRows([...rows, blank()])}>+ Add Row</button>
             {canEdit && lead && dirty && (

@@ -19,16 +19,21 @@ import { FormSection, FullWidth } from './FormKit'
 
 export { FieldErrorsContext, FieldErrorsProvider }
 
+const SR_ONLY = { position: 'absolute', width: 1, height: 1, margin: -1, padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 } as const
+
 export function Field({
   id,
   label,
   required,
   hint,
   error,
+  hideLabel,
   children,
 }: {
   id: string
   label: string
+  /** The section title already says it: keep the label for screen readers only. */
+  hideLabel?: boolean
   required?: boolean
   hint?: string
   /** A message shown under the field in place of the hint (a missing or invalid value). */
@@ -39,7 +44,7 @@ export function Field({
   error = error !== undefined ? error : fromForm?.[id]
   return (
     <div className={`field${error ? ' has-error' : ''}`}>
-      <label htmlFor={id}>
+      <label htmlFor={id} style={hideLabel ? SR_ONLY : undefined}>
         {label}
         {required && <span aria-hidden="true"> *</span>}
       </label>

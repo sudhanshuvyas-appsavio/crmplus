@@ -16,6 +16,8 @@
   --ink-2: #4b5169;
   --ink-3: #787f98;
   --brand: #2c3c96;
+  --action: #6d3fd4;
+  --action-ink: #ffffff;
   --brand-ink: #ffffff;
   --brand-soft: #e8ebfa;
   --brand-line: #c3cbf0;
@@ -52,6 +54,8 @@
     --ink-2: #aab1ca;
     --ink-3: #7d85a0;
     --brand: #8b9cf0;
+    --action: #a584ff;
+    --action-ink: #140d2b;
     --brand-ink: #101529;
     --brand-soft: #1e2648;
     --brand-line: #38427a;
@@ -110,9 +114,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) { background: var(--surface-3); }
-.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
-/* keep the brand colour on hover (the generic .btn:hover rule above would grey it out and make the text unreadable) */
-.btn.primary:hover:not(:disabled) { background: var(--brand); border-color: var(--brand); filter: brightness(1.08); }
+.btn.primary { background: var(--primary-bg); border-color: var(--primary-bg); color: var(--primary-ink); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: var(--primary-bg); border-color: var(--primary-bg); filter: brightness(0.93); }
 .btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
 .btn.ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--ink); }
 .btn.danger { border-color: var(--crit); color: var(--crit); }
@@ -272,7 +275,7 @@ select { width: auto; }
   text-align: left;
 }
 .nav-heading:hover { color: var(--ink); }
-.chev { width: 12px; height: 12px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; transition: transform 0.15s; }
+.chev { width: 12px; height: 12px; flex: none; stroke: currentColor; fill: currentColor; stroke-width: 1.5; stroke-linejoin: round; transition: transform 0.15s; }
 .chev.closed { transform: rotate(-90deg); }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .topbar {
@@ -714,6 +717,10 @@ tr.clickable { cursor: pointer; }
 .drawer-head .btn { margin-left: auto; }
 .drawer-body { flex: 1; overflow: auto; padding: 18px 22px calc(28px + env(safe-area-inset-bottom, 0px)); }
 .drawer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
+/* record actions pinned under the details, so they never sit in the middle of the panel */
+.drawer-foot { padding: 12px 22px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); background: var(--surface); }
+.drawer-foot .drawer-actions { margin: 0; padding: 0; border: 0; }
+.drawer-foot .drawer-actions .btn.ghost:last-child { margin-left: auto; }
 .password-reveal {
   font-size: 16px;
   letter-spacing: 0.04em;
@@ -751,6 +758,10 @@ tr.clickable { cursor: pointer; }
 .timeline li:last-child { border-bottom: 0; }
 .timeline time { color: var(--ink-3); }
 .timeline .chip { margin-left: 8px; }
+/* the Updates box on a record: same controls as a form field, entries as a plain list */
+.activity-entry input, .activity-entry textarea { border: 1px solid var(--border-strong); background: var(--surface-2); border-radius: 6px; padding: 9px 11px; width: 100%; outline: none; }
+.activity-entry input:focus, .activity-entry textarea:focus { border-color: var(--brand); background: var(--surface); }
+.activity-list .chip + .chip { margin-left: 6px; }
 @media (max-width: 620px) {
   .timeline li { grid-template-columns: 1fr; gap: 4px; }
 }
@@ -1637,3 +1648,296 @@ input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); 
 .fi-x { border: 0; background: none; font-size: 24px; line-height: 1; color: var(--ink-3); cursor: pointer; padding: 0 4px; }
 .fi-x:hover { color: var(--ink); }
 .fi-modal.big .fi-pdf { margin: 16px 20px; border: 1px solid var(--border); border-radius: 6px; background: #fff; overflow: hidden; }
+
+/* Count rows: the number boxes sit outside a .field, so they got the browser's grey boxes. Match the dropdowns. */
+.lines-table input {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 9px 11px;
+  outline: none;
+}
+.lines-table input:focus { border-color: var(--brand); background: var(--surface); }
+.lines-table input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Dispatch and Billing execution panel: one card per block, entries as cards, not a 24-column table */
+.exec { display: grid; gap: 14px; margin-top: 8px; }
+.exec .fs-card { margin: 0; }
+.exec-body { padding: 14px 20px 16px; display: grid; gap: 12px; }
+.exec-check, .exec-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.exec-check li, .exec-list li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.exec-check li:first-child, .exec-list li:first-child { border-top: 0; padding-top: 0; }
+.exec-check li > span { margin-left: auto; color: var(--ink-3); font-size: 12px; }
+.exec-check li > i { flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--border-strong); display: grid; place-items: center; font-size: 11px; font-style: normal; }
+.exec-check li.done > i { background: var(--brand); border-color: var(--brand); color: #fff; }
+.exec-list li > span { flex: 1; min-width: 0; }
+.exec-list li .btn { flex: 0 0 auto; }
+.exec-add { border-top: 1px solid var(--border); padding-top: 14px; }
+.exec-add h4 { margin: 0 0 12px; font: 600 10.5px/1 var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.exec-add .form-grid .field, .exec-add .dispatch-form .field { margin-bottom: 12px; }
+.exec-bar { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.exec-bar { display: flex; }
+.exec-bar > i { display: block; height: 100%; background: var(--brand); }
+.exec-bar > b { display: block; height: 100%; background: var(--border-strong); }
+.exec-sub { border-top: 1px dashed var(--border); margin-top: 10px; padding-top: 10px; display: grid; gap: 8px; }
+.exec-sub-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.exec-sub-row > span:nth-child(2) { flex: 1; min-width: 0; }
+.exec-adjust { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.exec-adjust input { height: 34px; box-sizing: border-box; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface-2); padding: 0 10px; font-size: 13px; color: var(--ink); outline: none; }
+.exec-adjust input:focus { border-color: var(--brand); background: var(--surface); }
+.exec-adjust input:nth-child(1) { width: 160px; }
+.exec-adjust input:nth-child(3) { width: 130px; }
+.exec-adjust input:nth-child(4) { width: 120px; }
+.exec-adjust input:nth-child(6) { flex: 1 1 140px; min-width: 120px; }
+.entry-status { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 6px; color: #fff; white-space: nowrap; }
+.entry-status.partial { background: #3fb869; }
+.entry-status.cancel { background: #e9a22b; }
+.entry-status.return { background: #d1304a; }
+.status-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.status-opt { border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink); border-radius: 8px; height: 34px; padding: 0 14px; font: 600 13px/1 var(--body); cursor: pointer; }
+.status-opt::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 8px; background: var(--ink-3); }
+.status-opt.partial::before { background: #3fb869; } .status-opt.cancel::before { background: #e9a22b; } .status-opt.return::before { background: #d1304a; }
+.status-opt.on { border-color: var(--ink-2); background: var(--surface-3); }
+.exec-entry { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--surface-2); display: grid; gap: 10px; }
+.exec-entry-head { display: flex; align-items: center; gap: 10px; }
+.exec-entry-qty { margin-left: auto; font-weight: 600; }
+.exec-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 16px; }
+.exec-facts > div { display: grid; gap: 2px; }
+.exec-facts span { font-size: 11.5px; color: var(--ink-3); }
+.exec-facts strong { font-size: 13px; font-weight: 500; }
+.exec-facts em { font-style: normal; font-size: 11.5px; color: var(--ink-3); }
+
+.exec-add .form-grid { align-items: start; }
+
+/* board tables: fixed column widths, long text is cut with an ellipsis (the pinned Actions cell is left alone) */
+.bgroup-table table.fixed { table-layout: fixed; width: 100%; }
+.bgroup-table table.fixed td:not(.pin-right) { overflow: hidden; text-overflow: ellipsis; }
+
+/* Documents card (details panels and forms) */
+.docs-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin: 18px 0; }
+.docs-head { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--border); }
+.docs-head h3 { margin: 0; font: 600 14px/1.3 var(--body); color: var(--ink); }
+.docs-count { font: 500 12px/1 var(--body); color: var(--ink-3); background: var(--surface-3); border-radius: 99px; padding: 4px 9px; }
+.docs-bar { display: flex; justify-content: flex-end; padding: 10px 16px 0; }
+.docs-body { padding: 12px 16px; display: grid; gap: 8px; }
+.docs-body .field-warn { margin: 0; }
+.docs-empty { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 16px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
+.docs-list { list-style: none; margin: 0; padding: 0; }
+.docs-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.docs-list li:first-child { border-top: 0; padding-top: 2px; }
+.docs-ico { flex: 0 0 auto; width: 20px; height: 20px; color: var(--ink-3); }
+.docs-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.docs-name { background: none; border: 0; padding: 0; text-align: left; color: var(--brand); font: 500 13px/1.35 var(--body); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-name:hover { text-decoration: underline; }
+.docs-meta { font-size: 11.5px; color: var(--ink-3); }
+.btn.disabled { opacity: 0.6; pointer-events: none; }
+
+/* Party cards (buyer / supplier details) */
+.pcard { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.pcard > header { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.pcard > header span { font: 600 10.5px/1 var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.pcard > header strong { font-size: 14px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.pcard > p { margin: 0; padding: 12px 14px; }
+.pcard dl { margin: 0; padding: 4px 14px 8px; display: grid; }
+.pcard dl > div { display: grid; grid-template-columns: 130px 1fr; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.pcard dl > div:first-child { border-top: 0; }
+.pcard dt { color: var(--ink-3); font-size: 12px; }
+.pcard dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Read-only count rows: numbers right-aligned in fixed columns, the count name takes the rest */
+.lines-view { table-layout: fixed; width: 100%; }
+.lines-view th:nth-child(1), .lines-view td:nth-child(1) { width: 34px; }
+.lines-view th:nth-child(3), .lines-view td:nth-child(3) { width: 84px; }
+.lines-view th:nth-child(4), .lines-view td:nth-child(4) { width: 76px; padding-left: 10px; }
+.lines-view th:nth-child(n+5), .lines-view td:nth-child(n+5) { width: 112px; }
+.lines-view td:nth-child(2) { overflow-wrap: anywhere; }
+.lines-view td.right, .lines-view th.right { text-align: right; }
+
+/* ---------- board tables, restyled (calm table: soft header, dot status, quiet row actions) ---------- */
+.board-groups { gap: 18px; }
+.bgroup-head { color: var(--ink); padding: 0 0 8px; gap: 8px; }
+.bgroup-head .chev { color: var(--ink-3); width: 12px; height: 12px; }
+.bgroup-title { font: 600 14px/1.2 var(--body); display: inline-flex; align-items: center; gap: 8px; }
+.bgroup-title::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--tone, var(--tone-grey)); flex: 0 0 auto; }
+.bgroup-count { font-size: 12.5px; color: var(--ink-3); }
+.bgroup-table { border-left: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.bgroup-table th { background: var(--surface-2); text-transform: none; letter-spacing: 0; font: 500 12px/1.2 var(--body); color: var(--ink-3); padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.bgroup-table td { padding: 0 12px; height: 42px; border-bottom: 1px solid var(--border); }
+.bgroup-table tbody tr:last-child td { border-bottom: 0; }
+.bgroup-table tbody tr:hover td { background: var(--surface-2); }
+.bgroup-table .status-pill { min-width: 0; background: none; color: var(--ink); padding: 0; justify-content: flex-start; gap: 8px; font-size: 13px; font-weight: 500; border-radius: 0; }
+.bgroup-table .status-pill::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--tone, var(--tone-grey)); flex: 0 0 auto; }
+.bgroup-table td.pin-right, .bgroup-table th.pin-right { width: 56px; text-align: center; box-shadow: none; }
+.bgroup-table .row-actions-btn { font-size: 0; border: 0; background: none; width: 30px; height: 30px; padding: 0; border-radius: 6px; color: var(--ink-3); display: inline-grid; place-items: center; }
+.bgroup-table .row-actions-btn svg { display: none; }
+.bgroup-table .row-actions-btn::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; box-shadow: -7px 0 currentColor, 7px 0 currentColor; }
+.bgroup-table th.pin-right { background: var(--surface-2); font-size: 0; }
+.bgroup-table td.pin-right { background: var(--surface); }
+.bgroup-table .row-actions-btn:hover { background: var(--surface-3); color: var(--ink); }
+.bgroup-table tfoot td { background: var(--surface-2); font-weight: 600; height: 38px; }
+.bgroup-table .bgroup-empty { padding: 14px 12px; }
+.bgroup-table td { vertical-align: middle; }
+.bgroup-table td.pin-right { line-height: 0; }
+.bgroup-table .row-actions-btn { vertical-align: middle; }
+
+/* ---------- board pages: compact header and toolbar, white page (as in the table mockup) ---------- */
+.content:has(.board-groups) .page-head { align-items: center; margin-bottom: 10px; }
+.content:has(.board-groups) .page-head h1 { font-size: 18px; }
+.content:has(.board-groups) .page-sub { display: none; }
+.content .board-tabs { margin-bottom: 10px; }
+.content .board-tabs button { padding: 8px 12px; font-size: 13px; }
+.content:has(.board-groups) .board-toolbar { gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.content:has(.board-groups) .board-toolbar .btn,
+.content:has(.board-groups) .board-toolbar select,
+.content:has(.board-groups) .toolbar-search { border-radius: 8px; height: 34px; font-size: 13px; font-weight: 500; background: var(--surface); border-color: var(--border-strong); padding-top: 0; padding-bottom: 0; }
+.content:has(.board-groups) .toolbar-search { font-weight: 400; }
+.content:has(.board-groups) .seg { border-radius: 8px; border-color: var(--border-strong); }
+.content:has(.board-groups) .seg button { padding: 6px 12px; font-weight: 500; }
+
+/* quieter sum row and a slim, unobtrusive sideways scrollbar on board tables */
+.bgroup-table tfoot td { height: 30px; padding-top: 0; padding-bottom: 0; background: transparent; border-top: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.bgroup-table tfoot td:first-child, .bgroup-table tfoot td:nth-child(2) { color: var(--ink-3); }
+.bgroup-table { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.bgroup-table::-webkit-scrollbar { height: 6px; }
+.bgroup-table::-webkit-scrollbar-track { background: transparent; }
+.bgroup-table::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; }
+.bgroup-table::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+.bgroup-table th { white-space: normal; line-height: 1.25; vertical-align: bottom; }
+
+/* ---------- board tables: fixed first column, Columns menu, custom checkbox, owner with name ---------- */
+.bgroup-table td:first-child:not(.bcell-check):not(.bcell-exp), .bgroup-table td.bcell-exp + td, .bgroup-table td.bcell-check + td:not(.bcell-exp) { font-weight: 600; }
+.bgroup-table td:first-child:not(.bcell-check) .mono, .bgroup-table td.bcell-exp + td .mono, .bgroup-table td.bcell-check + td:not(.bcell-exp) .mono { font-family: var(--body); font-weight: 600; font-variant-numeric: tabular-nums; }
+.bgroup-table .who { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.bgroup-table .who .avatar-sm { width: 22px; height: 22px; font-size: 10px; }
+
+.board-cols-slot { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.board-cols-slot > .board-cols { order: -1; }
+.board-cols { position: relative; display: flex; }
+.board-cols > .btn { border-radius: 8px; }
+.board-cols-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: 250px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lift); padding: 8px; display: grid; gap: 6px; }
+.board-cols-list { display: grid; max-height: 320px; overflow: auto; }
+.board-cols-list label { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.board-cols-list label:hover { background: var(--surface-2); }
+.board-cols-list label.locked { color: var(--ink-3); cursor: default; }
+
+.bgroup-table input[type='checkbox'], .board-cols-list input[type='checkbox'] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: 4px; background: var(--surface); display: inline-grid; place-items: center; cursor: pointer; margin: 0; vertical-align: middle; }
+.bgroup-table input[type='checkbox']:hover, .board-cols-list input[type='checkbox']:hover { border-color: var(--ink-3); }
+.bgroup-table input[type='checkbox']:checked, .board-cols-list input[type='checkbox']:checked { background: var(--brand); border-color: var(--brand); }
+.bgroup-table input[type='checkbox']:checked::after, .board-cols-list input[type='checkbox']:checked::after { content: ''; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
+.board-cols-list input[type='checkbox']:disabled { opacity: 0.55; cursor: default; }
+.bgroup-table td.bcell-check, .bgroup-table th.bcell-check { width: 40px; overflow: visible; text-overflow: clip; padding-left: 14px; padding-right: 0; }
+.bgroup-table td, .bgroup-table th { padding-left: 10px; padding-right: 10px; }
+.bgroup-table td.bcell-check, .bgroup-table th.bcell-check { padding-left: 14px; padding-right: 0; }
+
+/* slim scroll bars for the page, panels, pop-ups and the sidebar (same look as the board tables' sideways bar) */
+.content, .drawer-body, .modal-body, .rail, .row-menu, .board-cols-list { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.content::-webkit-scrollbar, .drawer-body::-webkit-scrollbar, .modal-body::-webkit-scrollbar, .rail::-webkit-scrollbar, .board-cols-list::-webkit-scrollbar { width: 8px; height: 8px; }
+.content::-webkit-scrollbar-track, .drawer-body::-webkit-scrollbar-track, .modal-body::-webkit-scrollbar-track, .rail::-webkit-scrollbar-track, .board-cols-list::-webkit-scrollbar-track { background: transparent; }
+.content::-webkit-scrollbar-thumb, .drawer-body::-webkit-scrollbar-thumb, .modal-body::-webkit-scrollbar-thumb, .rail::-webkit-scrollbar-thumb, .board-cols-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+.content::-webkit-scrollbar-thumb:hover, .drawer-body::-webkit-scrollbar-thumb:hover, .modal-body::-webkit-scrollbar-thumb:hover, .rail::-webkit-scrollbar-thumb:hover, .board-cols-list::-webkit-scrollbar-thumb:hover { background: var(--ink-3); background-clip: content-box; }
+/* the subitems arrow and its count must never show an ellipsis dot; a divider shows once the table is scrolled sideways */
+.bgroup-table td.bcell-exp, .bgroup-table th.bcell-exp { overflow: visible; text-overflow: clip; padding-left: 4px; padding-right: 0; }
+.bgroup-table .exp-btn { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Lead-Quotation rows: the boxes sit in a grid, outside a .field, so give them the app's input style and one height */
+.lq-grid input, .lq-grid select { border: 1px solid var(--border-strong); background: var(--surface-2); border-radius: 6px; padding: 0 11px; width: 100%; height: 40px; outline: none; font: inherit; color: inherit; }
+.lq-grid input:focus, .lq-grid select:focus { border-color: var(--brand); background: var(--surface); }
+.lq-grid input:disabled, .lq-grid select:disabled { opacity: 0.6; cursor: not-allowed; }
+.lq-grid input.mono { font-family: var(--mono); }
+.lq-x { width: 40px; height: 40px; }
+
+/* ComboInput: a themed suggestion list under a text box (instead of the browser's datalist bubble) */
+.combo { position: relative; display: block; width: 100%; }
+.combo > input { width: 100%; }
+.combo-menu { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow-lift); }
+.combo-menu li { padding: 8px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--ink); }
+.combo-menu li.on, .combo-menu li:hover { background: var(--surface-3); }
+.docs-name.plain { color: var(--ink); cursor: default; }
+.docs-name.plain:hover { text-decoration: none; }
+
+/* board pages: Columns and the New button close the toolbar row, side by side */
+.content:has(.board-groups) .board-toolbar .btn.primary { font-weight: 600; }
+.content:has(.board-groups) .board-cols > .btn { height: 34px; border-radius: 8px; font-size: 13px; padding: 0 12px; }
+/* the toolbar row never runs off the page: the search box gives way first, then the row wraps,
+   with Columns and the New button staying together on the right */
+.content:has(.board-groups) .board-toolbar { flex-wrap: nowrap; row-gap: 8px; }
+.content:has(.board-groups) .board-toolbar > * { flex-shrink: 0; }
+.content:has(.board-groups) .board-toolbar > .toolbar-search { flex: 0 1 280px; min-width: 120px; width: auto; }
+.content:has(.board-groups) .board-toolbar > select { flex: 0 1 150px; min-width: 118px; padding-left: 10px; padding-right: 6px; }
+@media (max-width: 1199px) { .content:has(.board-groups) .board-toolbar { flex-wrap: wrap; } }
+.content:has(.board-groups) .board-toolbar { gap: 6px; }
+.content:has(.board-groups) .board-toolbar .btn { padding-left: 12px; padding-right: 12px; }
+/* the Leads header stays the same on its Lead-Quotation tab */
+.content:has(.board-tabs) .page-sub { display: none; }
+.content:has(.board-tabs) .page-head h1 { font-size: 18px; }
+
+/* primary buttons (New lead, New deal, ...) as in Master Data: dark slate on light pages, near-white on dark ones */
+:root { --primary-bg: #0f172a; --primary-ink: #ffffff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) { --primary-bg: #f1f5f9; --primary-ink: #0f172a; } }
+:root[data-theme='dark'] { --primary-bg: #f1f5f9; --primary-ink: #0f172a; }
+.content:has(.board-groups) .board-toolbar .btn.primary { background: var(--primary-bg); border-color: var(--primary-bg); color: var(--primary-ink); }
+.content:has(.board-groups) .board-toolbar > .push { display: none; }
+
+/* sub-items under a Dispatch and Billing item */
+.link-btn { background: none; border: 0; padding: 0; color: var(--brand); cursor: pointer; font: inherit; }
+.link-btn:hover { text-decoration: underline; }
+.sub-table .sub-add td { color: var(--ink-3); }
+.sub-table .entry-status { display: inline-block; }
+
+/* Dispatch and Billing details: a summary, compact entry rows, and the rest folded away */
+.exec-sum { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.exec-sum > div { display: grid; gap: 2px; }
+.exec-sum span { font-size: 11.5px; color: var(--ink-3); }
+.exec-sum strong { font-size: 14px; font-weight: 600; }
+.entry-list { display: grid; }
+.entry-row { border-top: 1px solid var(--border); }
+.entry-row:first-child { border-top: 0; }
+.entry-row > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 130px 150px 110px 1fr; align-items: center; gap: 10px; padding: 10px 2px; font-size: 13px; }
+.entry-row > summary::-webkit-details-marker { display: none; }
+.entry-row > summary:hover { background: var(--surface-2); }
+.entry-row[open] > summary { font-weight: 600; }
+.entry-row > .exec-facts { padding: 4px 2px 12px; }
+.entry-row > .btn { margin: 0 0 10px 2px; }
+.exec-fold > summary { cursor: pointer; list-style: none; }
+.exec-fold > summary::-webkit-details-marker { display: none; }
+.exec-fold:not([open]) > summary { border-bottom: 0; }
+.exec-fold > summary h3::after { content: '  ▸'; color: var(--ink-3); font-weight: 400; }
+.exec-fold[open] > summary h3::after { content: '  ▾'; }
+.more-details { margin: 12px 0; }
+.more-details > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 6px 0; }
+.more-details[open] > summary { margin-bottom: 8px; }
+
+/* View details: the same form as Edit, locked. Fields keep their normal look; nothing can be typed or chosen. */
+.ro-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.ro-fieldset:disabled input, .ro-fieldset:disabled select, .ro-fieldset:disabled textarea { opacity: 1; color: var(--ink); -webkit-text-fill-color: var(--ink); background: var(--surface-2); border-color: var(--border); cursor: default; }
+.ro-fieldset:disabled select { appearance: none; -webkit-appearance: none; background-image: none; }
+.ro-fieldset:disabled input::placeholder, .ro-fieldset:disabled textarea::placeholder { color: transparent; }
+.ro-fieldset:disabled .btn, .ro-fieldset:disabled button { cursor: default; }
+.ro-fieldset:disabled input:placeholder-shown, .ro-fieldset:disabled textarea:placeholder-shown { -webkit-text-fill-color: transparent; }
+.ro-fieldset:disabled input[type='date']:placeholder-shown { -webkit-text-fill-color: transparent; }
+
+.entry-status.full { background: #2f7fbf; }
+.status-opt.full::before { background: #2f7fbf; }
+.status-opt:disabled { opacity: 0.5; cursor: not-allowed; }
+.sub-table { min-width: max-content; }
+.subrow-wrap { overflow-x: auto; }
+
+/* sub-items as rows of the same table: same columns, a quieter look, the entry number indented under the item */
+.bgroup-table tr.sub-line td { background: var(--surface-2); font-size: 12.5px; height: 38px; border-top: 1px solid var(--border); }
+.bgroup-table tr.sub-line td.bcell-exp, .bgroup-table tr.sub-line td.bcell-check { background: var(--surface-2); }
+.bgroup-table tr.sub-line td.bcell-exp + td { box-shadow: inset 3px 0 0 var(--brand); }
+.bgroup-table tr.sub-line .sub-no { padding-left: 14px; color: var(--ink-2); }
+.bgroup-table tr.sub-line .faint { color: var(--ink-3); }
+.bgroup-table tr.sub-line .entry-status { font-size: 11px; padding: 2px 8px; }
+
+/* ---- form polish: one control height, flat nested cards, bottom-aligned fields in a row ---- */
+.fs-card .field select { min-height: 42px; }
+.fs-card.cols-3 .fs-grid { align-items: stretch; }
+.fs-card.cols-3 .field { justify-content: flex-end; }
+.fs-card .docs-card { border: 0; border-radius: 0; background: none; margin: 0 0 12px; }
+.fs-card .docs-head { padding: 0 0 10px; border-bottom: 0; }
+.fs-card .docs-head h3 { display: none; }
+.fs-card .docs-bar { padding: 0 0 10px; }
+.fs-card .docs-body { padding: 0; }
+.fs-flat { margin: 0 0 12px; }
+.fs-flat .fs-body { padding: 0; }

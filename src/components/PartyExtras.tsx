@@ -421,6 +421,7 @@ export function ActivityPanel({
   kinds = ['note', 'call', 'quotation', 'reminder', 'task'],
   title = 'History and reminders',
   refreshKey = 0,
+  showEntryForm = true,
 }: {
   entityType: 'lead' | 'supplier' | 'buyer' | 'deal'
   entityId: string
@@ -428,6 +429,8 @@ export function ActivityPanel({
   kinds?: ActivityKind[]
   title?: string
   refreshKey?: number
+  /** false: only the list (and ticking tasks done); entries are made somewhere else. */
+  showEntryForm?: boolean
 }) {
   const { me } = useAuth()
   const names = useProfileNames()
@@ -486,8 +489,8 @@ export function ActivityPanel({
   const today = new Date().toISOString().slice(0, 10)
   return (
     <Section title={title}>
-      {canWrite && (
-        <div style={{ marginBottom: 12 }}>
+      {canWrite && showEntryForm && (
+        <div className="activity-entry" style={{ marginBottom: 12 }}>
           <div className="form-grid">
             <select aria-label="Entry type" value={kind} onChange={(e) => setKind(e.target.value as ActivityKind)}>
               {kinds.map((k) => (
@@ -513,12 +516,12 @@ export function ActivityPanel({
       {msg && <p className="field-warn">{msg}</p>}
       {rows && rows.length === 0 && <p className="muted small">Nothing recorded yet.</p>}
       {rows && rows.length > 0 && (
-        <ul className="timeline" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        <ul className="activity-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {rows.map((a) => {
             const open = (a.kind === 'task' || a.kind === 'reminder') && !a.is_done
             const overdue = open && a.due_date !== null && a.due_date < today
             return (
-              <li key={a.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line, #e5e5e5)' }}>
+              <li key={a.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
                 <span className="chip">{KIND_LABEL[a.kind]}</span>
                 {a.due_date && (
                   <span className={`chip ${a.is_done ? 'good' : overdue ? 'bad' : 'warn'}`}>
