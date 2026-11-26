@@ -1803,3 +1803,33 @@ input.mono::placeholder, textarea.mono::placeholder { font-family: var(--body); 
 .fs-card .docs-body { padding: 0; }
 .fs-flat { margin: 0 0 12px; }
 .fs-flat .fs-body { padding: 0; }
+
+/* ---- Sales Confirmation: PDF Generation and Merge tab, and the document icons ---- */
+.doc-icons { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.doc-icon { display: inline-flex; padding: 2px; border: 0; background: none; cursor: pointer; color: #5b5bd6; border-radius: 4px; }
+.doc-icon.pdf { color: #e5252a; }
+.doc-icon:hover { background: var(--surface-3); }
+.doc-icon:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* a filter that is on or off, as a chip in the toolbar */
+.toggle-chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 8px;
+  background: var(--surface); color: var(--ink-2); font: 500 13px/1 var(--body); cursor: pointer; white-space: nowrap; user-select: none; }
+.toggle-chip input { margin: 0; accent-color: var(--brand); }
+.toggle-chip:has(input:checked) { border-color: var(--brand); color: var(--ink); background: color-mix(in srgb, var(--brand) 7%, var(--surface)); }
+.toggle-chip:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 25%, transparent); }
+.toggle-count { font: 600 11px/1 var(--body); color: var(--ink-3); background: var(--surface-3); border-radius: 99px; padding: 3px 7px; }
+.pdf-tab .notice, .pdf-tab .alert { margin-bottom: 12px; }
+/* the ticked-rows line and the Generate PDF menu button in the toolbar */
+.pick-info { display: inline-flex; align-items: center; gap: 8px; font: 500 13px/1 var(--body); color: var(--ink-2); white-space: nowrap; }
+.pick-info strong { color: var(--ink); }
+.link-btn { border: 0; background: none; padding: 4px 2px; color: var(--brand); font: 500 13px/1 var(--body); cursor: pointer; border-radius: 4px; }
+.link-btn:hover { text-decoration: underline; }
+.link-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.btn.menu-btn { display: inline-flex; align-items: center; gap: 6px; }
+.spinner-inline { display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; border: 2px solid var(--border-strong); border-top-color: var(--brand); border-radius: 50%; animation: pick-spin 0.7s linear infinite; }
+@keyframes pick-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner-inline { animation: none; } }
+
+/* a menu that opens from a toolbar button reads left to right */
+.row-menu.below { width: 220px; }
+.row-menu.below .row-menu-item { text-align: left; padding: 9px 12px; font-size: 13px; }
+.row-menu-item small.hint { color: var(--ink-3); font-size: 11px; margin-top: 3px; }

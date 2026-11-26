@@ -31,6 +31,8 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RowActionMenu, type RowAction } from '../components/RowActionMenu'
 import { BulkSendDrawer } from '../components/sc/BulkSendDrawer'
 import { BoardTabs } from '../components/board/BoardTabs'
+import { ScPdfTab } from '../components/sc/ScPdfTab'
+import { ScDocIcons, type ScDocLite } from '../components/sc/ScDocIcons'
 import type { Company, Party, ScRow } from '../components/sc/scShared'
 
 const CSV_COLUMNS = [
@@ -68,7 +70,8 @@ export default function SalesConfirmations() {
   const [statusFilter, setStatusFilter] = useState('')
   const [ownerFilter, setOwnerFilter] = useStoredState('sc.owner', '')
   const [people, setPeople] = useState<{ id: string; name: string }[]>([])
-  const [tab, setTab] = useState<'table'>('table')
+  const [tab, setTab] = useState<'table' | 'pdf'>('table')
+  const [docs, setDocs] = useState<Map<string, ScDocLite[]>>(new Map())
   const [view, setView] = useStoredState<'table' | 'kanban'>('sc.view', 'table')
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -78,11 +81,11 @@ export default function SalesConfirmations() {
   const [dealNos, setDealNos] = useState<Map<string, string>>(new Map())
 
   const load = useCallback(async () => {
-    const [r, s, b, c, k, t, ex, tr, jp, o, dl, ln, pp] = await Promise.all([
+    const [r, s, b, c, k, t, ex, tr, jp, o, dl, ln, pp, dc] = await Promise.all([
       supabase.from('sales_confirmations').select('*').order('confirmed_at', { ascending: false }),
       supabase.from('supplier_master').select(MIRROR_PARTY_COLS).order('name'),
       supabase.from('buyer_master').select(MIRROR_PARTY_COLS).order('name'),
-      supabase.from('companies').select('id,name,is_active,phone_1,mobile').order('name'),
+      supabase.from('companies').select('id,name,is_active,is_home,phone_1,mobile').order('name'),
       supabase.from('count_master').select('*').order('count_no').order('display_name'),
       supabase.from('payment_terms').select('*').order('name'),
       supabase.rpc('sc_execution_statuses'),
@@ -92,8 +95,12 @@ export default function SalesConfirmations() {
       supabase.from('crm_deals').select('id,deal_no'),
       supabase.from('sc_lines').select('sc_id,line_no,count_id,quantity,uom,bag_weight,rate').order('line_no'),
       supabase.from('profiles').select('id,name').eq('is_active', true).order('name'),
+      supabase.from('sc_documents').select('id,sc_id,kind,file_name,storage_path,mime_type,uploaded_at').order('uploaded_at'),
     ])
     setPeople((pp.data ?? []) as { id: string; name: string }[])
+    const dm = new Map<string, ScDocLite[]>()
+    for (const d of (dc.data ?? []) as ScDocLite[]) dm.set(d.sc_id, [...(dm.get(d.sc_id) ?? []), d])
+    setDocs(dm)
     setDealNos(new Map(((dl.data ?? []) as { id: string; deal_no: string }[]).map((x) => [x.id, x.deal_no])))
     setExec(new Map(((ex.data ?? []) as { sc_id: string; exec_status: string; dispatched_qty: number }[]).map((x) => [x.sc_id, x])))
     if (r.error) setBanner({ kind: 'bad', text: errMessage(r.error, 'Could not load sales confirmations') })
@@ -328,6 +335,8 @@ export default function SalesConfirmations() {
         )
       },
     },
+    { key: 'bdoc', label: 'Buyer Document', interactive: true, width: 150, render: (x) => <ScDocIcons docs={(docs.get(x.id) ?? []).filter((d) => d.kind === 'buyer')} /> },
+    { key: 'sdoc', label: 'Supplier Document', interactive: true, width: 150, render: (x) => <ScDocIcons docs={(docs.get(x.id) ?? []).filter((d) => d.kind === 'supplier')} /> },
     { key: 'action', label: 'Actions', interactive: true, pinRight: true, render: (x) => <RowActionMenu label={`Actions for ${x.sc_no}`} actions={actionsFor(x)} /> },
   ]
 
@@ -349,7 +358,23 @@ export default function SalesConfirmations() {
         </div>
       )}
 
-      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }]} active={tab} onChange={() => setTab('table')} />
+      <BoardTabs tabs={[{ key: 'table', label: 'Main table' }, { key: 'pdf', label: 'PDF Generation and Merge' }]} active={tab} onChange={(k) => setTab(k === 'pdf' ? 'pdf' : 'table')} />
+
+      {tab === 'pdf' && (
+        <ScPdfTab
+          rows={rows}
+          lines={scLines}
+          countName={countName}
+          transporterName={transporterName}
+          jobName={jobName}
+          termName={termNameMap}
+          buyerName={buyerName}
+          supplierName={supplierName}
+          docs={docs}
+          canManage={canManage}
+          onDone={load}
+        />
+      )}
 
       {tab === 'table' && (<>
       <div className="board-toolbar">
